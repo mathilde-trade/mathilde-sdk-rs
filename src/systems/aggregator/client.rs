@@ -8,8 +8,10 @@ use crate::systems::aggregator::files;
 use crate::systems::aggregator::messages_ws;
 use crate::systems::aggregator::pairs;
 use crate::streaming::make_before_break::MakeBeforeBreakConfig;
+use crate::streaming::subscription::ExponentialBackoffConfig;
 use crate::systems::aggregator::{
     BarsWsConnection, BarsWsMakeBeforeBreak, BarsWsSubscribeRequest, MessagesWsConnection,
+    RecoveringBarsWsConnection, RecoveringMessagesWsConnection,
 };
 use crate::systems::aggregator::types::{
     FilesDownloadsRequest, FilesDownloadsResponse, LatestBarsGrpcRequest, LatestBarsRequest,
@@ -161,12 +163,35 @@ impl AggregatorClient {
             .await
     }
 
+    pub async fn connect_bars_ws_recovering(
+        &self,
+        request: &BarsWsSubscribeRequest,
+        config: ExponentialBackoffConfig,
+    ) -> Result<RecoveringBarsWsConnection, SdkError> {
+        let ws = self
+            .ws
+            .as_ref()
+            .ok_or_else(|| SdkError::missing_transport_config("ws"))?;
+        bars_ws::RecoveringBarsWsConnection::connect(ws, request, config).await
+    }
+
     pub async fn connect_messages_ws(&self) -> Result<MessagesWsConnection, SdkError> {
         let ws = self
             .ws
             .as_ref()
             .ok_or_else(|| SdkError::missing_transport_config("ws"))?;
         messages_ws::MessagesWsConnection::connect(ws).await
+    }
+
+    pub async fn connect_messages_ws_recovering(
+        &self,
+        config: ExponentialBackoffConfig,
+    ) -> Result<RecoveringMessagesWsConnection, SdkError> {
+        let ws = self
+            .ws
+            .as_ref()
+            .ok_or_else(|| SdkError::missing_transport_config("ws"))?;
+        messages_ws::RecoveringMessagesWsConnection::connect(ws, config).await
     }
 
     pub async fn pairs_status(

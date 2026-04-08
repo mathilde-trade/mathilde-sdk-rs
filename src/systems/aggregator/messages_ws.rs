@@ -1,8 +1,11 @@
 use crate::core::error::SdkError;
+use crate::streaming::subscription::{ExponentialBackoffConfig, ReconnectBackoff};
 use crate::systems::types::Timeframe;
 use crate::transport::ws::WsTransport;
 use futures_util::{SinkExt, StreamExt};
+use std::collections::BTreeMap;
 use tokio::net::TcpStream;
+use tokio::time::sleep;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
@@ -84,6 +87,14 @@ pub struct MessagesWsErrorFrame {
 #[derive(Debug)]
 pub struct MessagesWsConnection {
     stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
+}
+
+#[derive(Debug)]
+pub struct RecoveringMessagesWsConnection {
+    transport: WsTransport,
+    backoff: ReconnectBackoff,
+    active_subscriptions: BTreeMap<String, MessagesWsSubscribeFrame>,
+    active: MessagesWsConnection,
 }
 
 impl MessagesWsSubscribeFrame {
@@ -179,6 +190,88 @@ impl MessagesWsConnection {
                     ));
                 }
                 Message::Frame(_) => {}
+            }
+        }
+    }
+}
+
+impl RecoveringMessagesWsConnection {
+    pub async fn connect(
+        transport: &WsTransport,
+        config: ExponentialBackoffConfig,
+    ) -> Result<Self, SdkError> {
+        let active = MessagesWsConnection::connect(transport).await?;
+        Ok(Self {
+            transport: transport.clone(),
+            backoff: ReconnectBackoff::new(config)?,
+            active_subscriptions: BTreeMap::new(),
+            active,
+        })
+    }
+
+    pub fn backoff_config(&self) -> ExponentialBackoffConfig {
+        self.backoff.config()
+    }
+
+    pub fn next_attempt(&self) -> u32 {
+        self.backoff.next_attempt()
+    }
+
+    pub fn active_subscription_ids(&self) -> Vec<&str> {
+        self.active_subscriptions.keys().map(String::as_str).collect()
+    }
+
+    pub async fn send_subscribe(
+        &mut self,
+        frame: &MessagesWsSubscribeFrame,
+    ) -> Result<(), SdkError> {
+        self.active.send_subscribe(frame).await?;
+        self.active_subscriptions
+            .insert(frame.id.clone(), frame.clone());
+        Ok(())
+    }
+
+    pub async fn send_unsubscribe(
+        &mut self,
+        frame: &MessagesWsUnsubscribeFrame,
+    ) -> Result<(), SdkError> {
+        self.active.send_unsubscribe(frame).await?;
+        self.active_subscriptions.remove(&frame.id);
+        Ok(())
+    }
+
+    pub async fn next_frame(&mut self) -> Result<Option<MessagesWsServerFrame>, SdkError> {
+        loop {
+            match self.active.next_frame().await {
+                Ok(Some(frame)) => return Ok(Some(frame)),
+                Ok(None) => self.reconnect("messages ws connection closed").await?,
+                Err(error) => {
+                    self.reconnect(&format!("messages ws receive failed: {error}"))
+                        .await?
+                }
+            }
+        }
+    }
+
+    async fn reconnect(&mut self, reason: &str) -> Result<(), SdkError> {
+        loop {
+            let delay = self.backoff.next_sleep_duration().ok_or_else(|| {
+                SdkError::ws_transport(format!(
+                    "{reason}; ws recovery attempts exhausted for messages"
+                ))
+            })?;
+            sleep(delay).await;
+
+            match MessagesWsConnection::connect(&self.transport).await {
+                Ok(mut connection) => {
+                    for frame in self.active_subscriptions.values() {
+                        connection.send_subscribe(frame).await?;
+                    }
+                    self.active = connection;
+                    self.backoff.reset();
+                    return Ok(());
+                }
+                Err(_) => continue,
             }
         }
     }

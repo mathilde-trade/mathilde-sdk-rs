@@ -2,6 +2,7 @@ use crate::core::error::SdkError;
 use crate::core::time::TimeInput;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
 use crate::streaming::make_before_break::MakeBeforeBreakConfig;
+use crate::streaming::subscription::{ExponentialBackoffConfig, ReconnectBackoff};
 use crate::systems::aggregator::types::split_csv_pairs;
 use crate::systems::aggregator::types::{Bar, BarWithMetadata};
 use crate::systems::types::Timeframe;
@@ -11,7 +12,7 @@ use prost::Message as ProstMessage;
 use std::collections::VecDeque;
 use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
-use tokio::time::{Instant, timeout};
+use tokio::time::{Instant, sleep, timeout};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
@@ -107,6 +108,14 @@ pub struct BarsWsMakeBeforeBreak {
     active: BarsWsConnection,
     active_buffer: VecDeque<BarsWsInboundFrame>,
     pending_swap: Option<PendingBarsWsSwap>,
+}
+
+#[derive(Debug)]
+pub struct RecoveringBarsWsConnection {
+    transport: WsTransport,
+    request: BarsWsSubscribeRequest,
+    backoff: ReconnectBackoff,
+    active: BarsWsConnection,
 }
 
 #[derive(Debug)]
@@ -320,6 +329,64 @@ impl BarsWsMakeBeforeBreak {
             Err(join_error) => Err(SdkError::ws_transport(format!(
                 "bars ws make-before-break task failed: {join_error}"
             ))),
+        }
+    }
+}
+
+impl RecoveringBarsWsConnection {
+    pub async fn connect(
+        transport: &WsTransport,
+        request: &BarsWsSubscribeRequest,
+        config: ExponentialBackoffConfig,
+    ) -> Result<Self, SdkError> {
+        let active = BarsWsConnection::connect(transport, request).await?;
+        Ok(Self {
+            transport: transport.clone(),
+            request: request.clone(),
+            backoff: ReconnectBackoff::new(config)?,
+            active,
+        })
+    }
+
+    pub fn active_request(&self) -> &BarsWsSubscribeRequest {
+        &self.request
+    }
+
+    pub fn backoff_config(&self) -> ExponentialBackoffConfig {
+        self.backoff.config()
+    }
+
+    pub fn next_attempt(&self) -> u32 {
+        self.backoff.next_attempt()
+    }
+
+    pub async fn next_frame(&mut self) -> Result<Option<BarsWsInboundFrame>, SdkError> {
+        loop {
+            match self.active.next_frame(&self.request).await {
+                Ok(Some(frame)) => return Ok(Some(frame)),
+                Ok(None) => self.reconnect("bars ws connection closed").await?,
+                Err(error) => self.reconnect(&format!("bars ws receive failed: {error}")).await?,
+            }
+        }
+    }
+
+    async fn reconnect(&mut self, reason: &str) -> Result<(), SdkError> {
+        loop {
+            let delay = self.backoff.next_sleep_duration().ok_or_else(|| {
+                SdkError::ws_transport(format!(
+                    "{reason}; ws recovery attempts exhausted for bars"
+                ))
+            })?;
+            sleep(delay).await;
+
+            match BarsWsConnection::connect(&self.transport, &self.request).await {
+                Ok(connection) => {
+                    self.active = connection;
+                    self.backoff.reset();
+                    return Ok(());
+                }
+                Err(_) => continue,
+            }
         }
     }
 }

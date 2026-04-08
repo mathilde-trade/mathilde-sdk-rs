@@ -2,6 +2,7 @@ use crate::core::auth::BearerToken;
 use crate::core::config::{AggregatorConfig, HttpTransportConfig, WsTransportConfig};
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
 use crate::streaming::make_before_break::MakeBeforeBreakConfig;
+use crate::streaming::subscription::ExponentialBackoffConfig;
 use crate::systems::aggregator::bars_ws::BarsWsMakeBeforeBreak;
 use crate::systems::aggregator::{
     AggregatorClient, BarsWsInboundFrame, BarsWsSubscribeRequest, BarsWsMetaFrame, BarsWsPhase,
@@ -256,6 +257,33 @@ async fn spawn_make_before_break_ws_server() -> String {
     format!("http://{addr}")
 }
 
+async fn spawn_recovering_bars_ws_server() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind recovering bars ws test server");
+    let addr = listener.local_addr().expect("recovering bars ws test addr");
+
+    tokio::spawn(async move {
+        for close_ms in [10_i64, 20_i64] {
+            let (stream, _) = listener.accept().await.expect("accept recovering bars ws conn");
+            tokio::spawn(async move {
+                let mut ws =
+                    accept_hdr_async(stream, |_request: &Request, response: Response| Ok(response))
+                        .await
+                        .expect("accept recovering bars handshake");
+
+                let _ = ws.next().await;
+                ws.send(Message::Text(meta_frame(close_ms, BarsWsPhase::Live).into()))
+                    .await
+                    .expect("send recovering bars meta");
+                let _ = ws.close(None).await;
+            });
+        }
+    });
+
+    format!("http://{addr}")
+}
+
 #[tokio::test]
 async fn test_connect_bars_ws_sends_auth_and_subscribe_and_decodes_json_min() {
     let (base_url, captured_rx) = spawn_capture_ws_server().await;
@@ -417,4 +445,56 @@ async fn test_bars_ws_make_before_break_keeps_old_until_new_is_stable_then_swaps
         other => panic!("expected new meta frame, got {other:?}"),
     }
     assert_eq!(mbb.active_request().pairs, "ETHUSDT");
+}
+
+#[tokio::test]
+async fn test_connect_bars_ws_recovering_reconnects_with_same_request_after_close() {
+    let base_url = spawn_recovering_bars_ws_server().await;
+    let client = AggregatorClient::new(config_for_ws(&base_url, None)).expect("aggregator client");
+
+    let request = BarsWsSubscribeRequest {
+        pairs: "BTCUSDT".to_string(),
+        tfs: vec![Timeframe::M1],
+        metadata: Some(false),
+        from_close: None,
+        last_n_bars: Some(1),
+        format: None,
+    };
+
+    let mut connection = client
+        .connect_bars_ws_recovering(
+            &request,
+            ExponentialBackoffConfig {
+                initial_delay: Duration::from_millis(1),
+                multiplier: 2,
+                max_delay: Duration::from_millis(5),
+                max_attempts: Some(3),
+                jitter_ratio: 0.0,
+            },
+        )
+        .await
+        .expect("connect recovering bars ws");
+
+    match connection
+        .next_frame()
+        .await
+        .expect("first recovering bars frame")
+        .expect("some frame")
+    {
+        BarsWsInboundFrame::Meta(frame) => assert_eq!(frame.close_ms, Some(10)),
+        other => panic!("expected first meta frame, got {other:?}"),
+    }
+
+    match connection
+        .next_frame()
+        .await
+        .expect("second recovering bars frame")
+        .expect("some frame")
+    {
+        BarsWsInboundFrame::Meta(frame) => assert_eq!(frame.close_ms, Some(20)),
+        other => panic!("expected second meta frame, got {other:?}"),
+    }
+
+    assert_eq!(connection.active_request(), &request);
+    assert_eq!(connection.next_attempt(), 1);
 }

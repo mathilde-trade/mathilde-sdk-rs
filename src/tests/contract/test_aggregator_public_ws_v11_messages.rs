@@ -1,5 +1,6 @@
 use crate::core::auth::BearerToken;
 use crate::core::config::{AggregatorConfig, HttpTransportConfig, WsTransportConfig};
+use crate::streaming::subscription::ExponentialBackoffConfig;
 use crate::systems::aggregator::{
     AggregatorClient, MessagesWsServerFrame, MessagesWsSubscribeFrame, MessagesWsUnsubscribeFrame,
 };
@@ -131,6 +132,64 @@ async fn spawn_messages_ws_server() -> (String, oneshot::Receiver<CapturedMessag
         ))
         .await
         .expect("send error");
+    });
+
+    (format!("http://{addr}"), captured_rx)
+}
+
+async fn spawn_recovering_messages_ws_server() -> (String, oneshot::Receiver<Vec<String>>) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind recovering messages ws test server");
+    let addr = listener.local_addr().expect("recovering messages ws test addr");
+    let (captured_tx, captured_rx) = oneshot::channel();
+
+    tokio::spawn(async move {
+        let mut captured = Vec::new();
+
+        let (stream_1, _) = listener
+            .accept()
+            .await
+            .expect("accept first recovering messages conn");
+        let mut ws_1 =
+            accept_hdr_async(stream_1, |_request: &Request, response: Response| Ok(response))
+                .await
+                .expect("accept first recovering messages handshake");
+        let subscribe_text = match ws_1.next().await {
+            Some(Ok(Message::Text(text))) => text.to_string(),
+            other => panic!("expected first subscribe text, got {other:?}"),
+        };
+        captured.push(subscribe_text);
+        let _ = ws_1.close(None).await;
+
+        let (stream_2, _) = listener
+            .accept()
+            .await
+            .expect("accept second recovering messages conn");
+        let mut ws_2 =
+            accept_hdr_async(stream_2, |_request: &Request, response: Response| Ok(response))
+                .await
+                .expect("accept second recovering messages handshake");
+        let replayed_subscribe_text = match ws_2.next().await {
+            Some(Ok(Message::Text(text))) => text.to_string(),
+            other => panic!("expected replayed subscribe text, got {other:?}"),
+        };
+        captured.push(replayed_subscribe_text);
+        let _ = captured_tx.send(captured);
+
+        ws_2.send(Message::Text(
+            serde_json::json!({
+                "type": "subscribed",
+                "id": "rule_1",
+                "tfs": ["1m"],
+                "predicate_pairs": ["BTCUSDT"],
+                "normalized_predicate": "BTCUSDT.c > 0"
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .expect("send replayed subscribed frame");
     });
 
     (format!("http://{addr}"), captured_rx)
@@ -277,4 +336,56 @@ async fn test_connect_messages_ws_missing_config_is_typed_error() {
         }
         other => panic!("expected missing transport config, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn test_connect_messages_ws_recovering_replays_active_subscriptions_after_close() {
+    let (base_url, captured_rx) = spawn_recovering_messages_ws_server().await;
+    let client = AggregatorClient::new(config_for_ws(&base_url, None)).expect("aggregator client");
+
+    let mut connection = client
+        .connect_messages_ws_recovering(ExponentialBackoffConfig {
+            initial_delay: std::time::Duration::from_millis(1),
+            multiplier: 2,
+            max_delay: std::time::Duration::from_millis(5),
+            max_attempts: Some(3),
+            jitter_ratio: 0.0,
+        })
+        .await
+        .expect("connect recovering messages ws");
+
+    connection
+        .send_subscribe(&MessagesWsSubscribeFrame {
+            id: "rule_1".to_string(),
+            tfs: Some(vec![Timeframe::M1]),
+            predicate: "BTCUSDT.c > 0".to_string(),
+            message: "recover me".to_string(),
+            payload: None,
+        })
+        .await
+        .expect("send subscribe");
+
+    match connection
+        .next_frame()
+        .await
+        .expect("replayed subscribed frame")
+        .expect("some frame")
+    {
+        MessagesWsServerFrame::Subscribed(frame) => {
+            assert_eq!(frame.id, "rule_1");
+            assert_eq!(frame.tfs, vec!["1m".to_string()]);
+        }
+        other => panic!("expected subscribed frame after reconnect, got {other:?}"),
+    }
+
+    let captured = captured_rx.await.expect("captured recovering messages frames");
+    assert_eq!(captured.len(), 2);
+
+    let first: serde_json::Value =
+        serde_json::from_str(&captured[0]).expect("first subscribe json");
+    let second: serde_json::Value =
+        serde_json::from_str(&captured[1]).expect("second subscribe json");
+    assert_eq!(first, second);
+    assert_eq!(connection.active_subscription_ids(), vec!["rule_1"]);
+    assert_eq!(connection.next_attempt(), 1);
 }

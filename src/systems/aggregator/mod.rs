@@ -20,10 +20,11 @@ pub use types::{
 pub use bars_ws::{
     BarsWsConnection, BarsWsErrorFrame, BarsWsFormat, BarsWsInboundFrame,
     BarsWsMakeBeforeBreak, BarsWsMetaFrame, BarsWsPhase, BarsWsSubscribeRequest,
-    NormalizedBarsWsSubscribeRequest,
+    NormalizedBarsWsSubscribeRequest, RecoveringBarsWsConnection,
 };
 pub use messages_ws::{
     MessagesWsClientFrame, MessagesWsConnection, MessagesWsErrorFrame,
     MessagesWsHeartbeatFrame, MessagesWsMessageFrame, MessagesWsServerFrame,
     MessagesWsSubscribeFrame, MessagesWsSubscribedFrame, MessagesWsUnsubscribeFrame,
+    RecoveringMessagesWsConnection,
 };

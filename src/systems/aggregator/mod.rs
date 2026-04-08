@@ -13,4 +13,5 @@ pub use types::{
     FilesDownloadsRequest, FilesDownloadsResponse, FilesDownloadsRow, LatestBarsRequest,
     LatestBarsResponse, PairsListRequest, PairsListResponse, PairsStatusRequest,
     PairsStatusResponse, PublicDocResponse, PublicDocWithIndexResponse, PublicOpenApiDocument,
+    RangeBarsRequest, RangeBarsResponse, SearchBarsRequest, SearchBarsResponse,
 };

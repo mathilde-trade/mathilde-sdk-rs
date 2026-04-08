@@ -1,6 +1,9 @@
 use crate::core::error::SdkError;
+use crate::core::time::TimeInput;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
-use crate::systems::types::{BarsView, ExcludeSource, HttpFormat, LatestMode, Timeframe};
+use crate::systems::types::{
+    AlignMode, BarsView, ExcludeSource, HttpFormat, LatestMode, Timeframe,
+};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct PublicDocResponse {
@@ -31,7 +34,7 @@ pub struct PublicDocWithIndexResponse {
 pub struct PairsStatusRequest {
     pub after_pair: Option<String>,
     pub limit: Option<i64>,
-    pub pairs: Option<Vec<String>>,
+    pub pairs: Option<String>,
     pub filters: Option<Vec<String>>,
 }
 
@@ -161,7 +164,7 @@ pub type PublicOpenApiDocument = serde_json::Value;
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct FilesDownloadsRequest {
     pub period: Option<String>,
-    pub pairs: Vec<String>,
+    pub pairs: String,
     pub tfs: Vec<String>,
     pub start_label_utc: Option<String>,
     pub end_label_utc: Option<String>,
@@ -191,6 +194,112 @@ pub struct LatestBarsRequest {
     pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub format: Option<HttpFormat>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct RangeBarsRequest {
+    pub pairs: String,
+    pub tf: Timeframe,
+    pub align_mode: Option<AlignMode>,
+    pub close_start: Option<TimeInput>,
+    pub cursor: Option<String>,
+    pub close_end: Option<TimeInput>,
+    pub limit: Option<i64>,
+    pub exclude_sources: Option<Vec<ExcludeSource>>,
+    pub metadata: Option<bool>,
+    pub format: Option<HttpFormat>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct NormalizedRangeBarsRequest {
+    pub pairs: String,
+    pub tf: Timeframe,
+    pub align_mode: Option<AlignMode>,
+    #[serde(rename = "close_start_ms")]
+    pub close_start_ms: Option<i64>,
+    pub cursor: Option<String>,
+    #[serde(rename = "close_end_ms")]
+    pub close_end_ms: Option<i64>,
+    pub limit: Option<i64>,
+    pub exclude_sources: Option<Vec<ExcludeSource>>,
+    pub metadata: Option<bool>,
+    pub format: Option<HttpFormat>,
+}
+
+impl RangeBarsRequest {
+    pub fn normalize(&self) -> Result<NormalizedRangeBarsRequest, SdkError> {
+        Ok(NormalizedRangeBarsRequest {
+            pairs: self.pairs.clone(),
+            tf: self.tf,
+            align_mode: self.align_mode,
+            close_start_ms: self
+                .close_start
+                .as_ref()
+                .map(TimeInput::to_utc_ms)
+                .transpose()?,
+            cursor: self.cursor.clone(),
+            close_end_ms: self
+                .close_end
+                .as_ref()
+                .map(TimeInput::to_utc_ms)
+                .transpose()?,
+            limit: self.limit,
+            exclude_sources: self.exclude_sources.clone(),
+            metadata: self.metadata,
+            format: self.format,
+        })
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct SearchBarsRequest {
+    pub tf: Timeframe,
+    pub close_start: TimeInput,
+    pub close_end: Option<TimeInput>,
+    pub cursor: Option<String>,
+    pub predicate: String,
+    pub evaluate_pair: Option<String>,
+    pub exclude_sources: Option<Vec<ExcludeSource>>,
+    pub metadata: Option<bool>,
+    pub max_hits: Option<i64>,
+    pub format: Option<HttpFormat>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct NormalizedSearchBarsRequest {
+    pub tf: Timeframe,
+    #[serde(rename = "close_start_ms")]
+    pub close_start_ms: i64,
+    #[serde(rename = "close_end_ms")]
+    pub close_end_ms: Option<i64>,
+    pub cursor: Option<String>,
+    pub predicate: String,
+    pub evaluate_pair: Option<String>,
+    pub exclude_sources: Option<Vec<ExcludeSource>>,
+    pub metadata: Option<bool>,
+    pub max_hits: Option<i64>,
+    pub format: Option<HttpFormat>,
+}
+
+impl SearchBarsRequest {
+    pub fn normalize(&self) -> Result<NormalizedSearchBarsRequest, SdkError> {
+        Ok(NormalizedSearchBarsRequest {
+            tf: self.tf,
+            close_start_ms: self.close_start.to_utc_ms()?,
+            close_end_ms: self
+                .close_end
+                .as_ref()
+                .map(TimeInput::to_utc_ms)
+                .transpose()?,
+            cursor: self.cursor.clone(),
+            predicate: self.predicate.clone(),
+            evaluate_pair: self.evaluate_pair.clone(),
+            exclude_sources: self.exclude_sources.clone(),
+            metadata: self.metadata,
+            max_hits: self.max_hits,
+            format: self.format,
+        })
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -296,6 +405,164 @@ pub struct LatestBarsWithMetadataPresentRow {
     #[serde(flatten)]
     pub bar: BarWithMetadata,
     pub age_ms: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct RangeBarsMinResponse {
+    pub rows: Vec<Bar>,
+    pub close_end_ms: i64,
+    pub next_cursor: Option<String>,
+    pub excluded_sources: Option<Vec<ExcludeSource>>,
+    pub excluded_rows_total: Option<i64>,
+    pub excluded_rows_by_source: Option<Vec<ExcludedSourceCount>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct RangeBarsFullResponse {
+    pub rows: Vec<BarWithMetadata>,
+    pub close_end_ms: i64,
+    pub next_cursor: Option<String>,
+    pub excluded_sources: Option<Vec<ExcludeSource>>,
+    pub excluded_rows_total: Option<i64>,
+    pub excluded_rows_by_source: Option<Vec<ExcludedSourceCount>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RangeBarsResponse {
+    Min(RangeBarsMinResponse),
+    Full(RangeBarsFullResponse),
+}
+
+impl RangeBarsResponse {
+    pub fn from_proto(
+        response: proto::BarsRangeResponseV1,
+        metadata: bool,
+    ) -> Result<Self, SdkError> {
+        if metadata {
+            Ok(Self::Full(RangeBarsFullResponse {
+                rows: response
+                    .rows
+                    .into_iter()
+                    .map(BarWithMetadata::from_proto)
+                    .collect::<Result<Vec<_>, _>>()?,
+                close_end_ms: response.close_end_ms,
+                next_cursor: response.next_cursor,
+                excluded_sources: Some(ExcludeSource::vec_from_proto(response.excluded_sources)?),
+                excluded_rows_total: response.excluded_rows_total,
+                excluded_rows_by_source: Some(
+                    response
+                        .excluded_rows_by_source
+                        .into_iter()
+                        .map(ExcludedSourceCount::from_proto)
+                        .collect(),
+                ),
+            }))
+        } else {
+            Ok(Self::Min(RangeBarsMinResponse {
+                rows: response
+                    .rows
+                    .into_iter()
+                    .map(Bar::from_proto)
+                    .collect::<Result<Vec<_>, _>>()?,
+                close_end_ms: response.close_end_ms,
+                next_cursor: response.next_cursor,
+                excluded_sources: Some(ExcludeSource::vec_from_proto(response.excluded_sources)?),
+                excluded_rows_total: response.excluded_rows_total,
+                excluded_rows_by_source: Some(
+                    response
+                        .excluded_rows_by_source
+                        .into_iter()
+                        .map(ExcludedSourceCount::from_proto)
+                        .collect(),
+                ),
+            }))
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct SearchBarsMinResponse {
+    pub hits: Vec<i64>,
+    pub evaluated_rows: Option<Vec<Bar>>,
+    pub next_cursor: Option<String>,
+    pub done: bool,
+    pub returned_hits: i64,
+    pub effective_hits_limit: i64,
+    pub truncated: bool,
+    pub predicate_pairs: Vec<String>,
+    pub predicate_normalized: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct SearchBarsFullResponse {
+    pub hits: Vec<i64>,
+    pub evaluated_rows: Option<Vec<BarWithMetadata>>,
+    pub next_cursor: Option<String>,
+    pub done: bool,
+    pub returned_hits: i64,
+    pub effective_hits_limit: i64,
+    pub truncated: bool,
+    pub predicate_pairs: Vec<String>,
+    pub predicate_normalized: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SearchBarsResponse {
+    Min(SearchBarsMinResponse),
+    Full(SearchBarsFullResponse),
+}
+
+impl SearchBarsResponse {
+    pub fn from_proto(
+        response: proto::BarsSearchResponseV1,
+        metadata: bool,
+    ) -> Result<Self, SdkError> {
+        if metadata {
+            Ok(Self::Full(SearchBarsFullResponse {
+                hits: response.hits,
+                evaluated_rows: if response.evaluated_rows.is_empty() {
+                    None
+                } else {
+                    Some(
+                        response
+                            .evaluated_rows
+                            .into_iter()
+                            .map(BarWithMetadata::from_proto)
+                            .collect::<Result<Vec<_>, _>>()?,
+                    )
+                },
+                next_cursor: response.next_cursor,
+                done: response.done,
+                returned_hits: response.returned_hits,
+                effective_hits_limit: response.effective_hits_limit,
+                truncated: response.truncated,
+                predicate_pairs: response.predicate_pairs,
+                predicate_normalized: response.predicate_normalized,
+            }))
+        } else {
+            Ok(Self::Min(SearchBarsMinResponse {
+                hits: response.hits,
+                evaluated_rows: if response.evaluated_rows.is_empty() {
+                    None
+                } else {
+                    Some(
+                        response
+                            .evaluated_rows
+                            .into_iter()
+                            .map(Bar::from_proto)
+                            .collect::<Result<Vec<_>, _>>()?,
+                    )
+                },
+                next_cursor: response.next_cursor,
+                done: response.done,
+                returned_hits: response.returned_hits,
+                effective_hits_limit: response.effective_hits_limit,
+                truncated: response.truncated,
+                predicate_pairs: response.predicate_pairs,
+                predicate_normalized: response.predicate_normalized,
+            }))
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]

@@ -5,7 +5,21 @@ use crate::systems::aggregator::types::{
 use crate::transport::http::HttpTransport;
 use reqwest::Method;
 
-fn csv_param(values: Option<&[String]>) -> Option<String> {
+fn csv_string_param(value: Option<&str>) -> Option<String> {
+    let joined = value?
+        .split(',')
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join(",");
+    if joined.is_empty() {
+        None
+    } else {
+        Some(joined)
+    }
+}
+
+fn csv_vec_param(values: Option<&[String]>) -> Option<String> {
     let joined = values?
         .iter()
         .map(|value| value.trim())
@@ -23,8 +37,8 @@ pub async fn pairs_status(
     transport: &HttpTransport,
     request: &PairsStatusRequest,
 ) -> Result<PairsStatusResponse, SdkError> {
-    let pairs = csv_param(request.pairs.as_deref());
-    let filters = csv_param(request.filters.as_deref());
+    let pairs = csv_string_param(request.pairs.as_deref());
+    let filters = csv_vec_param(request.filters.as_deref());
 
     let query = [
         ("after_pair", request.after_pair.clone()),

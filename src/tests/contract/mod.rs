@@ -1,4 +1,6 @@
-mod test_core_time;
 mod test_aggregator_public_http_v0;
 mod test_aggregator_public_http_v1_simple_discovery;
 mod test_aggregator_public_http_v2_files_downloads;
+mod test_aggregator_public_http_v3_bars_range;
+mod test_aggregator_public_http_v4_bars_search;
+mod test_core_time;

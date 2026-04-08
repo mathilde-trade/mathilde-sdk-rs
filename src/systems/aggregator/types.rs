@@ -303,6 +303,69 @@ impl SearchBarsRequest {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct TimeMachineBarsRequest {
+    pub tf: Timeframe,
+    pub close_start: TimeInput,
+    pub close_end: Option<TimeInput>,
+    pub cursor: Option<String>,
+    pub predicate: Option<String>,
+    pub hits: Option<Vec<i64>>,
+    pub output_pairs: Option<Vec<String>>,
+    pub exclude_sources: Option<Vec<ExcludeSource>>,
+    pub metadata: Option<bool>,
+    pub before_bars: Option<i64>,
+    pub after_bars: Option<i64>,
+    pub max_hits: Option<i64>,
+    pub overlap_mode: Option<String>,
+    pub format: Option<HttpFormat>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct NormalizedTimeMachineBarsRequest {
+    pub tf: Timeframe,
+    #[serde(rename = "close_start_ms")]
+    pub close_start_ms: i64,
+    #[serde(rename = "close_end_ms")]
+    pub close_end_ms: Option<i64>,
+    pub cursor: Option<String>,
+    pub predicate: Option<String>,
+    pub hits: Option<Vec<i64>>,
+    pub output_pairs: Option<Vec<String>>,
+    pub exclude_sources: Option<Vec<ExcludeSource>>,
+    pub metadata: Option<bool>,
+    pub before_bars: Option<i64>,
+    pub after_bars: Option<i64>,
+    pub max_hits: Option<i64>,
+    pub overlap_mode: Option<String>,
+    pub format: Option<HttpFormat>,
+}
+
+impl TimeMachineBarsRequest {
+    pub fn normalize(&self) -> Result<NormalizedTimeMachineBarsRequest, SdkError> {
+        Ok(NormalizedTimeMachineBarsRequest {
+            tf: self.tf,
+            close_start_ms: self.close_start.to_utc_ms()?,
+            close_end_ms: self
+                .close_end
+                .as_ref()
+                .map(TimeInput::to_utc_ms)
+                .transpose()?,
+            cursor: self.cursor.clone(),
+            predicate: self.predicate.clone(),
+            hits: self.hits.clone(),
+            output_pairs: self.output_pairs.clone(),
+            exclude_sources: self.exclude_sources.clone(),
+            metadata: self.metadata,
+            before_bars: self.before_bars,
+            after_bars: self.after_bars,
+            max_hits: self.max_hits,
+            overlap_mode: self.overlap_mode.clone(),
+            format: self.format,
+        })
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct ExcludedSourceCount {
     pub source: String,
     pub count: i64,
@@ -566,6 +629,89 @@ impl SearchBarsResponse {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct TimeMachineBarsMinRow {
+    pub hit_close_ms: i64,
+    pub offset: i64,
+    pub bar: Bar,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct TimeMachineBarsFullRow {
+    pub hit_close_ms: i64,
+    pub offset: i64,
+    pub bar: BarWithMetadata,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct TimeMachineBarsMinResponse {
+    pub rows: Vec<TimeMachineBarsMinRow>,
+    pub next_cursor: Option<String>,
+    pub done: bool,
+    pub returned_hits: i64,
+    pub effective_hits_limit: i64,
+    pub truncated: bool,
+    pub predicate_pairs: Vec<String>,
+    pub predicate_normalized: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct TimeMachineBarsFullResponse {
+    pub rows: Vec<TimeMachineBarsFullRow>,
+    pub next_cursor: Option<String>,
+    pub done: bool,
+    pub returned_hits: i64,
+    pub effective_hits_limit: i64,
+    pub truncated: bool,
+    pub predicate_pairs: Vec<String>,
+    pub predicate_normalized: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TimeMachineBarsResponse {
+    Min(TimeMachineBarsMinResponse),
+    Full(TimeMachineBarsFullResponse),
+}
+
+impl TimeMachineBarsResponse {
+    pub fn from_proto(
+        response: proto::BarsTimeMachineResponseV1,
+        metadata: bool,
+    ) -> Result<Self, SdkError> {
+        if metadata {
+            Ok(Self::Full(TimeMachineBarsFullResponse {
+                rows: response
+                    .rows
+                    .into_iter()
+                    .map(TimeMachineBarsFullRow::from_proto)
+                    .collect::<Result<Vec<_>, _>>()?,
+                next_cursor: response.next_cursor,
+                done: response.done,
+                returned_hits: response.returned_hits,
+                effective_hits_limit: response.effective_hits_limit,
+                truncated: response.truncated,
+                predicate_pairs: response.predicate_pairs,
+                predicate_normalized: response.predicate_normalized,
+            }))
+        } else {
+            Ok(Self::Min(TimeMachineBarsMinResponse {
+                rows: response
+                    .rows
+                    .into_iter()
+                    .map(TimeMachineBarsMinRow::from_proto)
+                    .collect::<Result<Vec<_>, _>>()?,
+                next_cursor: response.next_cursor,
+                done: response.done,
+                returned_hits: response.returned_hits,
+                effective_hits_limit: response.effective_hits_limit,
+                truncated: response.truncated,
+                predicate_pairs: response.predicate_pairs,
+                predicate_normalized: response.predicate_normalized,
+            }))
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct LatestBarsMinResponse {
     pub watermark_end_ms: i64,
@@ -704,6 +850,30 @@ impl LatestBarsWithMetadataPresentRow {
                 SdkError::contract_drift("latest bars protobuf row missing `bar`")
             })?)?,
             age_ms: value.age_ms.unwrap_or(0),
+        })
+    }
+}
+
+impl TimeMachineBarsMinRow {
+    fn from_proto(value: proto::BarsTimeMachineRowV1) -> Result<Self, SdkError> {
+        Ok(Self {
+            hit_close_ms: value.hit_close_ms,
+            offset: value.offset,
+            bar: Bar::from_proto(value.bar.ok_or_else(|| {
+                SdkError::contract_drift("time-machine protobuf row missing `bar`")
+            })?)?,
+        })
+    }
+}
+
+impl TimeMachineBarsFullRow {
+    fn from_proto(value: proto::BarsTimeMachineRowV1) -> Result<Self, SdkError> {
+        Ok(Self {
+            hit_close_ms: value.hit_close_ms,
+            offset: value.offset,
+            bar: BarWithMetadata::from_proto(value.bar.ok_or_else(|| {
+                SdkError::contract_drift("time-machine full protobuf row missing `bar`")
+            })?)?,
         })
     }
 }

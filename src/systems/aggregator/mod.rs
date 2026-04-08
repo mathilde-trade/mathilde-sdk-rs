@@ -14,4 +14,5 @@ pub use types::{
     LatestBarsResponse, PairsListRequest, PairsListResponse, PairsStatusRequest,
     PairsStatusResponse, PublicDocResponse, PublicDocWithIndexResponse, PublicOpenApiDocument,
     RangeBarsRequest, RangeBarsResponse, SearchBarsRequest, SearchBarsResponse,
+    TimeMachineBarsRequest, TimeMachineBarsResponse,
 };

@@ -8,7 +8,8 @@ use crate::systems::aggregator::types::{
     FilesDownloadsRequest, FilesDownloadsResponse, LatestBarsRequest, LatestBarsResponse,
     PairsListRequest, PairsListResponse, PairsStatusRequest, PairsStatusResponse, RangeBarsRequest,
     RangeBarsResponse, PublicDocResponse, PublicDocWithIndexResponse, PublicOpenApiDocument,
-    SearchBarsRequest, SearchBarsResponse,
+    SearchBarsRequest, SearchBarsResponse, TimeMachineBarsRequest,
+    TimeMachineBarsResponse,
 };
 use crate::transport::http::HttpTransport;
 
@@ -60,6 +61,13 @@ impl AggregatorClient {
         request: &SearchBarsRequest,
     ) -> Result<SearchBarsResponse, SdkError> {
         bars_http::search_bars(&self.http, request).await
+    }
+
+    pub async fn time_machine_bars(
+        &self,
+        request: &TimeMachineBarsRequest,
+    ) -> Result<TimeMachineBarsResponse, SdkError> {
+        bars_http::time_machine_bars(&self.http, request).await
     }
 
     pub async fn pairs_status(

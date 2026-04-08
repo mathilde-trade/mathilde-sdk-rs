@@ -3,4 +3,5 @@ mod test_aggregator_public_http_v1_simple_discovery;
 mod test_aggregator_public_http_v2_files_downloads;
 mod test_aggregator_public_http_v3_bars_range;
 mod test_aggregator_public_http_v4_bars_search;
+mod test_aggregator_public_http_v5_bars_time_machine;
 mod test_core_time;

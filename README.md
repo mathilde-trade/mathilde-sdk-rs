@@ -59,35 +59,43 @@ does not claim it.
 
 The current implemented public surface is the `aggregator` feed client.
 
-There are three broad families of work a caller can do with it.
+### Documentation And Discovery
 
-First, you can inspect the public documentation and discovery layer. That
-includes top-level docs pages, the public OpenAPI document, pair status and
-pair lists, and file-download discovery.
+This family covers public documentation and discovery reads. It includes
+top-level docs pages, the public OpenAPI document, pair status and pair lists,
+and file-download discovery.
 
-Second, you can query bars as bounded request/response surfaces. Those are the
-latest, range, search, and time-machine families. They exist over HTTP, and
-the bars families also exist over gRPC.
+Use this family when the question is about what the public system exposes,
+which pairs are available, or which public files can be fetched.
 
-Third, you can consume streaming public surfaces over WebSocket. Bars streaming
-and messages streaming are both implemented, but they do not use the same
-subscription model. Bars is immutable per connection. Messages supports
-in-band subscribe and unsubscribe.
+### Bars Query Families
 
-These bars families are different query shapes, not four decorative names for
-one generic historical read.
+This family covers bounded request/response bars surfaces over HTTP and gRPC.
+These are different query shapes, not four decorative names for one generic
+historical read.
 
-`latest` is the shape for the question "what is the current stable closed
-snapshot for these pairs and this timeframe?" `range` is the shape for the
-question "what are the closed bars for this bounded historical interval?"
-`search` is the shape for the question "at which stable closes did this
-condition become true?" `time-machine` is the shape for the question "what did
-the local context look like around those hit points?"
+`latest` answers the question "what is the current stable closed snapshot for
+these pairs and this timeframe?" `range` answers the question "what are the
+closed bars for this bounded historical interval?" `search` answers the
+question "at which stable closes did this condition become true?"
+`time-machine` answers the question "what did the local context look like
+around those hit points?"
 
-The streaming surfaces are also different shapes. Bars WS is the shape for
-live bars streaming on one immutable subscription per connection. Messages WS
-is the shape for live predicate-triggered messages on a mutable subscription
-set.
+Use this family when the question is historical or snapshot-oriented and the
+answer should come back as a bounded read rather than a live stream.
+
+### Streaming Families
+
+This family covers public WebSocket streaming surfaces. Bars streaming and
+messages streaming are both implemented, but they do not use the same
+subscription model.
+
+Bars WS is the shape for live bars streaming on one immutable subscription per
+connection. Messages WS is the shape for live predicate-triggered messages on
+a mutable subscription set.
+
+Use this family when the question is live and continuous rather than bounded
+to one request/response read.
 
 ## Core Conventions
 
@@ -135,6 +143,47 @@ WebSocket conventions are explicit:
 - bars subscription changes require reconnect
 - messages WS uses in-band `subscribe` and `unsubscribe`
 - managed WS recovery is opt-in
+
+Predicate-based surfaces are also explicit.
+
+A predicate is a boolean expression evaluated on stable bars. It lets you ask
+whether a condition is true at a given close instead of asking for all rows in
+a window first and filtering them yourself.
+
+The current public predicate language uses compact bar-core field names rather
+than long aliases. In the proved public examples and tests, that means fields
+such as:
+
+- `.o` for open
+- `.h` for high
+- `.l` for low
+- `.c` for close
+- `.v` for volume
+
+This README does not claim longer aliases such as `.close` unless that support
+is independently proved.
+
+Typical examples are:
+
+```text
+BTCUSDT.c > BTCUSDT.o
+BTCUSDT.c > ETHUSDT.c * 1.02
+BTCUSDT.h > BTCUSDT.l && BTCUSDT.v >= 100
+(BTCUSDT.c > BTCUSDT.o) && (ETHUSDT.c > ETHUSDT.o) && BTCUSDT.v >= 1000
+```
+
+Predicates are currently used by these public surfaces:
+
+- `search_bars`
+- `search_bars_grpc`
+- `time_machine_bars` in predicate mode
+- `time_machine_bars_grpc` in predicate mode
+- `connect_messages_ws`
+- `connect_messages_ws_recovering`
+
+Use predicate surfaces when the primary question is about events or conditions.
+Do not use them when the primary question is simply "show me the full bounded
+history."
 
 ## Installation
 
@@ -265,6 +314,14 @@ become true?
 Use it when you need event discovery across a historical window and the
 predicate itself is the primary question.
 
+Here the predicate is the contract center. You provide a boolean condition on
+stable bars, and the surface tells you which closes satisfied it.
+
+Typical predicate examples are:
+- `BTCUSDT.c > BTCUSDT.o`
+- `BTCUSDT.c > ETHUSDT.c * 1.02`
+- `(BTCUSDT.c > BTCUSDT.o) && (ETHUSDT.c > ETHUSDT.o) && BTCUSDT.v >= 1000`
+
 Do not use it when you need the full bounded dataset or when you already know
 the hit points and only want nearby context.
 
@@ -286,6 +343,16 @@ those hit points?
 
 Use it when you already have hit timestamps, or when you want the system to
 find hits and then return bars before and after those moments.
+
+This family supports two modes:
+
+- hits mode: you provide explicit hit timestamps
+- predicate mode: you provide a predicate and let the system discover hits
+  before returning context around them
+
+That means time-machine can answer both:
+- "show me context around these known hit points"
+- "find where this became true, then show me the nearby bars"
 
 Do not use it as a general replacement for bounded range reads.
 
@@ -326,6 +393,10 @@ messages from mutable subscriptions?
 
 Use it when you want rule-based live notifications and connection-local
 subscribe and unsubscribe control.
+
+Here the predicate is a live rule. Instead of returning historical hits, the
+stream emits subscribed acknowledgements, live message frames, heartbeats, and
+errors for the active subscription set.
 
 Do not use it as a bars stream or as a historical replay surface.
 

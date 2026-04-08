@@ -11,6 +11,153 @@ pub struct PublicDocResponse {
     pub content: String,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct PublicDocIndexRow {
+    pub title: String,
+    pub anchor: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct PublicDocWithIndexResponse {
+    pub slug: String,
+    pub kind: String,
+    pub title: String,
+    pub format: String,
+    pub content: String,
+    pub index: Vec<PublicDocIndexRow>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Default)]
+pub struct PairsStatusRequest {
+    pub after_pair: Option<String>,
+    pub limit: Option<i64>,
+    pub pairs: Option<Vec<String>>,
+    pub filters: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, Default)]
+pub struct PairsListRequest {
+    pub after_pair: Option<String>,
+    pub limit: Option<i64>,
+    pub enabled_only: Option<bool>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct PairStatusBootstrap {
+    pub done: bool,
+    pub harmonized: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct PairStatusStatusBlock {
+    pub enabled: bool,
+    pub run_state: String,
+    pub last_error: Option<String>,
+    pub initial_date_utc: String,
+    pub bootstrap: PairStatusBootstrap,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct PairStatusSeedQuality {
+    pub coverage_p50: Option<f64>,
+    pub coverage_p95: Option<f64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct PairStatusHistoryBlock {
+    pub seed_enabled: Option<bool>,
+    pub seed_done: Option<bool>,
+    pub seed_state: Option<String>,
+    pub seed_target_end_utc: Option<String>,
+    pub seed_cursor_end_utc: Option<String>,
+    pub seed_last_error: Option<String>,
+    pub seed_done_rule: Option<String>,
+    pub seed_quality: PairStatusSeedQuality,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct PairStatusFrontierBlock {
+    pub frontier_subscribed: bool,
+    pub frontier_subscribed_at_utc: Option<String>,
+    pub frontier_t0_pair_utc: Option<String>,
+    pub frontier_last_status_update_utc: Option<String>,
+    pub frontier_last_finalized_e_utc: Option<String>,
+    pub frontier_enabled_venues_n: i64,
+    pub frontier_connected_venues_n: i64,
+    pub frontier_last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct PairStatusCountsBlock {
+    #[serde(rename = "1m")]
+    pub m1: i64,
+    #[serde(rename = "5m")]
+    pub m5: i64,
+    #[serde(rename = "15m")]
+    pub m15: i64,
+    #[serde(rename = "30m")]
+    pub m30: i64,
+    #[serde(rename = "1h")]
+    pub h1: i64,
+    #[serde(rename = "4h")]
+    pub h4: i64,
+    #[serde(rename = "6h")]
+    pub h6: i64,
+    #[serde(rename = "12h")]
+    pub h12: i64,
+    #[serde(rename = "1d")]
+    pub d1: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct PairStatusReadinessCell {
+    pub ready: bool,
+    pub ready_at_utc: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct PairStatusReadinessBlock {
+    pub m1: PairStatusReadinessCell,
+    pub m5: PairStatusReadinessCell,
+    pub m15: PairStatusReadinessCell,
+    pub m30: PairStatusReadinessCell,
+    pub h1: PairStatusReadinessCell,
+    pub h4: PairStatusReadinessCell,
+    pub h6: PairStatusReadinessCell,
+    pub h12: PairStatusReadinessCell,
+    pub d1: PairStatusReadinessCell,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct PairStatusRow {
+    pub pair: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<PairStatusStatusBlock>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history: Option<PairStatusHistoryBlock>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frontier: Option<PairStatusFrontierBlock>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub counts: Option<PairStatusCountsBlock>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub readiness: Option<PairStatusReadinessBlock>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct PairsStatusResponse {
+    pub pairs: Vec<PairStatusRow>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct PairsListResponse {
+    pub pairs: Vec<String>,
+    pub next_after_pair: Option<String>,
+}
+
+pub type PublicOpenApiDocument = serde_json::Value;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct LatestBarsRequest {
     pub pairs: String,

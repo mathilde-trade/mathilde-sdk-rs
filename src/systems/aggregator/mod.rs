@@ -9,4 +9,8 @@ pub mod pairs;
 pub mod types;
 
 pub use client::AggregatorClient;
-pub use types::{LatestBarsRequest, LatestBarsResponse, PublicDocResponse};
+pub use types::{
+    LatestBarsRequest, LatestBarsResponse, PairsListRequest, PairsListResponse,
+    PairsStatusRequest, PairsStatusResponse, PublicDocResponse, PublicDocWithIndexResponse,
+    PublicOpenApiDocument,
+};

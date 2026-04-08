@@ -2,7 +2,12 @@ use crate::core::config::AggregatorConfig;
 use crate::core::error::SdkError;
 use crate::systems::aggregator::bars_http;
 use crate::systems::aggregator::docs;
-use crate::systems::aggregator::types::{LatestBarsRequest, LatestBarsResponse, PublicDocResponse};
+use crate::systems::aggregator::pairs;
+use crate::systems::aggregator::types::{
+    LatestBarsRequest, LatestBarsResponse, PairsListRequest, PairsListResponse,
+    PairsStatusRequest, PairsStatusResponse, PublicDocResponse, PublicDocWithIndexResponse,
+    PublicOpenApiDocument,
+};
 use crate::transport::http::HttpTransport;
 
 #[derive(Debug, Clone)]
@@ -22,10 +27,36 @@ impl AggregatorClient {
         docs::docs_system(&self.http).await
     }
 
+    pub async fn docs_themes(&self) -> Result<PublicDocWithIndexResponse, SdkError> {
+        docs::docs_themes(&self.http).await
+    }
+
+    pub async fn docs_endpoints(&self) -> Result<PublicDocResponse, SdkError> {
+        docs::docs_endpoints(&self.http).await
+    }
+
+    pub async fn openapi(&self) -> Result<PublicOpenApiDocument, SdkError> {
+        docs::openapi(&self.http).await
+    }
+
     pub async fn latest_bars(
         &self,
         request: &LatestBarsRequest,
     ) -> Result<LatestBarsResponse, SdkError> {
         bars_http::latest_bars(&self.http, request).await
+    }
+
+    pub async fn pairs_status(
+        &self,
+        request: &PairsStatusRequest,
+    ) -> Result<PairsStatusResponse, SdkError> {
+        pairs::pairs_status(&self.http, request).await
+    }
+
+    pub async fn pairs_list(
+        &self,
+        request: &PairsListRequest,
+    ) -> Result<PairsListResponse, SdkError> {
+        pairs::pairs_list(&self.http, request).await
     }
 }

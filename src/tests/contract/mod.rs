@@ -1,1 +1,2 @@
 mod test_aggregator_public_http_v0;
+mod test_aggregator_public_http_v1_simple_discovery;

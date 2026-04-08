@@ -5,10 +5,11 @@ use crate::systems::aggregator::bars_http;
 use crate::systems::aggregator::bars_ws;
 use crate::systems::aggregator::docs;
 use crate::systems::aggregator::files;
+use crate::systems::aggregator::messages_ws;
 use crate::systems::aggregator::pairs;
 use crate::streaming::make_before_break::MakeBeforeBreakConfig;
 use crate::systems::aggregator::{
-    BarsWsConnection, BarsWsMakeBeforeBreak, BarsWsSubscribeRequest,
+    BarsWsConnection, BarsWsMakeBeforeBreak, BarsWsSubscribeRequest, MessagesWsConnection,
 };
 use crate::systems::aggregator::types::{
     FilesDownloadsRequest, FilesDownloadsResponse, LatestBarsGrpcRequest, LatestBarsRequest,
@@ -158,6 +159,14 @@ impl AggregatorClient {
             .ok_or_else(|| SdkError::missing_transport_config("ws"))?;
         bars_ws::BarsWsMakeBeforeBreak::connect(ws, request, MakeBeforeBreakConfig::default())
             .await
+    }
+
+    pub async fn connect_messages_ws(&self) -> Result<MessagesWsConnection, SdkError> {
+        let ws = self
+            .ws
+            .as_ref()
+            .ok_or_else(|| SdkError::missing_transport_config("ws"))?;
+        messages_ws::MessagesWsConnection::connect(ws).await
     }
 
     pub async fn pairs_status(

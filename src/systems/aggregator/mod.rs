@@ -22,3 +22,8 @@ pub use bars_ws::{
     BarsWsMakeBeforeBreak, BarsWsMetaFrame, BarsWsPhase, BarsWsSubscribeRequest,
     NormalizedBarsWsSubscribeRequest,
 };
+pub use messages_ws::{
+    MessagesWsClientFrame, MessagesWsConnection, MessagesWsErrorFrame,
+    MessagesWsHeartbeatFrame, MessagesWsMessageFrame, MessagesWsServerFrame,
+    MessagesWsSubscribeFrame, MessagesWsSubscribedFrame, MessagesWsUnsubscribeFrame,
+};

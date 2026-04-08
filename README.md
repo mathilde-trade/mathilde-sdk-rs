@@ -196,26 +196,55 @@ A predicate is a boolean expression evaluated on stable bars. It lets you ask
 whether a condition is true at a given close instead of asking for all rows in
 a window first and filtering them yourself.
 
-The current public predicate language uses compact bar-core field names rather
-than long aliases. In the proved public examples and tests, that means fields
-such as:
+The current public predicate language supports both compact and long field
+aliases for the core bar fields. Code-read evidence from the upstream parser
+proves aliases such as:
 
-- `.o` for open
-- `.h` for high
-- `.l` for low
-- `.c` for close
-- `.v` for volume
+- `.o` or `.open`
+- `.h` or `.high`
+- `.l` or `.low`
+- `.c` or `.close`
+- `.v` or `.volume`
+- `.n` or `.trades`
+- `.quote_v` or `.quote_volume`
+- `.vw` or `.vwap`
 
-This README does not claim longer aliases such as `.close` unless that support
-is independently proved.
+The same parser also proves additional derived and metadata-backed field names,
+including:
+
+- `coverage_ratio`
+- `covered_1m_count`
+- `expected_1m_count`
+- `inputs_source_counts_frontier`
+- `inputs_source_counts_api`
+- `inputs_source_counts_synthetic`
+- `inputs_source_counts_fix_data`
+- `frontier_5s_inputs_coverage_ratio`
+- `frontier_5s_expected`
+- `frontier_5s_synth_n`
+- `frontier_5s_synth_ratio`
+- `frontier_5s_trade_n`
+- `frontier_5s_trade_ratio`
+- `harmonized_at_ms`
+- `source`
+- `process`
+- `venues_expected`
+- `venues_with_trades`
+
+Not every predicate surface allows every proved field. In particular,
+`connect_messages_ws` uses the same shared predicate language, but its runtime
+policy remains restricted to websocket-supported numeric bar fields and rejects
+metadata-backed fields.
 
 Typical examples are:
 
 ```text
-BTCUSDT.c > BTCUSDT.o
-BTCUSDT.c > ETHUSDT.c * 1.02
-BTCUSDT.h > BTCUSDT.l && BTCUSDT.v >= 100
-(BTCUSDT.c > BTCUSDT.o) && (ETHUSDT.c > ETHUSDT.o) && BTCUSDT.v >= 1000
+BTCUSDT.close > BTCUSDT.open
+BTCUSDT.close > ETHUSDT.close * 1.02
+BTCUSDT.high > BTCUSDT.low && BTCUSDT.volume >= 100
+BTCUSDT.coverage_ratio >= 0.99 && BTCUSDT.expected_1m_count >= 60
+has(BTCUSDT.venues_expected, "binance")
+(BTCUSDT.close > BTCUSDT.open) && (ETHUSDT.close > ETHUSDT.open) && BTCUSDT.quote_volume >= 1000
 ```
 
 Predicates are currently used by these public surfaces:
@@ -364,9 +393,9 @@ Here the predicate is the contract center. You provide a boolean condition on
 stable bars, and the surface tells you which closes satisfied it.
 
 Typical predicate examples are:
-- `BTCUSDT.c > BTCUSDT.o`
-- `BTCUSDT.c > ETHUSDT.c * 1.02`
-- `(BTCUSDT.c > BTCUSDT.o) && (ETHUSDT.c > ETHUSDT.o) && BTCUSDT.v >= 1000`
+- `BTCUSDT.close > BTCUSDT.open`
+- `BTCUSDT.close > ETHUSDT.close * 1.02`
+- `BTCUSDT.coverage_ratio >= 0.99 && BTCUSDT.expected_1m_count >= 60`
 
 Do not use it when you need the full bounded dataset or when you already know
 the hit points and only want nearby context.

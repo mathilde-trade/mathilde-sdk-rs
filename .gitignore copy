@@ -1,0 +1,10 @@
+/target
+node_modules
+.dev
+bun.lock
+Cargo.lock
+.serena*
+.todo
+.env
+.dataset
+tests/**.sqlite

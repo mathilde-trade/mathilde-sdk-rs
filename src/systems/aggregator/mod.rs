@@ -7,3 +7,6 @@ pub mod files;
 pub mod messages_ws;
 pub mod pairs;
 pub mod types;
+
+pub use client::AggregatorClient;
+pub use types::{LatestBarsRequest, LatestBarsResponse, PublicDocResponse};

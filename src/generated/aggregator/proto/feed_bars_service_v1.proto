@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+package mathilde.feed.bars.v1;
+
+import "feed_bars_v1.proto";
+
+message PairNotReadyDetailV1 {
+  string kind = 1;
+  string error = 2;
+  string blocking_gate = 3;
+  repeated string blocking_pairs = 4;
+}
+
+message ResyncRequiredDetailV1 {
+  string kind = 1;
+  string error = 2;
+}
+
+message LatestBarsRequestV1 {
+  repeated string pairs = 1;
+  string tf = 2;
+  string latest_mode = 3;
+  // Exclusion labels.
+  // Supported raw labels: api, fix-data, frontier, aggregate, synthetic.
+  // Supported semantic class: no_trade_fill.
+  repeated string exclude_sources = 4;
+  bool metadata = 5;
+}
+
+message RangeBarsRequestV1 {
+  repeated string pairs = 1;
+  string tf = 2;
+  int64 close_end_ms = 3;
+  optional string cursor = 4;
+  optional int64 limit = 5;
+  // Exclusion labels.
+  // Supported raw labels: api, fix-data, frontier, aggregate, synthetic.
+  // Supported semantic class: no_trade_fill.
+  repeated string exclude_sources = 6;
+  bool metadata = 7;
+  int64 close_start_ms = 8;
+  // Optional boundary-alignment policy for explicit bounds.
+  // `exact` is the default and rejects off-grid explicit bounds.
+  // `floor` floors explicit `close_start_ms` / `close_end_ms` to the closest
+  // past timeframe boundary before stable-end clamping.
+  optional string align_mode = 9;
+}
+
+message SearchBarsRequestV1 {
+  string tf = 1;
+  int64 close_start_ms = 2;
+  int64 close_end_ms = 3;
+  optional string cursor = 4;
+  string predicate = 5;
+  optional string evaluate_pair = 6;
+  // Exclusion labels.
+  // Supported raw labels: api, fix-data, frontier, aggregate, synthetic.
+  // Supported semantic class: no_trade_fill.
+  repeated string exclude_sources = 7;
+  bool metadata = 8;
+  optional int64 max_hits = 9;
+}
+
+message TimeMachineBarsRequestV1 {
+  string tf = 1;
+  int64 close_start_ms = 2;
+  int64 close_end_ms = 3;
+  optional string cursor = 4;
+  optional string predicate = 5;
+  repeated int64 hits = 6;
+  repeated string output_pairs = 7;
+  // Exclusion labels.
+  // Supported raw labels: api, fix-data, frontier, aggregate, synthetic.
+  // Supported semantic class: no_trade_fill.
+  repeated string exclude_sources = 8;
+  bool metadata = 9;
+  optional int64 before_bars = 10;
+  optional int64 after_bars = 11;
+  optional int64 max_hits = 12;
+  optional string overlap_mode = 13;
+}
+
+service BarsServiceV1 {
+  rpc LatestBars(LatestBarsRequestV1) returns (BarsLatestResponseV1);
+  rpc RangeBars(RangeBarsRequestV1) returns (BarsRangeResponseV1);
+  rpc SearchBars(SearchBarsRequestV1) returns (BarsSearchResponseV1);
+  rpc TimeMachineBars(TimeMachineBarsRequestV1) returns (BarsTimeMachineResponseV1);
+}

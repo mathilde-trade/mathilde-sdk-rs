@@ -1,0 +1,148 @@
+syntax = "proto3";
+
+package mathilde.feed.bars.v1;
+
+enum BarsViewV1 {
+  BARS_VIEW_V1_UNSPECIFIED = 0;
+  BARS_VIEW_V1_MIN = 1;
+  BARS_VIEW_V1_FULL = 2;
+}
+
+message ExcludedSourceCountV1 {
+  string source = 1;
+  int64 count = 2;
+}
+
+message BarsCursorV1 {
+  int64 after_close_ms = 1;
+  string after_pair = 2;
+}
+
+message BarMetadataV1 {
+  string source = 1;
+  optional string process = 2;
+  repeated string venues_expected = 3;
+  repeated string venues_with_trades = 4;
+  optional int64 ingested_at_ms = 5;
+  optional string ingested_at_utc = 6;
+  optional int64 target_ingested_at_ms = 7;
+  optional string target_ingested_at_utc = 8;
+  optional int64 built_at_ms = 9;
+  optional string built_at_utc = 10;
+  optional int64 committed_at_ms = 11;
+  optional string committed_at_utc = 12;
+  optional int64 harmonized_at_ms = 13;
+  optional string harmonized_at_utc = 14;
+  optional int64 recomputed_at_ms = 15;
+  optional string recomputed_at_utc = 16;
+  optional string recomputed_reason = 17;
+  optional int64 covered_1m_count = 18;
+  optional int64 expected_1m_count = 19;
+  optional double coverage_ratio = 20;
+  optional int64 inputs_source_counts_frontier = 21;
+  optional int64 inputs_source_counts_api = 23;
+  optional int64 inputs_source_counts_synthetic = 24;
+  optional int64 inputs_source_counts_fix_data = 25;
+  optional double frontier_5s_inputs_coverage_ratio = 26;
+  optional int64 frontier_5s_expected = 27;
+  optional int64 frontier_5s_synth_n = 28;
+  optional double frontier_5s_synth_ratio = 29;
+  optional int64 frontier_5s_trade_n = 30;
+  optional double frontier_5s_trade_ratio = 31;
+  optional int64 age_ms = 32;
+}
+
+message BarRowV1 {
+  string pair = 1;
+  string tf = 2;
+  int64 s_ms = 3;
+  int64 e_ms = 4;
+  optional string s_utc = 5;
+  optional string e_utc = 6;
+  double o = 7;
+  double h = 8;
+  double l = 9;
+  double c = 10;
+  double v = 11;
+  optional double quote_v = 12;
+  optional double taker_known_v = 13;
+  optional double taker_signed_v = 14;
+  optional double taker_known_quote_v = 15;
+  optional double taker_signed_quote_v = 16;
+  optional int64 taker_known_n = 17;
+  optional int64 taker_signed_n = 18;
+  optional double vw = 19;
+  optional int64 n = 20;
+  optional double coverage_ratio = 21;
+  optional int64 at_ms = 22;
+  optional BarMetadataV1 metadata = 23;
+}
+
+message BarsPresentRowV1 {
+  BarRowV1 bar = 1;
+  optional int64 age_ms = 2;
+}
+
+message BarsRowsPayloadV1 {
+  BarsViewV1 view = 1;
+  repeated BarsPresentRowV1 rows = 2;
+}
+
+message BarsLatestResponseV1 {
+  int64 watermark_end_ms = 1;
+  int64 close_end_ms = 2;
+  string latest_mode = 3;
+  BarsViewV1 view = 4;
+  repeated BarsPresentRowV1 rows = 5;
+  repeated string missing_pairs = 6;
+  repeated string excluded_sources = 7;
+  optional int64 excluded_rows_total = 8;
+  repeated ExcludedSourceCountV1 excluded_rows_by_source = 9;
+}
+
+message BarsRangeResponseV1 {
+  repeated BarRowV1 rows = 1;
+  optional string next_cursor = 2;
+  repeated string excluded_sources = 3;
+  optional int64 excluded_rows_total = 4;
+  repeated ExcludedSourceCountV1 excluded_rows_by_source = 5;
+  int64 close_end_ms = 6;
+}
+
+message BarsSearchResponseV1 {
+  repeated int64 hits = 1;
+  repeated BarRowV1 evaluated_rows = 2;
+  int64 returned_hits = 3;
+  int64 effective_hits_limit = 4;
+  bool truncated = 5;
+  repeated string predicate_pairs = 6;
+  string predicate_normalized = 7;
+  optional string next_cursor = 8;
+  bool done = 9;
+}
+
+message BarsTimeMachineRowV1 {
+  int64 hit_close_ms = 1;
+  int64 offset = 2;
+  BarRowV1 bar = 3;
+}
+
+message BarsTimeMachineResponseV1 {
+  repeated BarsTimeMachineRowV1 rows = 1;
+  int64 returned_hits = 2;
+  int64 effective_hits_limit = 3;
+  bool truncated = 4;
+  repeated string predicate_pairs = 5;
+  optional string predicate_normalized = 6;
+  optional string next_cursor = 7;
+  bool done = 8;
+}
+
+message BarsTickEnvelopeV1 {
+  string tf = 1;
+  int64 e_ms = 2;
+  int64 watermark_end_ms = 3;
+  repeated string missing_pairs = 4;
+  BarsViewV1 view = 5;
+  repeated BarsPresentRowV1 rows = 6;
+}

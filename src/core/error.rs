@@ -1,1 +1,57 @@
+use thiserror::Error;
 
+#[derive(Debug, Error)]
+pub enum SdkError {
+    #[error("invalid url `{input}`: {source}")]
+    InvalidUrl {
+        input: String,
+        #[source]
+        source: url::ParseError,
+    },
+    #[error("missing required transport config: {transport}")]
+    MissingTransportConfig { transport: &'static str },
+    #[error("invalid auth token: {message}")]
+    InvalidAuthToken { message: &'static str },
+    #[error("request build failed: {message}")]
+    RequestBuild { message: String },
+    #[error("transport error: {source}")]
+    Transport {
+        #[source]
+        source: reqwest::Error,
+    },
+    #[error("http status {status}: {body}")]
+    HttpStatus { status: u16, body: String },
+    #[error("decode error: {source}")]
+    Decode {
+        #[source]
+        source: reqwest::Error,
+    },
+    #[error("contract drift: {message}")]
+    ContractDrift { message: String },
+}
+
+impl SdkError {
+    pub fn invalid_url(input: String, source: url::ParseError) -> Self {
+        Self::InvalidUrl { input, source }
+    }
+
+    pub fn missing_transport_config(transport: &'static str) -> Self {
+        Self::MissingTransportConfig { transport }
+    }
+
+    pub fn invalid_auth_token(message: &'static str) -> Self {
+        Self::InvalidAuthToken { message }
+    }
+
+    pub fn request_build(message: impl Into<String>) -> Self {
+        Self::RequestBuild {
+            message: message.into(),
+        }
+    }
+
+    pub fn contract_drift(message: impl Into<String>) -> Self {
+        Self::ContractDrift {
+            message: message.into(),
+        }
+    }
+}

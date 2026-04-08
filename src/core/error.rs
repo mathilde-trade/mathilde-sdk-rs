@@ -33,6 +33,8 @@ pub enum SdkError {
     },
     #[error("grpc metadata error: {message}")]
     GrpcMetadata { message: String },
+    #[error("ws transport error: {message}")]
+    WsTransport { message: String },
     #[error("http status {status}: {body}")]
     HttpStatus { status: u16, body: String },
     #[error("decode error: {source}")]
@@ -82,6 +84,12 @@ impl SdkError {
 
     pub fn grpc_metadata(message: impl Into<String>) -> Self {
         Self::GrpcMetadata {
+            message: message.into(),
+        }
+    }
+
+    pub fn ws_transport(message: impl Into<String>) -> Self {
+        Self::WsTransport {
             message: message.into(),
         }
     }

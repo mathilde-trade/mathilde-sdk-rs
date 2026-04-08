@@ -11,8 +11,14 @@ pub mod types;
 pub use client::AggregatorClient;
 pub use types::{
     FilesDownloadsRequest, FilesDownloadsResponse, FilesDownloadsRow, LatestBarsGrpcRequest,
-    LatestBarsRequest, LatestBarsResponse, PairsListRequest, PairsListResponse,
-    PairsStatusRequest, PairsStatusResponse, PublicDocResponse, PublicDocWithIndexResponse,
-    PublicOpenApiDocument, RangeBarsGrpcRequest, RangeBarsRequest, RangeBarsResponse,
-    SearchBarsRequest, SearchBarsResponse, TimeMachineBarsRequest, TimeMachineBarsResponse,
+    LatestBarsRequest, LatestBarsResponse, PairsListRequest, PairsListResponse, PairsStatusRequest,
+    PairsStatusResponse, PublicDocResponse, PublicDocWithIndexResponse, PublicOpenApiDocument,
+    RangeBarsGrpcRequest, RangeBarsRequest, RangeBarsResponse, SearchBarsGrpcRequest,
+    SearchBarsRequest, SearchBarsResponse, TimeMachineBarsGrpcRequest, TimeMachineBarsRequest,
+    TimeMachineBarsResponse,
+};
+pub use bars_ws::{
+    BarsWsConnection, BarsWsErrorFrame, BarsWsFormat, BarsWsInboundFrame,
+    BarsWsMakeBeforeBreak, BarsWsMetaFrame, BarsWsPhase, BarsWsSubscribeRequest,
+    NormalizedBarsWsSubscribeRequest,
 };

@@ -2,23 +2,31 @@ use crate::core::config::AggregatorConfig;
 use crate::core::error::SdkError;
 use crate::systems::aggregator::bars_grpc;
 use crate::systems::aggregator::bars_http;
+use crate::systems::aggregator::bars_ws;
 use crate::systems::aggregator::docs;
 use crate::systems::aggregator::files;
 use crate::systems::aggregator::pairs;
+use crate::streaming::make_before_break::MakeBeforeBreakConfig;
+use crate::systems::aggregator::{
+    BarsWsConnection, BarsWsMakeBeforeBreak, BarsWsSubscribeRequest,
+};
 use crate::systems::aggregator::types::{
     FilesDownloadsRequest, FilesDownloadsResponse, LatestBarsGrpcRequest, LatestBarsRequest,
     LatestBarsResponse, PairsListRequest, PairsListResponse, PairsStatusRequest,
     PairsStatusResponse, PublicDocResponse, PublicDocWithIndexResponse, PublicOpenApiDocument,
-    RangeBarsGrpcRequest, RangeBarsRequest, RangeBarsResponse, SearchBarsRequest,
-    SearchBarsResponse, TimeMachineBarsRequest, TimeMachineBarsResponse,
+    RangeBarsGrpcRequest, RangeBarsRequest, RangeBarsResponse, SearchBarsGrpcRequest,
+    SearchBarsRequest, SearchBarsResponse, TimeMachineBarsGrpcRequest, TimeMachineBarsRequest,
+    TimeMachineBarsResponse,
 };
 use crate::transport::grpc::GrpcTransport;
 use crate::transport::http::HttpTransport;
+use crate::transport::ws::WsTransport;
 
 #[derive(Debug, Clone)]
 pub struct AggregatorClient {
     http: HttpTransport,
     grpc: Option<GrpcTransport>,
+    ws: Option<WsTransport>,
 }
 
 impl AggregatorClient {
@@ -29,10 +37,15 @@ impl AggregatorClient {
             .as_ref()
             .map(|grpc| GrpcTransport::new(grpc, config.bearer_token.clone()))
             .transpose()?;
+        let ws = config
+            .ws
+            .as_ref()
+            .map(|ws| WsTransport::new(ws, config.bearer_token.as_ref()));
 
         Ok(Self {
             http: HttpTransport::new(&http, config.bearer_token.clone()),
             grpc,
+            ws,
         })
     }
 
@@ -95,11 +108,56 @@ impl AggregatorClient {
         bars_http::search_bars(&self.http, request).await
     }
 
+    pub async fn search_bars_grpc(
+        &self,
+        request: &SearchBarsGrpcRequest,
+    ) -> Result<SearchBarsResponse, SdkError> {
+        let grpc = self
+            .grpc
+            .as_ref()
+            .ok_or_else(|| SdkError::missing_transport_config("grpc"))?;
+        bars_grpc::search_bars_grpc(grpc, request).await
+    }
+
     pub async fn time_machine_bars(
         &self,
         request: &TimeMachineBarsRequest,
     ) -> Result<TimeMachineBarsResponse, SdkError> {
         bars_http::time_machine_bars(&self.http, request).await
+    }
+
+    pub async fn time_machine_bars_grpc(
+        &self,
+        request: &TimeMachineBarsGrpcRequest,
+    ) -> Result<TimeMachineBarsResponse, SdkError> {
+        let grpc = self
+            .grpc
+            .as_ref()
+            .ok_or_else(|| SdkError::missing_transport_config("grpc"))?;
+        bars_grpc::time_machine_bars_grpc(grpc, request).await
+    }
+
+    pub async fn connect_bars_ws(
+        &self,
+        request: &BarsWsSubscribeRequest,
+    ) -> Result<BarsWsConnection, SdkError> {
+        let ws = self
+            .ws
+            .as_ref()
+            .ok_or_else(|| SdkError::missing_transport_config("ws"))?;
+        bars_ws::BarsWsConnection::connect(ws, request).await
+    }
+
+    pub async fn connect_bars_ws_make_before_break(
+        &self,
+        request: &BarsWsSubscribeRequest,
+    ) -> Result<BarsWsMakeBeforeBreak, SdkError> {
+        let ws = self
+            .ws
+            .as_ref()
+            .ok_or_else(|| SdkError::missing_transport_config("ws"))?;
+        bars_ws::BarsWsMakeBeforeBreak::connect(ws, request, MakeBeforeBreakConfig::default())
+            .await
     }
 
     pub async fn pairs_status(

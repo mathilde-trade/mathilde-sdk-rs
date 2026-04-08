@@ -397,6 +397,19 @@ pub struct SearchBarsRequest {
     pub format: Option<HttpFormat>,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct SearchBarsGrpcRequest {
+    pub tf: Timeframe,
+    pub close_start: TimeInput,
+    pub close_end: Option<TimeInput>,
+    pub cursor: Option<String>,
+    pub predicate: String,
+    pub evaluate_pair: Option<String>,
+    pub exclude_sources: Option<Vec<ExcludeSource>>,
+    pub metadata: Option<bool>,
+    pub max_hits: Option<i64>,
+}
+
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
 pub struct NormalizedSearchBarsRequest {
     pub tf: Timeframe,
@@ -411,6 +424,19 @@ pub struct NormalizedSearchBarsRequest {
     pub metadata: Option<bool>,
     pub max_hits: Option<i64>,
     pub format: Option<HttpFormat>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct NormalizedSearchBarsGrpcRequest {
+    pub tf: Timeframe,
+    pub close_start_ms: i64,
+    pub close_end_ms: i64,
+    pub cursor: Option<String>,
+    pub predicate: String,
+    pub evaluate_pair: Option<String>,
+    pub exclude_sources: Option<Vec<ExcludeSource>>,
+    pub metadata: bool,
+    pub max_hits: Option<i64>,
 }
 
 impl SearchBarsRequest {
@@ -434,6 +460,65 @@ impl SearchBarsRequest {
     }
 }
 
+impl SearchBarsGrpcRequest {
+    #[allow(dead_code)]
+    pub(crate) fn normalize(&self) -> Result<NormalizedSearchBarsGrpcRequest, SdkError> {
+        Ok(NormalizedSearchBarsGrpcRequest {
+            tf: self.tf,
+            close_start_ms: self.close_start.to_utc_ms()?,
+            close_end_ms: self
+                .close_end
+                .as_ref()
+                .map(TimeInput::to_utc_ms)
+                .transpose()?
+                .unwrap_or(0),
+            cursor: self.cursor.clone(),
+            predicate: self.predicate.trim().to_string(),
+            evaluate_pair: self.evaluate_pair.clone(),
+            exclude_sources: self.exclude_sources.clone(),
+            metadata: self.metadata.unwrap_or(false),
+            max_hits: self.max_hits,
+        })
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn to_proto(&self) -> Result<proto::SearchBarsRequestV1, SdkError> {
+        let normalized = self.normalize()?;
+        Ok(proto::SearchBarsRequestV1 {
+            tf: normalized.tf.as_str().to_string(),
+            close_start_ms: normalized.close_start_ms,
+            close_end_ms: normalized.close_end_ms,
+            cursor: normalized.cursor,
+            predicate: normalized.predicate,
+            evaluate_pair: normalized.evaluate_pair,
+            exclude_sources: normalized
+                .exclude_sources
+                .unwrap_or_default()
+                .into_iter()
+                .map(|source| source.as_str().to_string())
+                .collect(),
+            metadata: normalized.metadata,
+            max_hits: normalized.max_hits,
+        })
+    }
+}
+
+impl From<&SearchBarsRequest> for SearchBarsGrpcRequest {
+    fn from(value: &SearchBarsRequest) -> Self {
+        Self {
+            tf: value.tf,
+            close_start: value.close_start.clone(),
+            close_end: value.close_end.clone(),
+            cursor: value.cursor.clone(),
+            predicate: value.predicate.clone(),
+            evaluate_pair: value.evaluate_pair.clone(),
+            exclude_sources: value.exclude_sources.clone(),
+            metadata: value.metadata,
+            max_hits: value.max_hits,
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct TimeMachineBarsRequest {
     pub tf: Timeframe,
@@ -450,6 +535,23 @@ pub struct TimeMachineBarsRequest {
     pub max_hits: Option<i64>,
     pub overlap_mode: Option<String>,
     pub format: Option<HttpFormat>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct TimeMachineBarsGrpcRequest {
+    pub tf: Timeframe,
+    pub close_start: TimeInput,
+    pub close_end: Option<TimeInput>,
+    pub cursor: Option<String>,
+    pub predicate: Option<String>,
+    pub hits: Option<Vec<i64>>,
+    pub output_pairs: Option<Vec<String>>,
+    pub exclude_sources: Option<Vec<ExcludeSource>>,
+    pub metadata: Option<bool>,
+    pub before_bars: Option<i64>,
+    pub after_bars: Option<i64>,
+    pub max_hits: Option<i64>,
+    pub overlap_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
@@ -470,6 +572,23 @@ pub struct NormalizedTimeMachineBarsRequest {
     pub max_hits: Option<i64>,
     pub overlap_mode: Option<String>,
     pub format: Option<HttpFormat>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct NormalizedTimeMachineBarsGrpcRequest {
+    pub tf: Timeframe,
+    pub close_start_ms: i64,
+    pub close_end_ms: i64,
+    pub cursor: Option<String>,
+    pub predicate: Option<String>,
+    pub hits: Option<Vec<i64>>,
+    pub output_pairs: Option<Vec<String>>,
+    pub exclude_sources: Option<Vec<ExcludeSource>>,
+    pub metadata: bool,
+    pub before_bars: Option<i64>,
+    pub after_bars: Option<i64>,
+    pub max_hits: Option<i64>,
+    pub overlap_mode: Option<String>,
 }
 
 impl TimeMachineBarsRequest {
@@ -494,6 +613,77 @@ impl TimeMachineBarsRequest {
             overlap_mode: self.overlap_mode.clone(),
             format: self.format,
         })
+    }
+}
+
+impl TimeMachineBarsGrpcRequest {
+    #[allow(dead_code)]
+    pub(crate) fn normalize(&self) -> Result<NormalizedTimeMachineBarsGrpcRequest, SdkError> {
+        Ok(NormalizedTimeMachineBarsGrpcRequest {
+            tf: self.tf,
+            close_start_ms: self.close_start.to_utc_ms()?,
+            close_end_ms: self
+                .close_end
+                .as_ref()
+                .map(TimeInput::to_utc_ms)
+                .transpose()?
+                .unwrap_or(0),
+            cursor: self.cursor.clone(),
+            predicate: self.predicate.clone(),
+            hits: self.hits.clone(),
+            output_pairs: self.output_pairs.clone(),
+            exclude_sources: self.exclude_sources.clone(),
+            metadata: self.metadata.unwrap_or(false),
+            before_bars: self.before_bars,
+            after_bars: self.after_bars,
+            max_hits: self.max_hits,
+            overlap_mode: self.overlap_mode.clone(),
+        })
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn to_proto(&self) -> Result<proto::TimeMachineBarsRequestV1, SdkError> {
+        let normalized = self.normalize()?;
+        Ok(proto::TimeMachineBarsRequestV1 {
+            tf: normalized.tf.as_str().to_string(),
+            close_start_ms: normalized.close_start_ms,
+            close_end_ms: normalized.close_end_ms,
+            cursor: normalized.cursor,
+            predicate: normalized.predicate,
+            hits: normalized.hits.unwrap_or_default(),
+            output_pairs: normalized.output_pairs.unwrap_or_default(),
+            exclude_sources: normalized
+                .exclude_sources
+                .unwrap_or_default()
+                .into_iter()
+                .map(|source| source.as_str().to_string())
+                .collect(),
+            metadata: normalized.metadata,
+            before_bars: normalized.before_bars,
+            after_bars: normalized.after_bars,
+            max_hits: normalized.max_hits,
+            overlap_mode: normalized.overlap_mode,
+        })
+    }
+}
+
+impl From<&TimeMachineBarsRequest> for TimeMachineBarsGrpcRequest {
+    fn from(value: &TimeMachineBarsRequest) -> Self {
+        Self {
+            tf: value.tf,
+            close_start: value.close_start.clone(),
+            close_end: value.close_end.clone(),
+            cursor: value.cursor.clone(),
+            predicate: value.predicate.clone(),
+            hits: value.hits.clone(),
+            output_pairs: value.output_pairs.clone(),
+            exclude_sources: value.exclude_sources.clone(),
+            metadata: value.metadata,
+            before_bars: value.before_bars,
+            after_bars: value.after_bars,
+            max_hits: value.max_hits,
+            overlap_mode: value.overlap_mode.clone(),
+        }
     }
 }
 
@@ -964,8 +1154,7 @@ impl ExcludedSourceCount {
     }
 }
 
-#[allow(dead_code)]
-fn split_csv_pairs(raw: &str) -> Vec<String> {
+pub(crate) fn split_csv_pairs(raw: &str) -> Vec<String> {
     raw.split(',')
         .map(str::trim)
         .filter(|pair| !pair.is_empty())
@@ -1020,7 +1209,7 @@ impl TimeMachineBarsFullRow {
 }
 
 impl Bar {
-    fn from_proto(value: proto::BarRowV1) -> Result<Self, SdkError> {
+    pub(crate) fn from_proto(value: proto::BarRowV1) -> Result<Self, SdkError> {
         Ok(Self {
             pair: value.pair,
             tf: Timeframe::from_proto(&value.tf)?,
@@ -1047,7 +1236,7 @@ impl Bar {
 }
 
 impl BarWithMetadata {
-    fn from_proto(value: proto::BarRowV1) -> Result<Self, SdkError> {
+    pub(crate) fn from_proto(value: proto::BarRowV1) -> Result<Self, SdkError> {
         Ok(Self {
             pair: value.pair,
             tf: Timeframe::from_proto(&value.tf)?,

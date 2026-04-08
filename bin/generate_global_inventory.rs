@@ -4,24 +4,6 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const LEGAL_HEADER: &str = r#"```
-MATHILDE PROPRIETARY AND CONFIDENTIAL
-Copyright (c) 2024 MATHILDE. All Rights Reserved.
-
-This document contains trade secrets and confidential information owned
-exclusively by MATHILDE, protected under Swiss law (URG, UWG, Art. 162 StGB).
-
-PROHIBITED: Reproduction, copying, distribution, disclosure, or derivative
-works without prior written authorization from MATHILDE.
-
-ACCESS REQUIREMENT: Executed NDA with MATHILDE required. Unauthorized access
-or possession violates Swiss law. Violations subject to civil remedies,
-injunctive relief, damages, and criminal prosecution.
-
-Legal Contact: massimo.nicora@wnlegal.ch
-```
-"#;
-
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct ModuleArtifacts {
@@ -87,6 +69,7 @@ struct ComponentInventory {
     name: String,
     inventory_path: PathBuf,
     source_root: PathBuf,
+    allow_scope: bool,
 }
 
 fn discover_component_inventories(repo_root: &Path) -> Result<Vec<ComponentInventory>, String> {
@@ -120,6 +103,7 @@ fn discover_component_inventories(repo_root: &Path) -> Result<Vec<ComponentInven
                     name: name.clone(),
                     inventory_path: inv,
                     source_root: p.clone(),
+                    allow_scope: true,
                 });
             }
 
@@ -152,10 +136,43 @@ fn discover_component_inventories(repo_root: &Path) -> Result<Vec<ComponentInven
                             name: format!("{name}::{module_name}"),
                             inventory_path: m_inv,
                             source_root: m_dir,
+                            allow_scope: true,
                         });
                     }
                 }
             }
+        }
+    }
+
+    let sdk_modules_base = repo_root.join("src");
+    if sdk_modules_base.is_dir() {
+        for entry in fs::read_dir(&sdk_modules_base)
+            .map_err(|e| format!("read_dir failed: {sdk_modules_base:?}: {e}"))?
+        {
+            let entry = entry.map_err(|e| format!("read_dir entry failed: {e}"))?;
+            let p = entry.path();
+            if !p.is_dir() {
+                continue;
+            }
+            let module_name = p
+                .file_name()
+                .unwrap_or_else(|| OsStr::new(""))
+                .to_string_lossy()
+                .to_string();
+            if module_name.is_empty() || module_name == "generated" || module_name == "bin" {
+                continue;
+            }
+            let inv = p.join("docs").join("inventory.md");
+            if !inv.is_file() {
+                continue;
+            }
+            out.push(ComponentInventory {
+                kind: ComponentKind::Module,
+                name: format!("sdk::{module_name}"),
+                inventory_path: inv,
+                source_root: p,
+                allow_scope: false,
+            });
         }
     }
     out.sort_by(|a, b| (a.kind as u8, &a.name).cmp(&(b.kind as u8, &b.name)));
@@ -167,11 +184,12 @@ fn collect_artifacts(
     component_kind: ComponentKind,
     component_root: &Path,
     component_inventory: &Path,
+    allow_scope: bool,
 ) -> Result<ModuleArtifacts, String> {
     let docs_dir = component_root.join("docs");
     let inventory_md = rel_path(repo_root, component_inventory)?;
     let scope_path = docs_dir.join("scope.md");
-    let scope_md = if scope_path.is_file() {
+    let scope_md = if allow_scope && scope_path.is_file() {
         Some(rel_path(repo_root, &scope_path)?)
     } else {
         None
@@ -555,17 +573,15 @@ fn main() -> Result<(), String> {
     let mut any_gap = false;
 
     let mut lines: Vec<String> = vec![];
-    lines.push(LEGAL_HEADER.trim_end_matches('\n').to_string());
-    lines.push("".to_string());
     lines.push(format!(
         "# `{repo_name}` — Global Inventory (GENERATED; DO NOT EDIT)"
     ));
     lines.push("".to_string());
     lines.push(format!("Generated: {now}"));
-    lines.push("Protocol: `docs/REGIME_INVENTORY_SYSTEM_SPEC.md`".to_string());
+    lines.push("Protocol: `.dev/specs/SDK_INVENTORY_SYSTEM_SPEC_2026-04-08.md`".to_string());
     lines.push("".to_string());
     lines.push(
-        "This file is generated from per-component inventories under `crates/*/docs/inventory.md` and `services/*/docs/inventory.md`."
+        "This file is generated from per-component inventories under `crates/*/docs/inventory.md`, `services/*/docs/inventory.md`, and SDK module inventories under `src/*/docs/inventory.md`."
             .to_string(),
     );
     lines.push(
@@ -598,7 +614,13 @@ fn main() -> Result<(), String> {
     for inv in &inventories {
         let component_root = &inv.source_root;
 
-        let artifacts = collect_artifacts(&repo_root, inv.kind, component_root, &inv.inventory_path)?;
+        let artifacts = collect_artifacts(
+            &repo_root,
+            inv.kind,
+            component_root,
+            &inv.inventory_path,
+            inv.allow_scope,
+        )?;
         validate_exists(&repo_root, &artifacts.inventory_md)?;
         if let Some(scope) = &artifacts.scope_md {
             validate_exists(&repo_root, scope)?;
@@ -649,7 +671,17 @@ fn main() -> Result<(), String> {
         let name = match inv.kind {
             ComponentKind::Crate => format!("crates/{}", inv.name),
             ComponentKind::Service => format!("services/{}", inv.name),
-            ComponentKind::Module => format!("crates/{}/src/{}", inv.name.split("::").next().unwrap_or(""), inv.name.split("::").nth(1).unwrap_or("")),
+            ComponentKind::Module => {
+                if let Some(module_name) = inv.name.strip_prefix("sdk::") {
+                    format!("src/{module_name}")
+                } else {
+                    format!(
+                        "crates/{}/src/{}",
+                        inv.name.split("::").next().unwrap_or(""),
+                        inv.name.split("::").nth(1).unwrap_or("")
+                    )
+                }
+            }
         };
 
         lines.push(format!("## `{name}`"));

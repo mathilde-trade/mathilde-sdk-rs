@@ -1,12 +1,10 @@
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1::{
-    BarsLatestResponseV1, BarsRangeResponseV1, BarsSearchResponseV1,
-    BarsTimeMachineResponseV1,
+    BarsLatestResponseV1, BarsRangeResponseV1, BarsSearchResponseV1, BarsTimeMachineResponseV1,
 };
 use crate::systems::aggregator::types::{
-    LatestBarsRequest, LatestBarsResponse, RangeBarsRequest, RangeBarsResponse,
-    SearchBarsRequest, SearchBarsResponse, TimeMachineBarsRequest,
-    TimeMachineBarsResponse,
+    LatestBarsRequest, LatestBarsResponse, RangeBarsRequest, RangeBarsResponse, SearchBarsRequest,
+    SearchBarsResponse, TimeMachineBarsRequest, TimeMachineBarsResponse,
 };
 use crate::systems::types::HttpFormat;
 use crate::transport::http::HttpTransport;
@@ -96,10 +94,7 @@ pub async fn search_bars(
         let proto = BarsSearchResponseV1::decode(body.as_ref()).map_err(|source| {
             SdkError::contract_drift(format!("protobuf decode failed: {source}"))
         })?;
-        return SearchBarsResponse::from_proto(
-            proto,
-            normalized_request.metadata.unwrap_or(false),
-        );
+        return SearchBarsResponse::from_proto(proto, normalized_request.metadata.unwrap_or(false));
     }
 
     if normalized_request.metadata.unwrap_or(false) {

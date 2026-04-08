@@ -21,6 +21,18 @@ pub enum SdkError {
         #[source]
         source: reqwest::Error,
     },
+    #[error("grpc transport error: {source}")]
+    GrpcTransport {
+        #[source]
+        source: tonic::transport::Error,
+    },
+    #[error("grpc status {code}: {message}")]
+    GrpcStatus {
+        code: tonic::Code,
+        message: String,
+    },
+    #[error("grpc metadata error: {message}")]
+    GrpcMetadata { message: String },
     #[error("http status {status}: {body}")]
     HttpStatus { status: u16, body: String },
     #[error("decode error: {source}")]
@@ -53,6 +65,23 @@ impl SdkError {
 
     pub fn request_build(message: impl Into<String>) -> Self {
         Self::RequestBuild {
+            message: message.into(),
+        }
+    }
+
+    pub fn grpc_transport(source: tonic::transport::Error) -> Self {
+        Self::GrpcTransport { source }
+    }
+
+    pub fn grpc_status(status: tonic::Status) -> Self {
+        Self::GrpcStatus {
+            code: status.code(),
+            message: status.message().to_string(),
+        }
+    }
+
+    pub fn grpc_metadata(message: impl Into<String>) -> Self {
+        Self::GrpcMetadata {
             message: message.into(),
         }
     }

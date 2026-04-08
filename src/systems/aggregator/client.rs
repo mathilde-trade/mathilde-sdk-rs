@@ -1,28 +1,38 @@
 use crate::core::config::AggregatorConfig;
 use crate::core::error::SdkError;
+use crate::systems::aggregator::bars_grpc;
 use crate::systems::aggregator::bars_http;
 use crate::systems::aggregator::docs;
 use crate::systems::aggregator::files;
 use crate::systems::aggregator::pairs;
 use crate::systems::aggregator::types::{
-    FilesDownloadsRequest, FilesDownloadsResponse, LatestBarsRequest, LatestBarsResponse,
-    PairsListRequest, PairsListResponse, PairsStatusRequest, PairsStatusResponse, RangeBarsRequest,
-    RangeBarsResponse, PublicDocResponse, PublicDocWithIndexResponse, PublicOpenApiDocument,
-    SearchBarsRequest, SearchBarsResponse, TimeMachineBarsRequest,
-    TimeMachineBarsResponse,
+    FilesDownloadsRequest, FilesDownloadsResponse, LatestBarsGrpcRequest, LatestBarsRequest,
+    LatestBarsResponse, PairsListRequest, PairsListResponse, PairsStatusRequest,
+    PairsStatusResponse, PublicDocResponse, PublicDocWithIndexResponse, PublicOpenApiDocument,
+    RangeBarsGrpcRequest, RangeBarsRequest, RangeBarsResponse, SearchBarsRequest,
+    SearchBarsResponse, TimeMachineBarsRequest, TimeMachineBarsResponse,
 };
+use crate::transport::grpc::GrpcTransport;
 use crate::transport::http::HttpTransport;
 
 #[derive(Debug, Clone)]
 pub struct AggregatorClient {
     http: HttpTransport,
+    grpc: Option<GrpcTransport>,
 }
 
 impl AggregatorClient {
     pub fn new(config: AggregatorConfig) -> Result<Self, SdkError> {
         let http = config.require_http()?.clone();
+        let grpc = config
+            .grpc
+            .as_ref()
+            .map(|grpc| GrpcTransport::new(grpc, config.bearer_token.clone()))
+            .transpose()?;
+
         Ok(Self {
             http: HttpTransport::new(&http, config.bearer_token.clone()),
+            grpc,
         })
     }
 
@@ -49,11 +59,33 @@ impl AggregatorClient {
         bars_http::latest_bars(&self.http, request).await
     }
 
+    pub async fn latest_bars_grpc(
+        &self,
+        request: &LatestBarsGrpcRequest,
+    ) -> Result<LatestBarsResponse, SdkError> {
+        let grpc = self
+            .grpc
+            .as_ref()
+            .ok_or_else(|| SdkError::missing_transport_config("grpc"))?;
+        bars_grpc::latest_bars_grpc(grpc, request).await
+    }
+
     pub async fn range_bars(
         &self,
         request: &RangeBarsRequest,
     ) -> Result<RangeBarsResponse, SdkError> {
         bars_http::range_bars(&self.http, request).await
+    }
+
+    pub async fn range_bars_grpc(
+        &self,
+        request: &RangeBarsGrpcRequest,
+    ) -> Result<RangeBarsResponse, SdkError> {
+        let grpc = self
+            .grpc
+            .as_ref()
+            .ok_or_else(|| SdkError::missing_transport_config("grpc"))?;
+        bars_grpc::range_bars_grpc(grpc, request).await
     }
 
     pub async fn search_bars(

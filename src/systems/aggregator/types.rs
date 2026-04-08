@@ -197,6 +197,46 @@ pub struct LatestBarsRequest {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct LatestBarsGrpcRequest {
+    pub pairs: String,
+    pub tf: Timeframe,
+    pub latest_mode: LatestMode,
+    pub exclude_sources: Option<Vec<ExcludeSource>>,
+    pub metadata: Option<bool>,
+}
+
+impl LatestBarsGrpcRequest {
+    #[allow(dead_code)]
+    pub(crate) fn to_proto(&self) -> proto::LatestBarsRequestV1 {
+        proto::LatestBarsRequestV1 {
+            pairs: split_csv_pairs(&self.pairs),
+            tf: self.tf.as_str().to_string(),
+            latest_mode: self.latest_mode.as_str().to_string(),
+            exclude_sources: self
+                .exclude_sources
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|source| source.as_str().to_string())
+                .collect(),
+            metadata: self.metadata.unwrap_or(false),
+        }
+    }
+}
+
+impl From<&LatestBarsRequest> for LatestBarsGrpcRequest {
+    fn from(value: &LatestBarsRequest) -> Self {
+        Self {
+            pairs: value.pairs.clone(),
+            tf: value.tf,
+            latest_mode: value.latest_mode,
+            exclude_sources: value.exclude_sources.clone(),
+            metadata: value.metadata,
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct RangeBarsRequest {
     pub pairs: String,
     pub tf: Timeframe,
@@ -208,6 +248,19 @@ pub struct RangeBarsRequest {
     pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub format: Option<HttpFormat>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct RangeBarsGrpcRequest {
+    pub pairs: String,
+    pub tf: Timeframe,
+    pub align_mode: Option<AlignMode>,
+    pub close_start: Option<TimeInput>,
+    pub cursor: Option<String>,
+    pub close_end: Option<TimeInput>,
+    pub limit: Option<i64>,
+    pub exclude_sources: Option<Vec<ExcludeSource>>,
+    pub metadata: Option<bool>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
@@ -224,6 +277,19 @@ pub struct NormalizedRangeBarsRequest {
     pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub format: Option<HttpFormat>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct NormalizedRangeBarsGrpcRequest {
+    pub pairs: String,
+    pub tf: Timeframe,
+    pub align_mode: Option<AlignMode>,
+    pub close_start_ms: i64,
+    pub cursor: Option<String>,
+    pub close_end_ms: i64,
+    pub limit: Option<i64>,
+    pub exclude_sources: Option<Vec<ExcludeSource>>,
+    pub metadata: bool,
 }
 
 impl RangeBarsRequest {
@@ -248,6 +314,72 @@ impl RangeBarsRequest {
             metadata: self.metadata,
             format: self.format,
         })
+    }
+}
+
+impl RangeBarsGrpcRequest {
+    #[allow(dead_code)]
+    pub(crate) fn normalize(&self) -> Result<NormalizedRangeBarsGrpcRequest, SdkError> {
+        Ok(NormalizedRangeBarsGrpcRequest {
+            pairs: self.pairs.clone(),
+            tf: self.tf,
+            align_mode: self.align_mode,
+            close_start_ms: self
+                .close_start
+                .as_ref()
+                .map(TimeInput::to_utc_ms)
+                .transpose()?
+                .unwrap_or(0),
+            cursor: self.cursor.clone(),
+            close_end_ms: self
+                .close_end
+                .as_ref()
+                .map(TimeInput::to_utc_ms)
+                .transpose()?
+                .unwrap_or(0),
+            limit: self.limit,
+            exclude_sources: self.exclude_sources.clone(),
+            metadata: self.metadata.unwrap_or(false),
+        })
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn to_proto(&self) -> Result<proto::RangeBarsRequestV1, SdkError> {
+        let normalized = self.normalize()?;
+        Ok(proto::RangeBarsRequestV1 {
+            pairs: split_csv_pairs(&normalized.pairs),
+            tf: normalized.tf.as_str().to_string(),
+            close_end_ms: normalized.close_end_ms,
+            cursor: normalized.cursor,
+            limit: normalized.limit,
+            exclude_sources: normalized
+                .exclude_sources
+                .unwrap_or_default()
+                .into_iter()
+                .map(|source| source.as_str().to_string())
+                .collect(),
+            metadata: normalized.metadata,
+            close_start_ms: normalized.close_start_ms,
+            align_mode: normalized
+                .align_mode
+                .map(|align_mode| align_mode.as_str().to_string()),
+        })
+    }
+}
+
+impl From<&RangeBarsRequest> for RangeBarsGrpcRequest {
+    fn from(value: &RangeBarsRequest) -> Self {
+        Self {
+            pairs: value.pairs.clone(),
+            tf: value.tf,
+            align_mode: value.align_mode,
+            close_start: value.close_start.clone(),
+            cursor: value.cursor.clone(),
+            close_end: value.close_end.clone(),
+            limit: value.limit,
+            exclude_sources: value.exclude_sources.clone(),
+            metadata: value.metadata,
+        }
     }
 }
 
@@ -830,6 +962,15 @@ impl ExcludedSourceCount {
             count: value.count,
         }
     }
+}
+
+#[allow(dead_code)]
+fn split_csv_pairs(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|pair| !pair.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
 }
 
 impl LatestBarsPresentRow {

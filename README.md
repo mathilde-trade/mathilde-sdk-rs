@@ -68,34 +68,80 @@ and file-download discovery.
 Use this family when the question is about what the public system exposes,
 which pairs are available, or which public files can be fetched.
 
-### Bars Query Families
+### `latest`
 
-This family covers bounded request/response bars surfaces over HTTP and gRPC.
-These are different query shapes, not four decorative names for one generic
-historical read.
+What it is:
+The current stable closed snapshot for one or more pairs on one timeframe.
 
-`latest` answers the question "what is the current stable closed snapshot for
-these pairs and this timeframe?" `range` answers the question "what are the
-closed bars for this bounded historical interval?" `search` answers the
-question "at which stable closes did this condition become true?"
-`time-machine` answers the question "what did the local context look like
-around those hit points?"
+When to use it:
+Use `latest` when the question is "where is the stable edge now?" and you want
+the newest aligned closed read the public surface is prepared to serve.
 
-Use this family when the question is historical or snapshot-oriented and the
-answer should come back as a bounded read rather than a live stream.
+When not to use it:
+Do not use it for bounded history, predicate-first discovery, or local context
+around hits.
 
-### Streaming Families
+### `range`
 
-This family covers public WebSocket streaming surfaces. Bars streaming and
-messages streaming are both implemented, but they do not use the same
-subscription model.
+What it is:
+A bounded historical interval of closed bars on a fixed grid.
 
-Bars WS is the shape for live bars streaming on one immutable subscription per
-connection. Messages WS is the shape for live predicate-triggered messages on
-a mutable subscription set.
+When to use it:
+Use `range` when you need a reproducible historical window, backfill, or
+paged historical extraction.
 
-Use this family when the question is live and continuous rather than bounded
-to one request/response read.
+When not to use it:
+Do not use it when the real question is "when did this condition become true?"
+or "what happened around these hits?"
+
+### `search`
+
+What it is:
+A predicate-first discovery surface over stable historical bars.
+
+When to use it:
+Use `search` when the main question is "at which closes did this condition
+become true?"
+
+When not to use it:
+Do not use it as a full history dump or as a context-window replay surface.
+
+### `time-machine`
+
+What it is:
+A context surface that returns bars before and after selected hit points.
+
+When to use it:
+Use `time-machine` when you already know hit timestamps, or when you want the
+system to find hits and then return nearby context.
+
+When not to use it:
+Do not use it as a general replacement for bounded range reads.
+
+### Bars WS
+
+What it is:
+A live bars stream with one immutable subscription per connection.
+
+When to use it:
+Use bars WS when the question is live and continuous and the subscription set
+can stay fixed for the life of the socket.
+
+When not to use it:
+Do not use it if you need in-band subscribe and unsubscribe changes on one
+connection.
+
+### Messages WS
+
+What it is:
+A live predicate-triggered messages stream with mutable subscriptions.
+
+When to use it:
+Use messages WS when you want connection-local rules that emit live message
+events when their predicates evaluate true.
+
+When not to use it:
+Do not use it as a bars stream or as a historical replay surface.
 
 ## Core Conventions
 

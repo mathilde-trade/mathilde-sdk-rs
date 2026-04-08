@@ -158,6 +158,31 @@ pub struct PairsListResponse {
 
 pub type PublicOpenApiDocument = serde_json::Value;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct FilesDownloadsRequest {
+    pub period: Option<String>,
+    pub pairs: Vec<String>,
+    pub tfs: Vec<String>,
+    pub start_label_utc: Option<String>,
+    pub end_label_utc: Option<String>,
+    pub order: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct FilesDownloadsRow {
+    pub period: String,
+    pub pair: String,
+    pub tf: String,
+    pub label_utc: String,
+    pub url: String,
+    pub expires_at_utc: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct FilesDownloadsResponse {
+    pub rows: Vec<FilesDownloadsRow>,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct LatestBarsRequest {
     pub pairs: String,

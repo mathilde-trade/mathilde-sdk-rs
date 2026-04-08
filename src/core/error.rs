@@ -12,6 +12,8 @@ pub enum SdkError {
     MissingTransportConfig { transport: &'static str },
     #[error("invalid auth token: {message}")]
     InvalidAuthToken { message: &'static str },
+    #[error("invalid time input: {message}")]
+    InvalidTimeInput { message: String },
     #[error("request build failed: {message}")]
     RequestBuild { message: String },
     #[error("transport error: {source}")]
@@ -41,6 +43,12 @@ impl SdkError {
 
     pub fn invalid_auth_token(message: &'static str) -> Self {
         Self::InvalidAuthToken { message }
+    }
+
+    pub fn invalid_time_input(message: impl Into<String>) -> Self {
+        Self::InvalidTimeInput {
+            message: message.into(),
+        }
     }
 
     pub fn request_build(message: impl Into<String>) -> Self {

@@ -2,11 +2,12 @@ use crate::core::config::AggregatorConfig;
 use crate::core::error::SdkError;
 use crate::systems::aggregator::bars_http;
 use crate::systems::aggregator::docs;
+use crate::systems::aggregator::files;
 use crate::systems::aggregator::pairs;
 use crate::systems::aggregator::types::{
-    LatestBarsRequest, LatestBarsResponse, PairsListRequest, PairsListResponse,
-    PairsStatusRequest, PairsStatusResponse, PublicDocResponse, PublicDocWithIndexResponse,
-    PublicOpenApiDocument,
+    FilesDownloadsRequest, FilesDownloadsResponse, LatestBarsRequest, LatestBarsResponse,
+    PairsListRequest, PairsListResponse, PairsStatusRequest, PairsStatusResponse,
+    PublicDocResponse, PublicDocWithIndexResponse, PublicOpenApiDocument,
 };
 use crate::transport::http::HttpTransport;
 
@@ -58,5 +59,12 @@ impl AggregatorClient {
         request: &PairsListRequest,
     ) -> Result<PairsListResponse, SdkError> {
         pairs::pairs_list(&self.http, request).await
+    }
+
+    pub async fn files_downloads(
+        &self,
+        request: &FilesDownloadsRequest,
+    ) -> Result<FilesDownloadsResponse, SdkError> {
+        files::files_downloads(&self.http, request).await
     }
 }

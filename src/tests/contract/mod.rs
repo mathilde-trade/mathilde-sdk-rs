@@ -1,2 +1,4 @@
+mod test_core_time;
 mod test_aggregator_public_http_v0;
 mod test_aggregator_public_http_v1_simple_discovery;
+mod test_aggregator_public_http_v2_files_downloads;

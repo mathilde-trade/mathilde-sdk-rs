@@ -6,6 +6,22 @@ transport behavior explicit, and does not hide unproved convenience semantics.
 MATHILDE measures, not predicts, and this SDK is a public client-contract
 layer, not an opinion or trading layer.
 
+## Index
+
+- [What This Is](#what-this-is)
+- [What This Is Not](#what-this-is-not)
+- [Supported Public Surfaces](#supported-public-surfaces)
+- [Core Conventions](#core-conventions)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Endpoint And Transport Matrix](#endpoint-and-transport-matrix)
+- [Which Endpoint To Use](#which-endpoint-to-use)
+- [Examples](#examples)
+- [Transport Notes](#transport-notes)
+- [WS Recovery And Limits](#ws-recovery-and-limits)
+- [What Not To Infer](#what-not-to-infer)
+- [Further Reading](#further-reading)
+
 ## What This Is
 
 This SDK is a thin public-surface binding for MATHILDE systems that have a
@@ -57,6 +73,21 @@ Third, you can consume streaming public surfaces over WebSocket. Bars streaming
 and messages streaming are both implemented, but they do not use the same
 subscription model. Bars is immutable per connection. Messages supports
 in-band subscribe and unsubscribe.
+
+These bars families are different query shapes, not four decorative names for
+one generic historical read.
+
+`latest` is the shape for the question "what is the current stable closed
+snapshot for these pairs and this timeframe?" `range` is the shape for the
+question "what are the closed bars for this bounded historical interval?"
+`search` is the shape for the question "at which stable closes did this
+condition become true?" `time-machine` is the shape for the question "what did
+the local context look like around those hit points?"
+
+The streaming surfaces are also different shapes. Bars WS is the shape for
+live bars streaming on one immutable subscription per connection. Messages WS
+is the shape for live predicate-triggered messages on a mutable subscription
+set.
 
 ## Core Conventions
 
@@ -186,29 +217,134 @@ match out {
 
 ## Which Endpoint To Use
 
-If you need the current aligned bar for one or more pairs, use `latest_bars`
-or `latest_bars_grpc`.
+### `latest`
 
-If you need a bounded historical window on a fixed grid, use `range_bars` or
-`range_bars_grpc`.
+This shape answers the question: what is the current stable closed snapshot for
+these pairs and this timeframe?
 
-If you need to search a window for timestamps where a predicate is true, use
-`search_bars` or `search_bars_grpc`.
+Use it when you need the newest aligned read point that the public surface is
+prepared to serve as stable truth.
 
-If you already know hits, or you want context before and after hits, use
-`time_machine_bars` or `time_machine_bars_grpc`.
+Do not use it when you need a historical interval, predicate hit discovery, or
+context around hits.
 
-If you want bars as a stream, use bars WS. If you need to swap subscriptions
-without dropping the active stream immediately, use the make-before-break bars
-helper. If you want reconnect on disconnect, use the recovering bars wrapper.
+Current aggregator binding:
+- `latest_bars`
+- `latest_bars_grpc`
 
-If you want predicate-triggered streaming messages with mutable subscriptions,
-use messages WS. If you want reconnect plus subscription replay, use the
-recovering messages wrapper.
+What not to infer:
+- this is not a streaming surface
+- this is not a generic "newest thing written" fetch
+- this is not a substitute for historical range extraction
+
+### `range`
+
+This shape answers the question: what are the closed bars for this bounded
+historical interval?
+
+Use it when you need a concrete time window on a fixed grid, reproducible
+backfill, or paged historical extraction.
+
+Do not use it when your real question is "when did this become true?" or "what
+was the local context around those hits?"
+
+Current aggregator binding:
+- `range_bars`
+- `range_bars_grpc`
+
+What not to infer:
+- traversal is not automatic
+- a cursor is paging state, not a different query family
+- range is not a search surface
+
+### `search`
+
+This shape answers the question: at which stable closes did this condition
+become true?
+
+Use it when you need event discovery across a historical window and the
+predicate itself is the primary question.
+
+Do not use it when you need the full bounded dataset or when you already know
+the hit points and only want nearby context.
+
+Current aggregator binding:
+- `search_bars`
+- `search_bars_grpc`
+- `connect_messages_ws` for streaming predicate-triggered messages rather than
+  historical hit search
+
+What not to infer:
+- search is not a full history dump
+- search answers "when did this happen?", not "show me all bars"
+- min and full views may not imply byte-identical cursor encoding
+
+### `time-machine`
+
+This shape answers the question: what did the local context look like around
+those hit points?
+
+Use it when you already have hit timestamps, or when you want the system to
+find hits and then return bars before and after those moments.
+
+Do not use it as a general replacement for bounded range reads.
+
+Current aggregator binding:
+- `time_machine_bars`
+- `time_machine_bars_grpc`
+
+What not to infer:
+- this is a context surface, not a general-purpose history surface
+- it does not imply automatic traversal
+- it is not the first-pass event-discovery surface when `search` already fits
+
+### Bars WS
+
+This shape answers the question: how do I consume live bars for one fixed
+subscription set?
+
+Use it when you need a live bars stream and are willing to treat the
+subscription as immutable for the lifetime of the socket.
+
+Do not use it if you need in-band subscribe and unsubscribe changes on the same
+connection.
+
+Current aggregator binding:
+- `connect_bars_ws`
+- `connect_bars_ws_make_before_break`
+- `connect_bars_ws_recovering`
+
+What not to infer:
+- bars WS does not support in-band unsubscribe
+- changing the subscription set requires reconnect
+- managed recovery does not currently prove gap-free continuity
+
+### Messages WS
+
+This shape answers the question: how do I receive live predicate-triggered
+messages from mutable subscriptions?
+
+Use it when you want rule-based live notifications and connection-local
+subscribe and unsubscribe control.
+
+Do not use it as a bars stream or as a historical replay surface.
+
+Current aggregator binding:
+- `connect_messages_ws`
+- `connect_messages_ws_recovering`
+
+What not to infer:
+- messages WS is not the same model as bars WS
+- replay/backfill is not part of this surface
+- subscribe state is connection-local and must be re-established after
+  reconnect
 
 ## Examples
 
 ### Latest Bars
+
+This example answers the question: what is the current stable closed snapshot
+for these pairs?
 
 ```rust
 use mathilde_sdk_rs::systems::aggregator::{LatestBarsRequest, LatestBarsResponse};
@@ -236,6 +372,9 @@ match out {
 ```
 
 ### Range Bars
+
+This example answers the question: what are the closed bars for this bounded
+historical interval?
 
 ```rust
 use mathilde_sdk_rs::core::time::TimeInput;
@@ -303,6 +442,9 @@ if let Some(next_cursor) = next_cursor {
 
 ### Search Bars
 
+This example answers the question: at which stable closes did this predicate
+become true?
+
 ```rust
 use mathilde_sdk_rs::core::time::TimeInput;
 use mathilde_sdk_rs::systems::aggregator::{SearchBarsRequest, SearchBarsResponse};
@@ -335,6 +477,9 @@ match out {
 ```
 
 ### Time-Machine Bars
+
+This example answers the question: what did the local bars context look like
+around these hits?
 
 ```rust
 use mathilde_sdk_rs::core::time::TimeInput;
@@ -371,6 +516,9 @@ match out {
 ```
 
 ### Bars WS
+
+This example answers the question: how do I consume live bars for one fixed
+subscription set?
 
 ```rust
 use mathilde_sdk_rs::systems::aggregator::{
@@ -441,6 +589,9 @@ let _stream = client
 ```
 
 ### Messages WS
+
+This example answers the question: how do I receive live predicate-triggered
+messages from one mutable subscription set?
 
 ```rust
 use mathilde_sdk_rs::systems::aggregator::{

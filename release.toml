@@ -6,10 +6,10 @@ push = true
 push-remote = "origin"
 
 tag = true
-tag-name = "reg-v{{version}}"
-tag-message = "chore: Release reg-v{{version}}"
+tag-name = "msdk-v{{version}}"
+tag-message = "chore: Release msdk-v{{version}}"
 
-pre-release-commit-message = "chore: Release reg-v{{version}}"
+pre-release-commit-message = "chore: Release msdk-v{{version}}"
 
 sign-commit = false
 sign-tag = false

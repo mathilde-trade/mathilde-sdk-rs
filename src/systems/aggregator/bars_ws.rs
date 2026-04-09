@@ -3,7 +3,7 @@ use crate::core::time::TimeInput;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
 use crate::streaming::make_before_break::MakeBeforeBreakConfig;
 use crate::streaming::subscription::{ExponentialBackoffConfig, ReconnectBackoff};
-use crate::systems::aggregator::types::split_csv_pairs;
+use crate::systems::aggregator::types::normalize_pair_values;
 use crate::systems::aggregator::types::{Bar, BarWithMetadata};
 use crate::systems::types::Timeframe;
 use crate::transport::ws::WsTransport;
@@ -45,7 +45,7 @@ pub enum BarsWsPhase {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct BarsWsSubscribeRequest {
-    pub pairs: String,
+    pub pairs: Vec<String>,
     pub tfs: Vec<Timeframe>,
     pub metadata: Option<bool>,
     pub from_close: Option<TimeInput>,
@@ -154,7 +154,7 @@ impl BarsWsMetaFrame {
 
 impl BarsWsSubscribeRequest {
     pub fn normalize(&self) -> Result<NormalizedBarsWsSubscribeRequest, SdkError> {
-        let pairs = split_csv_pairs(&self.pairs);
+        let pairs = normalize_pair_values(&self.pairs);
         if pairs.is_empty() {
             return Err(SdkError::request_build(
                 "bars ws subscribe requires at least one pair",

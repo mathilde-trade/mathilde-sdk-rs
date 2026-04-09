@@ -380,7 +380,7 @@ async fn spawn_recovery_proxy(
 
 async fn observe_raw_bars_ws(client: &AggregatorClient, pair: &str) -> Result<String, SdkError> {
     let request = BarsWsSubscribeRequest {
-        pairs: pair.to_string(),
+        pairs: vec![pair.to_string()],
         tfs: vec![Timeframe::M1],
         metadata: Some(false),
         from_close: None,
@@ -539,7 +539,7 @@ async fn observe_recovering_bars_ws(
         spawn_recovery_proxy(upstream_ws_base_url, "/v1/ws/bars", is_bars_payload_message).await?;
     let client = build_client_with_ws_override(runtime, &proxy.local_base_url)?;
     let request = BarsWsSubscribeRequest {
-        pairs: pair.to_string(),
+        pairs: vec![pair.to_string()],
         tfs: vec![Timeframe::M1],
         metadata: Some(false),
         from_close: None,
@@ -1068,7 +1068,7 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
         .pairs_status(&PairsStatusRequest {
             after_pair: None,
             limit: Some(1),
-            pairs: Some(target_pair.clone()),
+            pairs: Some(vec![target_pair.clone()]),
             filters: Some(vec!["status".to_string(), "frontier".to_string()]),
         })
         .await
@@ -1087,7 +1087,7 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
     match client
         .files_downloads(&FilesDownloadsRequest {
             period: Some("day".to_string()),
-            pairs: target_pair.clone(),
+            pairs: vec![target_pair.clone()],
             tfs: vec!["1m".to_string()],
             start_label_utc: None,
             end_label_utc: None,
@@ -1120,7 +1120,7 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
     }
 
     let latest_http_min_request = LatestBarsRequest {
-        pairs: target_pair.clone(),
+        pairs: vec![target_pair.clone()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
         exclude_sources: None,
@@ -1177,7 +1177,7 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
         );
     } else {
         let range_min_request = RangeBarsRequest {
-            pairs: target_pair.clone(),
+            pairs: vec![target_pair.clone()],
             tf: Timeframe::M1,
             align_mode: Some(AlignMode::Exact),
             close_start: Some(TimeInput::Ms(anchor_close_ms - 10 * 60_000)),

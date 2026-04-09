@@ -116,7 +116,7 @@ fn proto_range_response_full() -> proto::BarsRangeResponseV1 {
 async fn test_range_bars_uses_post_and_normalizes_time_inputs_and_decodes_min_json() {
     let server = MockServer::start().await;
     let request = RangeBarsRequest {
-        pairs: "BTCUSDT,ETHUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: Some(AlignMode::Floor),
         close_start: Some("2026-02-02T00:00:00Z".into()),
@@ -197,7 +197,7 @@ async fn test_range_bars_uses_post_and_normalizes_time_inputs_and_decodes_min_js
 async fn test_range_bars_omitted_close_end_serializes_as_absent_and_decodes_full_json() {
     let server = MockServer::start().await;
     let request = RangeBarsRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: None,
         close_start: Some("2026-02-02:00:00".into()),
@@ -314,7 +314,7 @@ async fn test_range_bars_omitted_close_end_serializes_as_absent_and_decodes_full
 async fn test_range_bars_protobuf_decodes_min_response() {
     let server = MockServer::start().await;
     let request = RangeBarsRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: Some(AlignMode::Exact),
         close_start: Some(1770000000000_i64.into()),
@@ -359,7 +359,7 @@ async fn test_range_bars_protobuf_decodes_min_response() {
 async fn test_range_bars_protobuf_decodes_full_response() {
     let server = MockServer::start().await;
     let request = RangeBarsRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: Some(AlignMode::Exact),
         close_start: Some(1770000000000_i64.into()),
@@ -403,7 +403,7 @@ async fn test_range_bars_protobuf_decodes_full_response() {
 async fn test_range_bars_non_success_http_status_returns_typed_error() {
     let server = MockServer::start().await;
     let request = RangeBarsRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: None,
         close_start: Some(1770000000000_i64.into()),
@@ -443,7 +443,7 @@ async fn test_range_bars_non_success_http_status_returns_typed_error() {
 async fn test_range_bars_invalid_json_returns_decode_error() {
     let server = MockServer::start().await;
     let request = RangeBarsRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: None,
         close_start: Some(1770000000000_i64.into()),
@@ -481,7 +481,7 @@ async fn test_range_bars_invalid_json_returns_decode_error() {
 async fn test_range_bars_invalid_protobuf_returns_contract_drift() {
     let server = MockServer::start().await;
     let request = RangeBarsRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: None,
         close_start: Some(1770000000000_i64.into()),

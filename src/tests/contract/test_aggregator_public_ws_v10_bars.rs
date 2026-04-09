@@ -294,7 +294,7 @@ async fn test_connect_bars_ws_sends_auth_and_subscribe_and_decodes_json_min() {
     .expect("aggregator client");
 
     let request = BarsWsSubscribeRequest {
-        pairs: "BTCUSDT,ETHUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tfs: vec![Timeframe::M1],
         metadata: Some(false),
         from_close: None,
@@ -356,7 +356,7 @@ async fn test_connect_bars_ws_decodes_protobuf_full_rows() {
     let client = AggregatorClient::new(config_for_ws(&base_url, None)).expect("aggregator client");
 
     let request = BarsWsSubscribeRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tfs: vec![Timeframe::M1],
         metadata: Some(true),
         from_close: None,
@@ -393,7 +393,7 @@ async fn test_bars_ws_make_before_break_keeps_old_until_new_is_stable_then_swaps
     let transport = crate::transport::ws::WsTransport::new(ws_config, None);
 
     let old_request = BarsWsSubscribeRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tfs: vec![Timeframe::M1],
         metadata: Some(false),
         from_close: None,
@@ -401,7 +401,7 @@ async fn test_bars_ws_make_before_break_keeps_old_until_new_is_stable_then_swaps
         format: None,
     };
     let new_request = BarsWsSubscribeRequest {
-        pairs: "ETHUSDT".to_string(),
+        pairs: vec!["ETHUSDT".to_string()],
         tfs: vec![Timeframe::M1],
         metadata: Some(false),
         from_close: None,
@@ -431,7 +431,7 @@ async fn test_bars_ws_make_before_break_keeps_old_until_new_is_stable_then_swaps
         BarsWsInboundFrame::Meta(frame) => assert_eq!(frame.close_ms, Some(1)),
         other => panic!("expected old meta frame, got {other:?}"),
     }
-    assert_eq!(mbb.active_request().pairs, "BTCUSDT");
+    assert_eq!(mbb.active_request().pairs, vec!["BTCUSDT".to_string()]);
 
     sleep(Duration::from_millis(35)).await;
 
@@ -444,7 +444,7 @@ async fn test_bars_ws_make_before_break_keeps_old_until_new_is_stable_then_swaps
         BarsWsInboundFrame::Meta(frame) => assert_eq!(frame.close_ms, Some(2)),
         other => panic!("expected new meta frame, got {other:?}"),
     }
-    assert_eq!(mbb.active_request().pairs, "ETHUSDT");
+    assert_eq!(mbb.active_request().pairs, vec!["ETHUSDT".to_string()]);
 }
 
 #[tokio::test]
@@ -453,7 +453,7 @@ async fn test_connect_bars_ws_recovering_reconnects_with_same_request_after_clos
     let client = AggregatorClient::new(config_for_ws(&base_url, None)).expect("aggregator client");
 
     let request = BarsWsSubscribeRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tfs: vec![Timeframe::M1],
         metadata: Some(false),
         from_close: None,

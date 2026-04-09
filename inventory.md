@@ -1,6 +1,6 @@
 # `mathilde-sdk-rs` — Global Inventory (GENERATED; DO NOT EDIT)
 
-Generated: 2026-04-08T18:16:18Z
+Generated: 2026-04-09T11:22:19Z
 Protocol: `.dev/specs/SDK_INVENTORY_SYSTEM_SPEC_2026-04-08.md`
 
 This file is generated from per-component inventories under `crates/*/docs/inventory.md`, `services/*/docs/inventory.md`, and SDK module inventories under `src/*/docs/inventory.md`.
@@ -68,6 +68,7 @@ If a file purpose is missing in a component inventory, this file will mark it as
 - `src/systems/aggregator/mod.rs`: aggregator system module wiring and public exports.
 - `src/systems/aggregator/pairs.rs`: aggregator public pairs discovery and status bindings.
 - `src/systems/aggregator/types.rs`: aggregator-specific request, response, and WS frame types.
+- `src/systems/helpers.rs`: shared public collection helpers for system-facing request ergonomics.
 - `src/systems/mod.rs`: top-level system module wiring and exports.
 - `src/systems/types.rs`: shared cross-system public enums and wire-facing labels.
 
@@ -95,6 +96,7 @@ If a file purpose is missing in a component inventory, this file will mark it as
 - `src/tests/contract/test_aggregator_public_ws_v10_bars.rs`: contract tests for aggregator WS bars, make-before-break, and managed recovery.
 - `src/tests/contract/test_aggregator_public_ws_v11_messages.rs`: contract tests for aggregator WS messages and managed recovery.
 - `src/tests/contract/test_core_time.rs`: contract tests for shared time parsing and normalization.
+- `src/tests/contract/test_systems_helpers.rs`: contract tests for shared systems helper collectors.
 - `src/tests/contract/test_transport_grpc.rs`: contract tests for shared gRPC transport behavior.
 - `src/tests/integration/mod.rs`: integration-test module wiring placeholder.
 - `src/tests/mod.rs`: top-level SDK test module wiring.

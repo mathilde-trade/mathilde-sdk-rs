@@ -180,7 +180,7 @@ async fn test_docs_system_forms_correct_path_and_decodes_payload() {
 async fn test_latest_bars_uses_post_and_serializes_body_and_decodes_response() {
     let server = MockServer::start().await;
     let request = LatestBarsRequest {
-        pairs: "BTCUSDT,ETHUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
         exclude_sources: Some(vec![ExcludeSource::NoTradeFill, ExcludeSource::FixData]),
@@ -222,9 +222,18 @@ async fn test_latest_bars_uses_post_and_serializes_body_and_decodes_response() {
         "excluded_rows_by_source": [{"source": "no_trade_fill", "count": 1}]
     }));
 
+    let expected_body = serde_json::json!({
+        "pairs": "BTCUSDT,ETHUSDT",
+        "tf": "1m",
+        "latest_mode": "exact_watermark",
+        "exclude_sources": ["no_trade_fill", "fix-data"],
+        "metadata": false,
+        "format": "json"
+    });
+
     Mock::given(method("POST"))
         .and(path("/v1/bars/latest"))
-        .and(body_json(&request))
+        .and(body_json(expected_body))
         .respond_with(response)
         .mount(&server)
         .await;
@@ -252,7 +261,7 @@ async fn test_latest_bars_uses_post_and_serializes_body_and_decodes_response() {
 async fn test_latest_bars_metadata_true_decodes_full_response() {
     let server = MockServer::start().await;
     let request = LatestBarsRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
         exclude_sources: Some(vec![ExcludeSource::NoTradeFill]),
@@ -330,9 +339,18 @@ async fn test_latest_bars_metadata_true_decodes_full_response() {
             }"#,
         );
 
+    let expected_body = serde_json::json!({
+        "pairs": "BTCUSDT",
+        "tf": "1m",
+        "latest_mode": "exact_watermark",
+        "exclude_sources": ["no_trade_fill"],
+        "metadata": true,
+        "format": "json"
+    });
+
     Mock::given(method("POST"))
         .and(path("/v1/bars/latest"))
-        .and(body_json(&request))
+        .and(body_json(expected_body))
         .respond_with(response)
         .mount(&server)
         .await;
@@ -370,7 +388,7 @@ async fn test_latest_bars_metadata_true_decodes_full_response() {
 async fn test_latest_bars_omitted_format_still_uses_json_branch() {
     let server = MockServer::start().await;
     let request = LatestBarsRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
         exclude_sources: None,
@@ -390,9 +408,18 @@ async fn test_latest_bars_omitted_format_still_uses_json_branch() {
         "excluded_rows_by_source": []
     }));
 
+    let expected_body = serde_json::json!({
+        "pairs": "BTCUSDT",
+        "tf": "1m",
+        "latest_mode": "exact_watermark",
+        "exclude_sources": null,
+        "metadata": false,
+        "format": null
+    });
+
     Mock::given(method("POST"))
         .and(path("/v1/bars/latest"))
-        .and(body_json(&request))
+        .and(body_json(expected_body))
         .respond_with(response)
         .mount(&server)
         .await;
@@ -418,7 +445,7 @@ async fn test_latest_bars_omitted_format_still_uses_json_branch() {
 async fn test_latest_bars_format_protobuf_decodes_min_response() {
     let server = MockServer::start().await;
     let request = LatestBarsRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
         exclude_sources: Some(vec![ExcludeSource::NoTradeFill]),
@@ -428,9 +455,18 @@ async fn test_latest_bars_format_protobuf_decodes_min_response() {
 
     let body = proto_latest_response_min().encode_to_vec();
 
+    let expected_body = serde_json::json!({
+        "pairs": "BTCUSDT",
+        "tf": "1m",
+        "latest_mode": "exact_watermark",
+        "exclude_sources": ["no_trade_fill"],
+        "metadata": false,
+        "format": "protobuf"
+    });
+
     Mock::given(method("POST"))
         .and(path("/v1/bars/latest"))
-        .and(body_json(&request))
+        .and(body_json(expected_body))
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("content-type", "application/x-protobuf")
@@ -462,7 +498,7 @@ async fn test_latest_bars_format_protobuf_decodes_min_response() {
 async fn test_latest_bars_format_protobuf_decodes_full_response() {
     let server = MockServer::start().await;
     let request = LatestBarsRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
         exclude_sources: Some(vec![ExcludeSource::NoTradeFill]),
@@ -472,9 +508,18 @@ async fn test_latest_bars_format_protobuf_decodes_full_response() {
 
     let body = proto_latest_response_full().encode_to_vec();
 
+    let expected_body = serde_json::json!({
+        "pairs": "BTCUSDT",
+        "tf": "1m",
+        "latest_mode": "exact_watermark",
+        "exclude_sources": ["no_trade_fill"],
+        "metadata": true,
+        "format": "protobuf"
+    });
+
     Mock::given(method("POST"))
         .and(path("/v1/bars/latest"))
-        .and(body_json(&request))
+        .and(body_json(expected_body))
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("content-type", "application/x-protobuf")
@@ -507,7 +552,7 @@ async fn test_latest_bars_format_protobuf_decodes_full_response() {
 async fn test_latest_bars_invalid_protobuf_is_contract_drift() {
     let server = MockServer::start().await;
     let request = LatestBarsRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
         exclude_sources: None,
@@ -515,9 +560,18 @@ async fn test_latest_bars_invalid_protobuf_is_contract_drift() {
         format: Some(HttpFormat::Protobuf),
     };
 
+    let expected_body = serde_json::json!({
+        "pairs": "BTCUSDT",
+        "tf": "1m",
+        "latest_mode": "exact_watermark",
+        "exclude_sources": null,
+        "metadata": false,
+        "format": "protobuf"
+    });
+
     Mock::given(method("POST"))
         .and(path("/v1/bars/latest"))
-        .and(body_json(&request))
+        .and(body_json(expected_body))
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("content-type", "application/x-protobuf")

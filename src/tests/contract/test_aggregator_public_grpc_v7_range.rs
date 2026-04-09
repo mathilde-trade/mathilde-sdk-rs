@@ -253,7 +253,7 @@ async fn test_range_bars_grpc_tail_mode_uses_unary_path_and_decodes_min_response
     let token = BearerToken::new("feed_public_token").expect("valid token");
     let client = AggregatorClient::new(config_for_grpc(&base_url, Some(token))).expect("client");
     let request = RangeBarsGrpcRequest {
-        pairs: "BTCUSDT,ETHUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: None,
         close_start: None,
@@ -313,7 +313,7 @@ async fn test_range_bars_grpc_explicit_window_decodes_full_response() {
 
     let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
     let request = RangeBarsGrpcRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: Some(AlignMode::Exact),
         close_start: Some(1770000000000_i64.into()),
@@ -360,7 +360,7 @@ async fn test_range_bars_grpc_missing_grpc_config_is_typed_error() {
     .expect("client");
 
     let request = RangeBarsGrpcRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: None,
         close_start: None,
@@ -392,7 +392,7 @@ async fn test_range_bars_grpc_non_ok_status_is_typed_error() {
 
     let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
     let request = RangeBarsGrpcRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: None,
         close_start: None,

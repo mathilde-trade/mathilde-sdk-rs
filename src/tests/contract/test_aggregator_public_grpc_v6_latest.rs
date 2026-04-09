@@ -257,15 +257,13 @@ async fn spawn_latest_grpc_server(
 
 #[tokio::test]
 async fn test_latest_bars_grpc_uses_unary_path_and_decodes_min_response() {
-    let (base_url, captured_rx) = spawn_latest_grpc_server(GrpcUnaryReply::Success(
-        proto_latest_response_min(),
-    ))
-    .await;
+    let (base_url, captured_rx) =
+        spawn_latest_grpc_server(GrpcUnaryReply::Success(proto_latest_response_min())).await;
 
     let token = BearerToken::new("feed_public_token").expect("valid token");
     let client = AggregatorClient::new(config_for_grpc(&base_url, Some(token))).expect("client");
     let request = LatestBarsGrpcRequest {
-        pairs: "BTCUSDT,ETHUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
         exclude_sources: Some(vec![ExcludeSource::NoTradeFill, ExcludeSource::FixData]),
@@ -311,14 +309,12 @@ async fn test_latest_bars_grpc_uses_unary_path_and_decodes_min_response() {
 
 #[tokio::test]
 async fn test_latest_bars_grpc_decodes_full_response() {
-    let (base_url, _) = spawn_latest_grpc_server(GrpcUnaryReply::Success(
-        proto_latest_response_full(),
-    ))
-    .await;
+    let (base_url, _) =
+        spawn_latest_grpc_server(GrpcUnaryReply::Success(proto_latest_response_full())).await;
 
     let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
     let request = LatestBarsGrpcRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
         exclude_sources: Some(vec![ExcludeSource::NoTradeFill]),
@@ -354,7 +350,7 @@ async fn test_latest_bars_grpc_missing_grpc_config_is_typed_error() {
     .expect("client");
 
     let request = LatestBarsGrpcRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
         exclude_sources: None,
@@ -382,7 +378,7 @@ async fn test_latest_bars_grpc_non_ok_status_is_typed_error() {
 
     let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
     let request = LatestBarsGrpcRequest {
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
         exclude_sources: None,

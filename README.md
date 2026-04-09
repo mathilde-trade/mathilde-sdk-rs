@@ -6,6 +6,8 @@ transport behavior explicit, and does not hide unproved convenience semantics.
 MATHILDE measures, not predicts, and this SDK is a public client-contract
 layer, not an opinion or trading layer.
 
+> This SDK is the official public contract binding. It prioritizes semantic fidelity and explicit behavior over convenience abstraction. Users who want higher-level ergonomic or opinionated workflows are free to build additional wrappers on top.
+
 ## Index
 
 - [What This Is](#what-this-is)
@@ -424,10 +426,12 @@ Do not use it when you need a historical interval, predicate hit discovery, or
 context around hits.
 
 Current aggregator binding:
+
 - `latest_bars`
 - `latest_bars_grpc`
 
 What not to infer:
+
 - this is not a streaming surface
 - this is not a generic "newest thing written" fetch
 - this is not a substitute for historical range extraction
@@ -444,10 +448,12 @@ Do not use it when your real question is "when did this become true?" or "what
 was the local context around those hits?"
 
 Current aggregator binding:
+
 - `range_bars`
 - `range_bars_grpc`
 
 What not to infer:
+
 - traversal is not automatic
 - a cursor is paging state, not a different query family
 - range is not a search surface
@@ -464,6 +470,7 @@ Here the predicate is the contract center. You provide a boolean condition on
 stable bars, and the surface tells you which closes satisfied it.
 
 Typical predicate examples are:
+
 - `BTCUSDT.close > BTCUSDT.open`
 - `BTCUSDT.close > ETHUSDT.close * 1.02`
 - `BTCUSDT.coverage_ratio >= 0.99 && BTCUSDT.expected_1m_count >= 60`
@@ -472,12 +479,14 @@ Do not use it when you need the full bounded dataset or when you already know
 the hit points and only want nearby context.
 
 Current aggregator binding:
+
 - `search_bars`
 - `search_bars_grpc`
 - `connect_messages_ws` for streaming predicate-triggered messages rather than
   historical hit search
 
 What not to infer:
+
 - search is not a full history dump
 - search answers "when did this happen?", not "show me all bars"
 - min and full views may not imply byte-identical cursor encoding
@@ -497,16 +506,19 @@ This family supports two modes:
   before returning context around them
 
 That means time-machine can answer both:
+
 - "show me context around these known hit points"
 - "find where this became true, then show me the nearby bars"
 
 Do not use it as a general replacement for bounded range reads.
 
 Current aggregator binding:
+
 - `time_machine_bars`
 - `time_machine_bars_grpc`
 
 What not to infer:
+
 - this is a context surface, not a general-purpose history surface
 - it does not imply automatic traversal
 - it is not the first-pass event-discovery surface when `search` already fits
@@ -523,11 +535,13 @@ Do not use it if you need in-band subscribe and unsubscribe changes on the same
 connection.
 
 Current aggregator binding:
+
 - `connect_bars_ws`
 - `connect_bars_ws_make_before_break`
 - `connect_bars_ws_recovering`
 
 What not to infer:
+
 - bars WS does not support in-band unsubscribe
 - changing the subscription set requires reconnect
 - managed recovery does not currently prove gap-free continuity
@@ -547,10 +561,12 @@ errors for the active subscription set.
 Do not use it as a bars stream or as a historical replay surface.
 
 Current aggregator binding:
+
 - `connect_messages_ws`
 - `connect_messages_ws_recovering`
 
 What not to infer:
+
 - messages WS is not the same model as bars WS
 - replay/backfill is not part of this surface
 - subscribe state is connection-local and must be re-established after

@@ -85,6 +85,22 @@ pub struct BarsWsErrorFrame {
     pub error: String,
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+struct BarsWsJsonMinRow {
+    #[serde(flatten)]
+    bar: Bar,
+    #[serde(default)]
+    _age_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct BarsWsJsonFullRow {
+    #[serde(flatten)]
+    bar: BarWithMetadata,
+    #[serde(default)]
+    _age_ms: Option<i64>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum BarsWsInboundFrame {
     Meta(BarsWsMetaFrame),
@@ -406,15 +422,23 @@ fn decode_text_frame(
     }
 
     if request.metadata.unwrap_or(false) {
-        let rows = serde_json::from_str::<Vec<BarWithMetadata>>(text).map_err(|source| {
+        let rows = serde_json::from_str::<Vec<BarsWsJsonFullRow>>(text)
+            .map_err(|source| {
             SdkError::contract_drift(format!("bars ws full JSON rows decode failed: {source}"))
-        })?;
+        })?
+            .into_iter()
+            .map(|row| row.bar)
+            .collect();
         return Ok(BarsWsInboundFrame::JsonRowsFull(rows));
     }
 
-    let rows = serde_json::from_str::<Vec<Bar>>(text).map_err(|source| {
+    let rows = serde_json::from_str::<Vec<BarsWsJsonMinRow>>(text)
+        .map_err(|source| {
         SdkError::contract_drift(format!("bars ws min JSON rows decode failed: {source}"))
-    })?;
+    })?
+        .into_iter()
+        .map(|row| row.bar)
+        .collect();
     Ok(BarsWsInboundFrame::JsonRowsMin(rows))
 }
 

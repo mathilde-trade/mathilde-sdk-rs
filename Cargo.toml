@@ -3,6 +3,10 @@ name = "mathilde-sdk-rs"
 version = "0.0.1"
 edition = "2024"
 
+[[bin]]
+name = "sdk_live_public_surface_check"
+path = "bin/sdk_live_public_surface_check.rs"
+
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 futures-util = "0.3"

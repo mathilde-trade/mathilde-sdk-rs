@@ -59,14 +59,85 @@ does not claim it.
 
 The current implemented public surface is the `aggregator` feed client.
 
-### Documentation And Discovery
+### Docs Pages
 
-This family covers public documentation and discovery reads. It includes
-top-level docs pages, the public OpenAPI document, pair status and pair lists,
-and file-download discovery.
+What it is:
+Public authored documentation reads for the current public `aggregator`
+surface.
 
-Use this family when the question is about what the public system exposes,
-which pairs are available, or which public files can be fetched.
+When to use it:
+Use docs pages when the question is about subsystem explanation, theme-level
+interpretation, or endpoint-family overview before integration. The current
+public docs surfaces are:
+
+- `docs_system` for the canonical public system document
+- `docs_themes` for the compiled public themes corpus
+- `docs_endpoints` for the public machine-first endpoint selection guide
+
+When not to use it:
+Do not use docs pages as the exact schema authority when you need the wire
+contract itself.
+
+### OpenAPI
+
+What it is:
+The public OpenAPI document for the current HTTP surface.
+
+When to use it:
+Use OpenAPI when the question is about the exact route, body, parameter, and
+response schema contract. This is the schema authority for the public HTTP
+surface, not just a convenience document mirror.
+
+When not to use it:
+Do not treat it as the main conceptual explanation of why a surface exists or
+which question shape it answers.
+
+### Pair Status
+
+What it is:
+The public pair-readiness and pair-state discovery surface with nested status
+blocks.
+
+When to use it:
+Use pair status when the question is which pairs are available, ready, or
+currently visible through the public feed state. This is the richer pair-state
+surface when you need runtime state, history, frontier, counts, readiness, or
+coverage rather than just names.
+
+When not to use it:
+Do not use pair status as a historical bars read or as a substitute for pair
+list enumeration when you only need names.
+
+### Pair List
+
+What it is:
+A lightweight public pair catalogue surface.
+
+When to use it:
+Use pair list when the question is simply which public pairs exist for the
+current surface and you want a lighter paginated catalogue rather than the
+full nested pair-state view.
+
+When not to use it:
+Do not use pair list when you need richer pair-state details or bars data.
+
+### File Downloads
+
+What it is:
+The public batch download request surface for exported parquet files across one
+or more pairs and timeframes.
+
+When to use it:
+Use file downloads when the task is export-oriented retrieval and you want one
+unified flat list of signed download URLs instead of calling internal file
+discovery and URL endpoints separately. The public surface here is
+`files_downloads`, which returns signed URLs and `expires_at_utc`, not file
+bytes.
+
+When not to use it:
+Do not use file downloads as a substitute for direct bars querying or pair
+state inspection. Do not assume the full internal files family is public
+through this SDK surface.
 
 ### `latest`
 

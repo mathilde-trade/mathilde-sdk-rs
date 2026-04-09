@@ -15,13 +15,14 @@ pub async fn latest_bars(
     transport: &HttpTransport,
     request_body: &LatestBarsRequest,
 ) -> Result<LatestBarsResponse, SdkError> {
+    let normalized_request = request_body.normalize()?;
     let request = transport
         .request(Method::POST, "/v1/bars/latest")?
-        .json(request_body);
+        .json(&normalized_request);
     let response = transport.execute(request).await?;
     let response = transport.ensure_success(response).await?;
 
-    if matches!(request_body.format, Some(HttpFormat::Protobuf)) {
+    if matches!(normalized_request.format, Some(HttpFormat::Protobuf)) {
         let body = response
             .bytes()
             .await

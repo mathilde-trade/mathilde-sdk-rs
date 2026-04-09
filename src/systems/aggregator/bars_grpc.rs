@@ -22,7 +22,7 @@ pub async fn latest_bars_grpc(
     let codec = ProstCodec::default();
     let mut grpc = Grpc::new(transport.channel());
     grpc.ready().await.map_err(SdkError::grpc_transport)?;
-    let request = transport.apply_bearer(tonic::Request::new(request.to_proto()))?;
+    let request = transport.apply_bearer(tonic::Request::new(request.to_proto()?))?;
 
     let response = grpc
         .unary(request, path, codec)

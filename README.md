@@ -141,7 +141,7 @@ Do not use file downloads as a substitute for direct bars querying or pair
 state inspection. Do not assume the full internal files family is public
 through this SDK surface.
 
-### `latest`
+### Latest
 
 What it is:
 The current stable closed snapshot for one or more pairs on one timeframe.
@@ -154,7 +154,7 @@ When not to use it:
 Do not use it for bounded history, predicate-first discovery, or local context
 around hits.
 
-### `range`
+### Range
 
 What it is:
 A bounded historical interval of closed bars on a fixed grid.
@@ -167,7 +167,7 @@ When not to use it:
 Do not use it when the real question is "when did this condition become true?"
 or "what happened around these hits?"
 
-### `search`
+### Search
 
 What it is:
 A predicate-first discovery surface over stable historical bars.
@@ -179,7 +179,7 @@ become true?"
 When not to use it:
 Do not use it as a full history dump or as a context-window replay surface.
 
-### `time-machine`
+### Time machine
 
 What it is:
 A context surface that returns bars before and after selected hit points.
@@ -238,10 +238,31 @@ HTTP and gRPC request shapes stay aligned where possible. The main default
 difference is that HTTP request structs may expose `format`, while gRPC does
 not.
 
-Bars-family pair lists use CSV strings:
+For pair-set request fields, the SDK also exposes one small shared collector:
 
 ```rust
-pairs: "BTCUSDT,ETHUSDT".to_string()
+use mathilde_sdk_rs::systems::helpers::pairs;
+```
+
+Use it when you want to construct `Vec<String>` pair sets without spelling
+`.to_string()` on every element yourself. It is only a collector. It does not
+parse CSV, trim whitespace, deduplicate, or validate emptiness.
+
+Both forms are valid at the public request boundary:
+
+- helper form for shorter call sites
+- direct `Vec<String>` construction when you want the shape to stay fully explicit
+
+Helper form:
+
+```rust
+pairs: pairs(["BTCUSDT", "ETHUSDT"])
+```
+
+Direct vector form:
+
+```rust
+pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()]
 ```
 
 Mixed UTC-string and millisecond inputs use `TimeInput`:
@@ -369,6 +390,7 @@ place to start:
 use mathilde_sdk_rs::core::auth::BearerToken;
 use mathilde_sdk_rs::core::config::{AggregatorConfig, HttpTransportConfig};
 use mathilde_sdk_rs::systems::aggregator::{AggregatorClient, LatestBarsRequest, LatestBarsResponse};
+use mathilde_sdk_rs::systems::helpers::pairs;
 use mathilde_sdk_rs::systems::types::{HttpFormat, LatestMode, Timeframe};
 
 let client = AggregatorClient::new(AggregatorConfig {
@@ -380,7 +402,7 @@ let client = AggregatorClient::new(AggregatorConfig {
 
 let out = client
     .latest_bars(&LatestBarsRequest {
-        pairs: "BTCUSDT,ETHUSDT".to_string(),
+        pairs: pairs(["BTCUSDT", "ETHUSDT"]),
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
         exclude_sources: None,
@@ -585,7 +607,7 @@ use mathilde_sdk_rs::systems::types::{HttpFormat, LatestMode, Timeframe};
 
 let out = client
     .latest_bars(&LatestBarsRequest {
-        pairs: "BTCUSDT,ETHUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
         exclude_sources: None,
@@ -612,11 +634,12 @@ historical interval?
 ```rust
 use mathilde_sdk_rs::core::time::TimeInput;
 use mathilde_sdk_rs::systems::aggregator::{RangeBarsRequest, RangeBarsResponse};
+use mathilde_sdk_rs::systems::helpers::pairs;
 use mathilde_sdk_rs::systems::types::{AlignMode, HttpFormat, Timeframe};
 
 let out = client
     .range_bars(&RangeBarsRequest {
-        pairs: "BTCUSDT,ETHUSDT".to_string(),
+        pairs: pairs(["BTCUSDT", "ETHUSDT"]),
         tf: Timeframe::M1,
         align_mode: Some(AlignMode::Exact),
         close_start: Some(TimeInput::Utc("2026-02-02T00:00:00Z".to_string())),
@@ -644,10 +667,11 @@ Manual cursor continuation remains explicit:
 ```rust
 use mathilde_sdk_rs::core::time::TimeInput;
 use mathilde_sdk_rs::systems::aggregator::{RangeBarsRequest, RangeBarsResponse};
+use mathilde_sdk_rs::systems::helpers::pairs;
 use mathilde_sdk_rs::systems::types::{AlignMode, HttpFormat, Timeframe};
 
 let mut request = RangeBarsRequest {
-    pairs: "BTCUSDT".to_string(),
+    pairs: pairs(["BTCUSDT"]),
     tf: Timeframe::M1,
     align_mode: Some(AlignMode::Exact),
     close_start: Some(TimeInput::Utc("2026-02-02T00:00:00Z".to_string())),
@@ -760,7 +784,7 @@ use mathilde_sdk_rs::systems::aggregator::{
 use mathilde_sdk_rs::systems::types::Timeframe;
 
 let request = BarsWsSubscribeRequest {
-    pairs: "BTCUSDT,ETHUSDT".to_string(),
+    pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
     tfs: vec![Timeframe::M1],
     metadata: Some(false),
     from_close: None,
@@ -795,10 +819,11 @@ If you need reconnect on disconnect, use the recovering wrapper explicitly:
 use std::time::Duration;
 use mathilde_sdk_rs::streaming::subscription::ExponentialBackoffConfig;
 use mathilde_sdk_rs::systems::aggregator::BarsWsSubscribeRequest;
+use mathilde_sdk_rs::systems::helpers::pairs;
 use mathilde_sdk_rs::systems::types::Timeframe;
 
 let request = BarsWsSubscribeRequest {
-    pairs: "BTCUSDT".to_string(),
+    pairs: pairs(["BTCUSDT"]),
     tfs: vec![Timeframe::M1],
     metadata: Some(false),
     from_close: None,

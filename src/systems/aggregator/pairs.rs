@@ -1,22 +1,13 @@
 use crate::core::error::SdkError;
 use crate::systems::aggregator::types::{
+    join_optional_pair_values_csv,
     PairsListRequest, PairsListResponse, PairsStatusRequest, PairsStatusResponse,
 };
 use crate::transport::http::HttpTransport;
 use reqwest::Method;
 
-fn csv_string_param(value: Option<&str>) -> Option<String> {
-    let joined = value?
-        .split(',')
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .collect::<Vec<_>>()
-        .join(",");
-    if joined.is_empty() {
-        None
-    } else {
-        Some(joined)
-    }
+fn csv_string_param(values: Option<&[String]>) -> Option<String> {
+    join_optional_pair_values_csv(values)
 }
 
 fn csv_vec_param(values: Option<&[String]>) -> Option<String> {

@@ -34,7 +34,7 @@ pub struct PublicDocWithIndexResponse {
 pub struct PairsStatusRequest {
     pub after_pair: Option<String>,
     pub limit: Option<i64>,
-    pub pairs: Option<String>,
+    pub pairs: Option<Vec<String>>,
     pub filters: Option<Vec<String>>,
 }
 
@@ -164,7 +164,7 @@ pub type PublicOpenApiDocument = serde_json::Value;
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct FilesDownloadsRequest {
     pub period: Option<String>,
-    pub pairs: String,
+    pub pairs: Vec<String>,
     pub tfs: Vec<String>,
     pub start_label_utc: Option<String>,
     pub end_label_utc: Option<String>,
@@ -188,6 +188,16 @@ pub struct FilesDownloadsResponse {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct LatestBarsRequest {
+    pub pairs: Vec<String>,
+    pub tf: Timeframe,
+    pub latest_mode: LatestMode,
+    pub exclude_sources: Option<Vec<ExcludeSource>>,
+    pub metadata: Option<bool>,
+    pub format: Option<HttpFormat>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct NormalizedLatestBarsRequest {
     pub pairs: String,
     pub tf: Timeframe,
     pub latest_mode: LatestMode,
@@ -198,18 +208,31 @@ pub struct LatestBarsRequest {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct LatestBarsGrpcRequest {
-    pub pairs: String,
+    pub pairs: Vec<String>,
     pub tf: Timeframe,
     pub latest_mode: LatestMode,
     pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
 }
 
+impl LatestBarsRequest {
+    pub fn normalize(&self) -> Result<NormalizedLatestBarsRequest, SdkError> {
+        Ok(NormalizedLatestBarsRequest {
+            pairs: join_required_pair_values_csv(&self.pairs, "latest bars")?,
+            tf: self.tf,
+            latest_mode: self.latest_mode,
+            exclude_sources: self.exclude_sources.clone(),
+            metadata: self.metadata,
+            format: self.format,
+        })
+    }
+}
+
 impl LatestBarsGrpcRequest {
     #[allow(dead_code)]
-    pub(crate) fn to_proto(&self) -> proto::LatestBarsRequestV1 {
-        proto::LatestBarsRequestV1 {
-            pairs: split_csv_pairs(&self.pairs),
+    pub(crate) fn to_proto(&self) -> Result<proto::LatestBarsRequestV1, SdkError> {
+        Ok(proto::LatestBarsRequestV1 {
+            pairs: normalize_required_pair_values(&self.pairs, "latest bars")?,
             tf: self.tf.as_str().to_string(),
             latest_mode: self.latest_mode.as_str().to_string(),
             exclude_sources: self
@@ -220,7 +243,7 @@ impl LatestBarsGrpcRequest {
                 .map(|source| source.as_str().to_string())
                 .collect(),
             metadata: self.metadata.unwrap_or(false),
-        }
+        })
     }
 }
 
@@ -238,7 +261,7 @@ impl From<&LatestBarsRequest> for LatestBarsGrpcRequest {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct RangeBarsRequest {
-    pub pairs: String,
+    pub pairs: Vec<String>,
     pub tf: Timeframe,
     pub align_mode: Option<AlignMode>,
     pub close_start: Option<TimeInput>,
@@ -252,7 +275,7 @@ pub struct RangeBarsRequest {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct RangeBarsGrpcRequest {
-    pub pairs: String,
+    pub pairs: Vec<String>,
     pub tf: Timeframe,
     pub align_mode: Option<AlignMode>,
     pub close_start: Option<TimeInput>,
@@ -281,7 +304,7 @@ pub struct NormalizedRangeBarsRequest {
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
 pub struct NormalizedRangeBarsGrpcRequest {
-    pub pairs: String,
+    pub pairs: Vec<String>,
     pub tf: Timeframe,
     pub align_mode: Option<AlignMode>,
     pub close_start_ms: i64,
@@ -295,7 +318,7 @@ pub struct NormalizedRangeBarsGrpcRequest {
 impl RangeBarsRequest {
     pub fn normalize(&self) -> Result<NormalizedRangeBarsRequest, SdkError> {
         Ok(NormalizedRangeBarsRequest {
-            pairs: self.pairs.clone(),
+            pairs: join_required_pair_values_csv(&self.pairs, "range bars")?,
             tf: self.tf,
             align_mode: self.align_mode,
             close_start_ms: self
@@ -321,7 +344,7 @@ impl RangeBarsGrpcRequest {
     #[allow(dead_code)]
     pub(crate) fn normalize(&self) -> Result<NormalizedRangeBarsGrpcRequest, SdkError> {
         Ok(NormalizedRangeBarsGrpcRequest {
-            pairs: self.pairs.clone(),
+            pairs: normalize_required_pair_values(&self.pairs, "range bars")?,
             tf: self.tf,
             align_mode: self.align_mode,
             close_start_ms: self
@@ -347,7 +370,7 @@ impl RangeBarsGrpcRequest {
     pub(crate) fn to_proto(&self) -> Result<proto::RangeBarsRequestV1, SdkError> {
         let normalized = self.normalize()?;
         Ok(proto::RangeBarsRequestV1 {
-            pairs: split_csv_pairs(&normalized.pairs),
+            pairs: normalize_pair_values(&normalized.pairs),
             tf: normalized.tf.as_str().to_string(),
             close_end_ms: normalized.close_end_ms,
             cursor: normalized.cursor,
@@ -1154,12 +1177,42 @@ impl ExcludedSourceCount {
     }
 }
 
-pub(crate) fn split_csv_pairs(raw: &str) -> Vec<String> {
-    raw.split(',')
-        .map(str::trim)
+pub(crate) fn normalize_pair_values(values: &[String]) -> Vec<String> {
+    values
+        .iter()
+        .map(|value| value.trim())
         .filter(|pair| !pair.is_empty())
         .map(ToOwned::to_owned)
         .collect()
+}
+
+pub(crate) fn normalize_required_pair_values(
+    values: &[String],
+    context: &'static str,
+) -> Result<Vec<String>, SdkError> {
+    let normalized = normalize_pair_values(values);
+    if normalized.is_empty() {
+        return Err(SdkError::request_build(format!(
+            "{context} requires at least one pair"
+        )));
+    }
+    Ok(normalized)
+}
+
+pub(crate) fn join_required_pair_values_csv(
+    values: &[String],
+    context: &'static str,
+) -> Result<String, SdkError> {
+    Ok(normalize_required_pair_values(values, context)?.join(","))
+}
+
+pub(crate) fn join_optional_pair_values_csv(values: Option<&[String]>) -> Option<String> {
+    let joined = normalize_pair_values(values?).join(",");
+    if joined.is_empty() {
+        None
+    } else {
+        Some(joined)
+    }
 }
 
 impl LatestBarsPresentRow {

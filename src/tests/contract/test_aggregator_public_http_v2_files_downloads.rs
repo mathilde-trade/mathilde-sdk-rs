@@ -18,7 +18,7 @@ async fn test_files_downloads_uses_post_and_serializes_body_and_decodes_response
     let server = MockServer::start().await;
     let request = FilesDownloadsRequest {
         period: Some("day".to_string()),
-        pairs: "BTCUSDT,ETHUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tfs: vec!["1m".to_string(), "5m".to_string()],
         start_label_utc: Some("2026-02-20".to_string()),
         end_label_utc: Some("2026-02-21".to_string()),
@@ -80,7 +80,7 @@ async fn test_files_downloads_non_success_http_status_is_typed_error() {
     let server = MockServer::start().await;
     let request = FilesDownloadsRequest {
         period: Some("day".to_string()),
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tfs: vec!["1m".to_string()],
         start_label_utc: None,
         end_label_utc: None,
@@ -116,7 +116,7 @@ async fn test_files_downloads_invalid_json_is_decode_error() {
     let server = MockServer::start().await;
     let request = FilesDownloadsRequest {
         period: Some("day".to_string()),
-        pairs: "BTCUSDT".to_string(),
+        pairs: vec!["BTCUSDT".to_string()],
         tfs: vec!["1m".to_string()],
         start_label_utc: None,
         end_label_utc: None,

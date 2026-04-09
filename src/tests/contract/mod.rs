@@ -11,4 +11,5 @@ mod test_aggregator_public_grpc_v9_time_machine;
 mod test_aggregator_public_ws_v10_bars;
 mod test_aggregator_public_ws_v11_messages;
 mod test_core_time;
+mod test_systems_helpers;
 mod test_transport_grpc;

@@ -28,5 +28,6 @@ currently exist for `src/tests`.
 - `src/tests/contract/test_aggregator_public_ws_v10_bars.rs`: contract tests for aggregator WS bars, make-before-break, and managed recovery.
 - `src/tests/contract/test_aggregator_public_ws_v11_messages.rs`: contract tests for aggregator WS messages and managed recovery.
 - `src/tests/contract/test_core_time.rs`: contract tests for shared time parsing and normalization.
+- `src/tests/contract/test_systems_helpers.rs`: contract tests for shared systems helper collectors.
 - `src/tests/contract/test_transport_grpc.rs`: contract tests for shared gRPC transport behavior.
 - `src/tests/integration/mod.rs`: integration-test module wiring placeholder.

@@ -78,7 +78,7 @@ async fn test_pairs_status_serializes_csv_query_and_decodes_nested_blocks() {
     let request = PairsStatusRequest {
         after_pair: Some("BTCUSDT".to_string()),
         limit: Some(10),
-        pairs: Some("BTCUSDT,ETHUSDT".to_string()),
+        pairs: Some(vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()]),
         filters: Some(vec!["status".to_string(), "frontier".to_string()]),
     };
 

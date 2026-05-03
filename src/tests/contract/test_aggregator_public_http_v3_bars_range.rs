@@ -2,7 +2,7 @@ use crate::core::config::{AggregatorConfig, HttpTransportConfig};
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
 use crate::systems::aggregator::{AggregatorClient, RangeBarsRequest, RangeBarsResponse};
-use crate::systems::types::{AlignMode, ExcludeSource, HttpFormat, Timeframe};
+use crate::systems::types::{AlignMode, HttpFormat, Timeframe};
 use prost::Message;
 use wiremock::matchers::{body_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -88,12 +88,6 @@ fn proto_range_response_min() -> proto::BarsRangeResponseV1 {
     proto::BarsRangeResponseV1 {
         rows: vec![proto_bar_min("BTCUSDT")],
         next_cursor: Some("cursor-1".to_string()),
-        excluded_sources: vec!["no_trade_fill".to_string()],
-        excluded_rows_total: Some(1),
-        excluded_rows_by_source: vec![proto::ExcludedSourceCountV1 {
-            source: "no_trade_fill".to_string(),
-            count: 1,
-        }],
         close_end_ms: 1770003600000,
     }
 }
@@ -105,9 +99,6 @@ fn proto_range_response_full() -> proto::BarsRangeResponseV1 {
     proto::BarsRangeResponseV1 {
         rows: vec![bar],
         next_cursor: None,
-        excluded_sources: vec!["no_trade_fill".to_string()],
-        excluded_rows_total: Some(0),
-        excluded_rows_by_source: vec![],
         close_end_ms: 1770003600000,
     }
 }
@@ -123,7 +114,6 @@ async fn test_range_bars_uses_post_and_normalizes_time_inputs_and_decodes_min_js
         cursor: None,
         close_end: Some(1770003600000_i64.into()),
         limit: Some(1000),
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill, ExcludeSource::FixData]),
         metadata: Some(false),
         format: Some(HttpFormat::Json),
     };
@@ -136,7 +126,6 @@ async fn test_range_bars_uses_post_and_normalizes_time_inputs_and_decodes_min_js
         "cursor": null,
         "close_end_ms": 1770003600000i64,
         "limit": 1000,
-        "exclude_sources": ["no_trade_fill", "fix-data"],
         "metadata": false,
         "format": "json"
     });
@@ -165,10 +154,7 @@ async fn test_range_bars_uses_post_and_normalizes_time_inputs_and_decodes_min_js
             "n": null
         }],
         "close_end_ms": 1770003600000i64,
-        "next_cursor": "cursor-1",
-        "excluded_sources": ["no_trade_fill", "fix-data"],
-        "excluded_rows_total": 1,
-        "excluded_rows_by_source": [{"source": "no_trade_fill", "count": 1}]
+        "next_cursor": "cursor-1"
     }));
 
     Mock::given(method("POST"))
@@ -204,7 +190,6 @@ async fn test_range_bars_omitted_close_end_serializes_as_absent_and_decodes_full
         cursor: None,
         close_end: None,
         limit: Some(10),
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill]),
         metadata: Some(true),
         format: Some(HttpFormat::Json),
     };
@@ -217,7 +202,6 @@ async fn test_range_bars_omitted_close_end_serializes_as_absent_and_decodes_full
         "cursor": null,
         "close_end_ms": null,
         "limit": 10,
-        "exclude_sources": ["no_trade_fill"],
         "metadata": true,
         "format": "json"
     });
@@ -281,10 +265,7 @@ async fn test_range_bars_omitted_close_end_serializes_as_absent_and_decodes_full
                     }
                 }],
                 "close_end_ms": 1770003600000,
-                "next_cursor": null,
-                "excluded_sources": ["no_trade_fill"],
-                "excluded_rows_total": 0,
-                "excluded_rows_by_source": []
+                "next_cursor": null
             }"#,
         );
 
@@ -321,7 +302,6 @@ async fn test_range_bars_protobuf_decodes_min_response() {
         cursor: Some("cursor-1".to_string()),
         close_end: Some(1770003600000_i64.into()),
         limit: Some(100),
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill]),
         metadata: Some(false),
         format: Some(HttpFormat::Protobuf),
     };
@@ -366,7 +346,6 @@ async fn test_range_bars_protobuf_decodes_full_response() {
         cursor: None,
         close_end: Some(1770003600000_i64.into()),
         limit: Some(100),
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill]),
         metadata: Some(true),
         format: Some(HttpFormat::Protobuf),
     };
@@ -410,7 +389,6 @@ async fn test_range_bars_non_success_http_status_returns_typed_error() {
         cursor: None,
         close_end: Some(1770003600000_i64.into()),
         limit: Some(10),
-        exclude_sources: None,
         metadata: Some(false),
         format: Some(HttpFormat::Json),
     };
@@ -450,7 +428,6 @@ async fn test_range_bars_invalid_json_returns_decode_error() {
         cursor: None,
         close_end: Some(1770003600000_i64.into()),
         limit: Some(10),
-        exclude_sources: None,
         metadata: Some(false),
         format: Some(HttpFormat::Json),
     };
@@ -488,7 +465,6 @@ async fn test_range_bars_invalid_protobuf_returns_contract_drift() {
         cursor: None,
         close_end: Some(1770003600000_i64.into()),
         limit: Some(10),
-        exclude_sources: None,
         metadata: Some(false),
         format: Some(HttpFormat::Protobuf),
     };
@@ -528,7 +504,6 @@ async fn test_range_bars_call_send_matches_one_page_method() {
         cursor: None,
         close_end: Some(1770003600000_i64.into()),
         limit: Some(1000),
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill, ExcludeSource::FixData]),
         metadata: Some(false),
         format: Some(HttpFormat::Json),
     };
@@ -541,7 +516,6 @@ async fn test_range_bars_call_send_matches_one_page_method() {
         "cursor": null,
         "close_end_ms": 1770003600000i64,
         "limit": 1000,
-        "exclude_sources": ["no_trade_fill", "fix-data"],
         "metadata": false,
         "format": "json"
     });
@@ -570,10 +544,7 @@ async fn test_range_bars_call_send_matches_one_page_method() {
             "n": null
         }],
         "close_end_ms": 1770003600000i64,
-        "next_cursor": "cursor-1",
-        "excluded_sources": ["no_trade_fill", "fix-data"],
-        "excluded_rows_total": 1,
-        "excluded_rows_by_source": [{"source": "no_trade_fill", "count": 1}]
+        "next_cursor": "cursor-1"
     }));
 
     Mock::given(method("POST"))
@@ -610,7 +581,6 @@ async fn test_range_bars_call_traverse_freezes_omitted_close_end_from_first_page
         cursor: None,
         close_end: None,
         limit: Some(2),
-        exclude_sources: None,
         metadata: Some(false),
         format: Some(HttpFormat::Json),
     };
@@ -623,7 +593,6 @@ async fn test_range_bars_call_traverse_freezes_omitted_close_end_from_first_page
         "cursor": null,
         "close_end_ms": null,
         "limit": 2,
-        "exclude_sources": null,
         "metadata": false,
         "format": "json"
     });
@@ -636,7 +605,6 @@ async fn test_range_bars_call_traverse_freezes_omitted_close_end_from_first_page
         "cursor": "cursor-1",
         "close_end_ms": 1770003600000i64,
         "limit": 2,
-        "exclude_sources": null,
         "metadata": false,
         "format": "json"
     });
@@ -665,10 +633,7 @@ async fn test_range_bars_call_traverse_freezes_omitted_close_end_from_first_page
             "n": null
         }],
         "close_end_ms": 1770003600000i64,
-        "next_cursor": "cursor-1",
-        "excluded_sources": [],
-        "excluded_rows_total": 0,
-        "excluded_rows_by_source": []
+        "next_cursor": "cursor-1"
     }));
 
     let second_response = ResponseTemplate::new(200).set_body_json(serde_json::json!({
@@ -695,10 +660,7 @@ async fn test_range_bars_call_traverse_freezes_omitted_close_end_from_first_page
             "n": null
         }],
         "close_end_ms": 1770003600000i64,
-        "next_cursor": null,
-        "excluded_sources": [],
-        "excluded_rows_total": 0,
-        "excluded_rows_by_source": []
+        "next_cursor": null
     }));
 
     Mock::given(method("POST"))
@@ -755,7 +717,6 @@ async fn test_range_bars_pager_next_returns_none_after_terminal_page() {
         cursor: None,
         close_end: Some(1770003600000_i64.into()),
         limit: Some(1),
-        exclude_sources: None,
         metadata: Some(false),
         format: Some(HttpFormat::Json),
     };
@@ -768,7 +729,6 @@ async fn test_range_bars_pager_next_returns_none_after_terminal_page() {
         "cursor": null,
         "close_end_ms": 1770003600000i64,
         "limit": 1,
-        "exclude_sources": null,
         "metadata": false,
         "format": "json"
     });
@@ -797,10 +757,7 @@ async fn test_range_bars_pager_next_returns_none_after_terminal_page() {
             "n": null
         }],
         "close_end_ms": 1770003600000i64,
-        "next_cursor": null,
-        "excluded_sources": [],
-        "excluded_rows_total": 0,
-        "excluded_rows_by_source": []
+        "next_cursor": null
     }));
 
     Mock::given(method("POST"))

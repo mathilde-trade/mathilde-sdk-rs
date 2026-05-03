@@ -2,7 +2,7 @@ use crate::core::config::{AggregatorConfig, HttpTransportConfig};
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
 use crate::systems::aggregator::{AggregatorClient, SearchBarsRequest, SearchBarsResponse};
-use crate::systems::types::{ExcludeSource, HttpFormat, Timeframe};
+use crate::systems::types::{HttpFormat, Timeframe};
 use prost::Message;
 use wiremock::matchers::{body_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -125,7 +125,6 @@ async fn test_search_bars_uses_post_and_normalizes_time_inputs_and_decodes_min_j
         cursor: None,
         predicate: "BTCUSDT.c > ETHUSDT.c * 1.5 && ETHUSDT.v > 10".to_string(),
         evaluate_pair: Some("BTCUSDT".to_string()),
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill, ExcludeSource::FixData]),
         metadata: Some(false),
         max_hits: Some(500),
         format: Some(HttpFormat::Json),
@@ -138,7 +137,6 @@ async fn test_search_bars_uses_post_and_normalizes_time_inputs_and_decodes_min_j
         "cursor": null,
         "predicate": "BTCUSDT.c > ETHUSDT.c * 1.5 && ETHUSDT.v > 10",
         "evaluate_pair": "BTCUSDT",
-        "exclude_sources": ["no_trade_fill", "fix-data"],
         "metadata": false,
         "max_hits": 500,
         "format": "json"
@@ -210,7 +208,6 @@ async fn test_search_bars_omitted_close_end_serializes_as_absent_and_decodes_ful
         cursor: None,
         predicate: "BTCUSDT.c > ETHUSDT.c * 1.5".to_string(),
         evaluate_pair: Some("BTCUSDT".to_string()),
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill]),
         metadata: Some(true),
         max_hits: Some(100),
         format: Some(HttpFormat::Json),
@@ -223,7 +220,6 @@ async fn test_search_bars_omitted_close_end_serializes_as_absent_and_decodes_ful
         "cursor": null,
         "predicate": "BTCUSDT.c > ETHUSDT.c * 1.5",
         "evaluate_pair": "BTCUSDT",
-        "exclude_sources": ["no_trade_fill"],
         "metadata": true,
         "max_hits": 100,
         "format": "json"
@@ -335,7 +331,6 @@ async fn test_search_bars_protobuf_decodes_min_response() {
         cursor: Some("cursor-1".to_string()),
         predicate: "BTCUSDT.c > ETHUSDT.c * 1.5".to_string(),
         evaluate_pair: Some("BTCUSDT".to_string()),
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill]),
         metadata: Some(false),
         max_hits: Some(100),
         format: Some(HttpFormat::Protobuf),
@@ -383,7 +378,6 @@ async fn test_search_bars_protobuf_decodes_full_response() {
         cursor: None,
         predicate: "BTCUSDT.c > ETHUSDT.c * 1.5".to_string(),
         evaluate_pair: Some("BTCUSDT".to_string()),
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill]),
         metadata: Some(true),
         max_hits: Some(100),
         format: Some(HttpFormat::Protobuf),
@@ -432,7 +426,6 @@ async fn test_search_bars_non_success_http_status_returns_typed_error() {
         cursor: None,
         predicate: "BTCUSDT.c > ETHUSDT.c * 1.5".to_string(),
         evaluate_pair: None,
-        exclude_sources: None,
         metadata: Some(false),
         max_hits: Some(10),
         format: Some(HttpFormat::Json),
@@ -469,7 +462,6 @@ async fn test_search_bars_invalid_json_returns_decode_error() {
         cursor: None,
         predicate: "BTCUSDT.c > ETHUSDT.c * 1.5".to_string(),
         evaluate_pair: None,
-        exclude_sources: None,
         metadata: Some(false),
         max_hits: Some(10),
         format: Some(HttpFormat::Json),
@@ -507,7 +499,6 @@ async fn test_search_bars_invalid_protobuf_returns_contract_drift() {
         cursor: None,
         predicate: "BTCUSDT.c > ETHUSDT.c * 1.5".to_string(),
         evaluate_pair: None,
-        exclude_sources: None,
         metadata: Some(false),
         max_hits: Some(10),
         format: Some(HttpFormat::Protobuf),
@@ -547,7 +538,6 @@ async fn test_search_bars_call_send_matches_one_page_method() {
         cursor: None,
         predicate: "BTCUSDT.c > ETHUSDT.c * 1.5 && ETHUSDT.v > 10".to_string(),
         evaluate_pair: Some("BTCUSDT".to_string()),
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill, ExcludeSource::FixData]),
         metadata: Some(false),
         max_hits: Some(500),
         format: Some(HttpFormat::Json),
@@ -560,7 +550,6 @@ async fn test_search_bars_call_send_matches_one_page_method() {
         "cursor": null,
         "predicate": "BTCUSDT.c > ETHUSDT.c * 1.5 && ETHUSDT.v > 10",
         "evaluate_pair": "BTCUSDT",
-        "exclude_sources": ["no_trade_fill", "fix-data"],
         "metadata": false,
         "max_hits": 500,
         "format": "json"
@@ -632,7 +621,6 @@ async fn test_search_bars_call_traverse_requires_explicit_close_end() {
         cursor: None,
         predicate: "BTCUSDT.c > ETHUSDT.c * 1.5".to_string(),
         evaluate_pair: Some("BTCUSDT".to_string()),
-        exclude_sources: None,
         metadata: Some(false),
         max_hits: Some(100),
         format: Some(HttpFormat::Json),
@@ -663,7 +651,6 @@ async fn test_search_bars_pager_requires_explicit_close_end() {
         cursor: None,
         predicate: "BTCUSDT.c > ETHUSDT.c * 1.5".to_string(),
         evaluate_pair: Some("BTCUSDT".to_string()),
-        exclude_sources: None,
         metadata: Some(false),
         max_hits: Some(100),
         format: Some(HttpFormat::Json),

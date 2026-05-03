@@ -1,6 +1,6 @@
 # `mathilde-sdk-rs` — Global Inventory (GENERATED; DO NOT EDIT)
 
-Generated: 2026-05-03T10:55:33Z
+Generated: 2026-05-03T12:40:30Z
 Protocol: `.dev/specs/SDK_INVENTORY_SYSTEM_SPEC_2026-04-08.md`
 
 This file is generated from per-component inventories under `crates/*/docs/inventory.md`, `services/*/docs/inventory.md`, and SDK module inventories under `src/*/docs/inventory.md`.

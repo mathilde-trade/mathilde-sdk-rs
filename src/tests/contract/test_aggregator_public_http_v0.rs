@@ -3,7 +3,7 @@ use crate::core::config::{AggregatorConfig, HttpTransportConfig, MathildePublicH
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
 use crate::systems::aggregator::{AggregatorClient, LatestBarsRequest, LatestBarsResponse};
-use crate::systems::types::{BarsView, ExcludeSource, HttpFormat, LatestMode, Timeframe};
+use crate::systems::types::{BarsView, HttpFormat, LatestMode, Timeframe};
 use prost::Message;
 use reqwest::header::{AUTHORIZATION, HeaderMap};
 use wiremock::matchers::{body_json, header, method, path};
@@ -97,12 +97,6 @@ fn proto_latest_response_min() -> proto::BarsLatestResponseV1 {
             age_ms: Some(101),
         }],
         missing_pairs: vec![],
-        excluded_sources: vec!["no_trade_fill".to_string()],
-        excluded_rows_total: Some(1),
-        excluded_rows_by_source: vec![proto::ExcludedSourceCountV1 {
-            source: "no_trade_fill".to_string(),
-            count: 1,
-        }],
     }
 }
 
@@ -120,9 +114,6 @@ fn proto_latest_response_full() -> proto::BarsLatestResponseV1 {
             age_ms: Some(101),
         }],
         missing_pairs: vec![],
-        excluded_sources: vec!["no_trade_fill".to_string()],
-        excluded_rows_total: Some(0),
-        excluded_rows_by_source: vec![],
     }
 }
 
@@ -249,7 +240,6 @@ async fn test_latest_bars_uses_post_and_serializes_body_and_decodes_response() {
         pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill, ExcludeSource::FixData]),
         metadata: Some(false),
         format: Some(HttpFormat::Json),
     };
@@ -282,17 +272,13 @@ async fn test_latest_bars_uses_post_and_serializes_body_and_decodes_response() {
             "n": null,
             "age_ms": 101
         }],
-        "missing_pairs": [],
-        "excluded_sources": ["no_trade_fill", "fix-data"],
-        "excluded_rows_total": 1,
-        "excluded_rows_by_source": [{"source": "no_trade_fill", "count": 1}]
+        "missing_pairs": []
     }));
 
     let expected_body = serde_json::json!({
         "pairs": "BTCUSDT,ETHUSDT",
         "tf": "1m",
         "latest_mode": "exact_watermark",
-        "exclude_sources": ["no_trade_fill", "fix-data"],
         "metadata": false,
         "format": "json"
     });
@@ -330,7 +316,6 @@ async fn test_latest_bars_metadata_true_decodes_full_response() {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill]),
         metadata: Some(true),
         format: Some(HttpFormat::Json),
     };
@@ -398,10 +383,7 @@ async fn test_latest_bars_metadata_true_decodes_full_response() {
                     },
                     "age_ms": 101
                 }],
-                "missing_pairs": [],
-                "excluded_sources": ["no_trade_fill"],
-                "excluded_rows_total": 0,
-                "excluded_rows_by_source": []
+                "missing_pairs": []
             }"#,
         );
 
@@ -409,7 +391,6 @@ async fn test_latest_bars_metadata_true_decodes_full_response() {
         "pairs": "BTCUSDT",
         "tf": "1m",
         "latest_mode": "exact_watermark",
-        "exclude_sources": ["no_trade_fill"],
         "metadata": true,
         "format": "json"
     });
@@ -457,7 +438,6 @@ async fn test_latest_bars_omitted_format_still_uses_json_branch() {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
-        exclude_sources: None,
         metadata: Some(false),
         format: None,
     };
@@ -468,17 +448,13 @@ async fn test_latest_bars_omitted_format_still_uses_json_branch() {
         "latest_mode": "exact_watermark",
         "view": "min",
         "rows": [],
-        "missing_pairs": ["BTCUSDT"],
-        "excluded_sources": [],
-        "excluded_rows_total": 0,
-        "excluded_rows_by_source": []
+        "missing_pairs": ["BTCUSDT"]
     }));
 
     let expected_body = serde_json::json!({
         "pairs": "BTCUSDT",
         "tf": "1m",
         "latest_mode": "exact_watermark",
-        "exclude_sources": null,
         "metadata": false,
         "format": null
     });
@@ -514,7 +490,6 @@ async fn test_latest_bars_format_protobuf_decodes_min_response() {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill]),
         metadata: Some(false),
         format: Some(HttpFormat::Protobuf),
     };
@@ -525,7 +500,6 @@ async fn test_latest_bars_format_protobuf_decodes_min_response() {
         "pairs": "BTCUSDT",
         "tf": "1m",
         "latest_mode": "exact_watermark",
-        "exclude_sources": ["no_trade_fill"],
         "metadata": false,
         "format": "protobuf"
     });
@@ -567,7 +541,6 @@ async fn test_latest_bars_format_protobuf_decodes_full_response() {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill]),
         metadata: Some(true),
         format: Some(HttpFormat::Protobuf),
     };
@@ -578,7 +551,6 @@ async fn test_latest_bars_format_protobuf_decodes_full_response() {
         "pairs": "BTCUSDT",
         "tf": "1m",
         "latest_mode": "exact_watermark",
-        "exclude_sources": ["no_trade_fill"],
         "metadata": true,
         "format": "protobuf"
     });
@@ -621,7 +593,6 @@ async fn test_latest_bars_invalid_protobuf_is_contract_drift() {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
-        exclude_sources: None,
         metadata: Some(false),
         format: Some(HttpFormat::Protobuf),
     };
@@ -630,7 +601,6 @@ async fn test_latest_bars_invalid_protobuf_is_contract_drift() {
         "pairs": "BTCUSDT",
         "tf": "1m",
         "latest_mode": "exact_watermark",
-        "exclude_sources": null,
         "metadata": false,
         "format": "protobuf"
     });

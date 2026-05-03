@@ -1147,7 +1147,6 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
         pairs: vec![target_pair.clone()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
-        exclude_sources: None,
         metadata: Some(false),
         format: Some(HttpFormat::Json),
     };
@@ -1208,7 +1207,6 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             cursor: None,
             close_end: Some(TimeInput::Ms(anchor_close_ms)),
             limit: Some(5),
-            exclude_sources: None,
             metadata: Some(false),
             format: Some(HttpFormat::Json),
         };
@@ -1254,7 +1252,6 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             cursor: None,
             predicate: predicate.clone(),
             evaluate_pair: Some(target_pair.clone()),
-            exclude_sources: None,
             metadata: Some(false),
             max_hits: Some(20),
             format: Some(HttpFormat::Json),
@@ -1298,7 +1295,6 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             predicate: None,
             hits: Some(vec![anchor_close_ms - 120_000, anchor_close_ms - 60_000]),
             output_pairs: Some(vec![target_pair.clone()]),
-            exclude_sources: None,
             metadata: Some(false),
             before_bars: Some(2),
             after_bars: Some(2),

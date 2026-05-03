@@ -3,7 +3,7 @@ use crate::core::config::{AggregatorConfig, GrpcTransportConfig, HttpTransportCo
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
 use crate::systems::aggregator::{AggregatorClient, SearchBarsGrpcRequest, SearchBarsResponse};
-use crate::systems::types::{ExcludeSource, Timeframe};
+use crate::systems::types::Timeframe;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
@@ -264,7 +264,6 @@ async fn test_search_bars_grpc_uses_unary_path_and_decodes_min_response() {
         cursor: None,
         predicate: "  BTCUSDT.c > ETHUSDT.c * 1.5  ".to_string(),
         evaluate_pair: Some("BTCUSDT".to_string()),
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill, ExcludeSource::FixData]),
         metadata: Some(false),
         max_hits: Some(500),
     };
@@ -289,10 +288,6 @@ async fn test_search_bars_grpc_uses_unary_path_and_decodes_min_response() {
     assert!(captured.body.cursor.is_none());
     assert_eq!(captured.body.predicate, "BTCUSDT.c > ETHUSDT.c * 1.5");
     assert_eq!(captured.body.evaluate_pair.as_deref(), Some("BTCUSDT"));
-    assert_eq!(
-        captured.body.exclude_sources,
-        vec!["no_trade_fill".to_string(), "fix-data".to_string()]
-    );
     assert!(!captured.body.metadata);
     assert_eq!(captured.body.max_hits, Some(500));
 
@@ -327,7 +322,6 @@ async fn test_search_bars_grpc_omitted_close_end_decodes_full_response() {
         cursor: Some("cursor-1".to_string()),
         predicate: "BTCUSDT.c > ETHUSDT.c * 1.5".to_string(),
         evaluate_pair: Some("BTCUSDT".to_string()),
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill]),
         metadata: Some(true),
         max_hits: Some(100),
     };
@@ -341,10 +335,6 @@ async fn test_search_bars_grpc_omitted_close_end_decodes_full_response() {
     assert_eq!(captured.body.close_start_ms, 1769990400000);
     assert_eq!(captured.body.close_end_ms, 0);
     assert_eq!(captured.body.cursor.as_deref(), Some("cursor-1"));
-    assert_eq!(
-        captured.body.exclude_sources,
-        vec!["no_trade_fill".to_string()]
-    );
     assert!(captured.body.metadata);
     assert_eq!(captured.body.max_hits, Some(100));
 
@@ -384,7 +374,6 @@ async fn test_search_bars_grpc_returns_missing_config_error_without_grpc_transpo
             cursor: None,
             predicate: "BTCUSDT.c > 0".to_string(),
             evaluate_pair: None,
-            exclude_sources: None,
             metadata: Some(false),
             max_hits: None,
         })
@@ -414,7 +403,6 @@ async fn test_search_bars_grpc_maps_non_ok_grpc_status() {
             cursor: None,
             predicate: "BTCUSDT.c > 0".to_string(),
             evaluate_pair: None,
-            exclude_sources: None,
             metadata: Some(false),
             max_hits: None,
         })
@@ -441,7 +429,6 @@ async fn test_search_bars_grpc_call_traverse_requires_explicit_close_end() {
         cursor: None,
         predicate: "BTCUSDT.c > ETHUSDT.c * 1.5".to_string(),
         evaluate_pair: Some("BTCUSDT".to_string()),
-        exclude_sources: None,
         metadata: Some(false),
         max_hits: Some(100),
     };

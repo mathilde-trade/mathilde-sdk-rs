@@ -1,9 +1,7 @@
 use crate::core::error::SdkError;
 use crate::core::time::TimeInput;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
-use crate::systems::types::{
-    AlignMode, BarsView, ExcludeSource, HttpFormat, LatestMode, Timeframe,
-};
+use crate::systems::types::{AlignMode, BarsView, HttpFormat, LatestMode, Timeframe};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct PublicPageSection {
@@ -218,7 +216,6 @@ pub struct LatestBarsRequest {
     pub pairs: Vec<String>,
     pub tf: Timeframe,
     pub latest_mode: LatestMode,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub format: Option<HttpFormat>,
 }
@@ -228,7 +225,6 @@ pub struct NormalizedLatestBarsRequest {
     pub pairs: String,
     pub tf: Timeframe,
     pub latest_mode: LatestMode,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub format: Option<HttpFormat>,
 }
@@ -238,7 +234,6 @@ pub struct LatestBarsGrpcRequest {
     pub pairs: Vec<String>,
     pub tf: Timeframe,
     pub latest_mode: LatestMode,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
 }
 
@@ -248,7 +243,6 @@ impl LatestBarsRequest {
             pairs: join_required_pair_values_csv(&self.pairs, "latest bars")?,
             tf: self.tf,
             latest_mode: self.latest_mode,
-            exclude_sources: self.exclude_sources.clone(),
             metadata: self.metadata,
             format: self.format,
         })
@@ -262,13 +256,6 @@ impl LatestBarsGrpcRequest {
             pairs: normalize_required_pair_values(&self.pairs, "latest bars")?,
             tf: self.tf.as_str().to_string(),
             latest_mode: self.latest_mode.as_str().to_string(),
-            exclude_sources: self
-                .exclude_sources
-                .clone()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|source| source.as_str().to_string())
-                .collect(),
             metadata: self.metadata.unwrap_or(false),
         })
     }
@@ -280,7 +267,6 @@ impl From<&LatestBarsRequest> for LatestBarsGrpcRequest {
             pairs: value.pairs.clone(),
             tf: value.tf,
             latest_mode: value.latest_mode,
-            exclude_sources: value.exclude_sources.clone(),
             metadata: value.metadata,
         }
     }
@@ -295,7 +281,6 @@ pub struct RangeBarsRequest {
     pub cursor: Option<String>,
     pub close_end: Option<TimeInput>,
     pub limit: Option<i64>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub format: Option<HttpFormat>,
 }
@@ -309,7 +294,6 @@ pub struct RangeBarsGrpcRequest {
     pub cursor: Option<String>,
     pub close_end: Option<TimeInput>,
     pub limit: Option<i64>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
 }
 
@@ -324,7 +308,6 @@ pub struct NormalizedRangeBarsRequest {
     #[serde(rename = "close_end_ms")]
     pub close_end_ms: Option<i64>,
     pub limit: Option<i64>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub format: Option<HttpFormat>,
 }
@@ -338,7 +321,6 @@ pub struct NormalizedRangeBarsGrpcRequest {
     pub cursor: Option<String>,
     pub close_end_ms: i64,
     pub limit: Option<i64>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: bool,
 }
 
@@ -360,7 +342,6 @@ impl RangeBarsRequest {
                 .map(TimeInput::to_utc_ms)
                 .transpose()?,
             limit: self.limit,
-            exclude_sources: self.exclude_sources.clone(),
             metadata: self.metadata,
             format: self.format,
         })
@@ -388,7 +369,6 @@ impl RangeBarsGrpcRequest {
                 .transpose()?
                 .unwrap_or(0),
             limit: self.limit,
-            exclude_sources: self.exclude_sources.clone(),
             metadata: self.metadata.unwrap_or(false),
         })
     }
@@ -402,12 +382,6 @@ impl RangeBarsGrpcRequest {
             close_end_ms: normalized.close_end_ms,
             cursor: normalized.cursor,
             limit: normalized.limit,
-            exclude_sources: normalized
-                .exclude_sources
-                .unwrap_or_default()
-                .into_iter()
-                .map(|source| source.as_str().to_string())
-                .collect(),
             metadata: normalized.metadata,
             close_start_ms: normalized.close_start_ms,
             align_mode: normalized
@@ -427,7 +401,6 @@ impl From<&RangeBarsRequest> for RangeBarsGrpcRequest {
             cursor: value.cursor.clone(),
             close_end: value.close_end.clone(),
             limit: value.limit,
-            exclude_sources: value.exclude_sources.clone(),
             metadata: value.metadata,
         }
     }
@@ -441,7 +414,6 @@ pub struct SearchBarsRequest {
     pub cursor: Option<String>,
     pub predicate: String,
     pub evaluate_pair: Option<String>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub max_hits: Option<i64>,
     pub format: Option<HttpFormat>,
@@ -455,7 +427,6 @@ pub struct SearchBarsGrpcRequest {
     pub cursor: Option<String>,
     pub predicate: String,
     pub evaluate_pair: Option<String>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub max_hits: Option<i64>,
 }
@@ -470,7 +441,6 @@ pub struct NormalizedSearchBarsRequest {
     pub cursor: Option<String>,
     pub predicate: String,
     pub evaluate_pair: Option<String>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub max_hits: Option<i64>,
     pub format: Option<HttpFormat>,
@@ -484,7 +454,6 @@ pub struct NormalizedSearchBarsGrpcRequest {
     pub cursor: Option<String>,
     pub predicate: String,
     pub evaluate_pair: Option<String>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: bool,
     pub max_hits: Option<i64>,
 }
@@ -502,7 +471,6 @@ impl SearchBarsRequest {
             cursor: self.cursor.clone(),
             predicate: self.predicate.clone(),
             evaluate_pair: self.evaluate_pair.clone(),
-            exclude_sources: self.exclude_sources.clone(),
             metadata: self.metadata,
             max_hits: self.max_hits,
             format: self.format,
@@ -525,7 +493,6 @@ impl SearchBarsGrpcRequest {
             cursor: self.cursor.clone(),
             predicate: self.predicate.trim().to_string(),
             evaluate_pair: self.evaluate_pair.clone(),
-            exclude_sources: self.exclude_sources.clone(),
             metadata: self.metadata.unwrap_or(false),
             max_hits: self.max_hits,
         })
@@ -541,12 +508,6 @@ impl SearchBarsGrpcRequest {
             cursor: normalized.cursor,
             predicate: normalized.predicate,
             evaluate_pair: normalized.evaluate_pair,
-            exclude_sources: normalized
-                .exclude_sources
-                .unwrap_or_default()
-                .into_iter()
-                .map(|source| source.as_str().to_string())
-                .collect(),
             metadata: normalized.metadata,
             max_hits: normalized.max_hits,
         })
@@ -562,7 +523,6 @@ impl From<&SearchBarsRequest> for SearchBarsGrpcRequest {
             cursor: value.cursor.clone(),
             predicate: value.predicate.clone(),
             evaluate_pair: value.evaluate_pair.clone(),
-            exclude_sources: value.exclude_sources.clone(),
             metadata: value.metadata,
             max_hits: value.max_hits,
         }
@@ -578,7 +538,6 @@ pub struct TimeMachineBarsRequest {
     pub predicate: Option<String>,
     pub hits: Option<Vec<i64>>,
     pub output_pairs: Option<Vec<String>>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub before_bars: Option<i64>,
     pub after_bars: Option<i64>,
@@ -596,7 +555,6 @@ pub struct TimeMachineBarsGrpcRequest {
     pub predicate: Option<String>,
     pub hits: Option<Vec<i64>>,
     pub output_pairs: Option<Vec<String>>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub before_bars: Option<i64>,
     pub after_bars: Option<i64>,
@@ -615,7 +573,6 @@ pub struct NormalizedTimeMachineBarsRequest {
     pub predicate: Option<String>,
     pub hits: Option<Vec<i64>>,
     pub output_pairs: Option<Vec<String>>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub before_bars: Option<i64>,
     pub after_bars: Option<i64>,
@@ -633,7 +590,6 @@ pub struct NormalizedTimeMachineBarsGrpcRequest {
     pub predicate: Option<String>,
     pub hits: Option<Vec<i64>>,
     pub output_pairs: Option<Vec<String>>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: bool,
     pub before_bars: Option<i64>,
     pub after_bars: Option<i64>,
@@ -655,7 +611,6 @@ impl TimeMachineBarsRequest {
             predicate: self.predicate.clone(),
             hits: self.hits.clone(),
             output_pairs: self.output_pairs.clone(),
-            exclude_sources: self.exclude_sources.clone(),
             metadata: self.metadata,
             before_bars: self.before_bars,
             after_bars: self.after_bars,
@@ -682,7 +637,6 @@ impl TimeMachineBarsGrpcRequest {
             predicate: self.predicate.clone(),
             hits: self.hits.clone(),
             output_pairs: self.output_pairs.clone(),
-            exclude_sources: self.exclude_sources.clone(),
             metadata: self.metadata.unwrap_or(false),
             before_bars: self.before_bars,
             after_bars: self.after_bars,
@@ -702,12 +656,6 @@ impl TimeMachineBarsGrpcRequest {
             predicate: normalized.predicate,
             hits: normalized.hits.unwrap_or_default(),
             output_pairs: normalized.output_pairs.unwrap_or_default(),
-            exclude_sources: normalized
-                .exclude_sources
-                .unwrap_or_default()
-                .into_iter()
-                .map(|source| source.as_str().to_string())
-                .collect(),
             metadata: normalized.metadata,
             before_bars: normalized.before_bars,
             after_bars: normalized.after_bars,
@@ -727,7 +675,6 @@ impl From<&TimeMachineBarsRequest> for TimeMachineBarsGrpcRequest {
             predicate: value.predicate.clone(),
             hits: value.hits.clone(),
             output_pairs: value.output_pairs.clone(),
-            exclude_sources: value.exclude_sources.clone(),
             metadata: value.metadata,
             before_bars: value.before_bars,
             after_bars: value.after_bars,
@@ -735,12 +682,6 @@ impl From<&TimeMachineBarsRequest> for TimeMachineBarsGrpcRequest {
             overlap_mode: value.overlap_mode.clone(),
         }
     }
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct ExcludedSourceCount {
-    pub source: String,
-    pub count: i64,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -847,9 +788,6 @@ pub struct RangeBarsMinResponse {
     pub rows: Vec<Bar>,
     pub close_end_ms: i64,
     pub next_cursor: Option<String>,
-    pub excluded_sources: Option<Vec<ExcludeSource>>,
-    pub excluded_rows_total: Option<i64>,
-    pub excluded_rows_by_source: Option<Vec<ExcludedSourceCount>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -857,9 +795,6 @@ pub struct RangeBarsFullResponse {
     pub rows: Vec<BarWithMetadata>,
     pub close_end_ms: i64,
     pub next_cursor: Option<String>,
-    pub excluded_sources: Option<Vec<ExcludeSource>>,
-    pub excluded_rows_total: Option<i64>,
-    pub excluded_rows_by_source: Option<Vec<ExcludedSourceCount>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -900,15 +835,6 @@ impl RangeBarsResponse {
                     .collect::<Result<Vec<_>, _>>()?,
                 close_end_ms: response.close_end_ms,
                 next_cursor: response.next_cursor,
-                excluded_sources: Some(ExcludeSource::vec_from_proto(response.excluded_sources)?),
-                excluded_rows_total: response.excluded_rows_total,
-                excluded_rows_by_source: Some(
-                    response
-                        .excluded_rows_by_source
-                        .into_iter()
-                        .map(ExcludedSourceCount::from_proto)
-                        .collect(),
-                ),
             }))
         } else {
             Ok(Self::Min(RangeBarsMinResponse {
@@ -919,15 +845,6 @@ impl RangeBarsResponse {
                     .collect::<Result<Vec<_>, _>>()?,
                 close_end_ms: response.close_end_ms,
                 next_cursor: response.next_cursor,
-                excluded_sources: Some(ExcludeSource::vec_from_proto(response.excluded_sources)?),
-                excluded_rows_total: response.excluded_rows_total,
-                excluded_rows_by_source: Some(
-                    response
-                        .excluded_rows_by_source
-                        .into_iter()
-                        .map(ExcludedSourceCount::from_proto)
-                        .collect(),
-                ),
             }))
         }
     }
@@ -1156,9 +1073,6 @@ pub struct LatestBarsMinResponse {
     pub view: BarsView,
     pub rows: Vec<LatestBarsPresentRow>,
     pub missing_pairs: Vec<String>,
-    pub excluded_sources: Option<Vec<ExcludeSource>>,
-    pub excluded_rows_total: Option<i64>,
-    pub excluded_rows_by_source: Option<Vec<ExcludedSourceCount>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -1169,9 +1083,6 @@ pub struct LatestBarsFullResponse {
     pub view: BarsView,
     pub rows: Vec<LatestBarsWithMetadataPresentRow>,
     pub missing_pairs: Vec<String>,
-    pub excluded_sources: Option<Vec<ExcludeSource>>,
-    pub excluded_rows_total: Option<i64>,
-    pub excluded_rows_by_source: Option<Vec<ExcludedSourceCount>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1221,15 +1132,6 @@ impl LatestBarsResponse {
                     .map(LatestBarsPresentRow::from_proto)
                     .collect::<Result<Vec<_>, _>>()?,
                 missing_pairs: response.missing_pairs,
-                excluded_sources: Some(ExcludeSource::vec_from_proto(response.excluded_sources)?),
-                excluded_rows_total: response.excluded_rows_total,
-                excluded_rows_by_source: Some(
-                    response
-                        .excluded_rows_by_source
-                        .into_iter()
-                        .map(ExcludedSourceCount::from_proto)
-                        .collect(),
-                ),
             })),
             proto::BarsViewV1::Full => Ok(Self::Full(LatestBarsFullResponse {
                 watermark_end_ms: response.watermark_end_ms,
@@ -1242,28 +1144,10 @@ impl LatestBarsResponse {
                     .map(LatestBarsWithMetadataPresentRow::from_proto)
                     .collect::<Result<Vec<_>, _>>()?,
                 missing_pairs: response.missing_pairs,
-                excluded_sources: Some(ExcludeSource::vec_from_proto(response.excluded_sources)?),
-                excluded_rows_total: response.excluded_rows_total,
-                excluded_rows_by_source: Some(
-                    response
-                        .excluded_rows_by_source
-                        .into_iter()
-                        .map(ExcludedSourceCount::from_proto)
-                        .collect(),
-                ),
             })),
             proto::BarsViewV1::Unspecified => Err(SdkError::contract_drift(
                 "latest bars protobuf response has unspecified view",
             )),
-        }
-    }
-}
-
-impl ExcludedSourceCount {
-    fn from_proto(value: proto::ExcludedSourceCountV1) -> Self {
-        Self {
-            source: value.source,
-            count: value.count,
         }
     }
 }
@@ -1482,25 +1366,5 @@ impl LatestMode {
                 "unsupported latest_mode `{other}`"
             ))),
         }
-    }
-}
-
-impl ExcludeSource {
-    fn from_proto(value: String) -> Result<Self, SdkError> {
-        match value.as_str() {
-            "api" => Ok(Self::Api),
-            "fix-data" => Ok(Self::FixData),
-            "frontier" => Ok(Self::Frontier),
-            "aggregate" => Ok(Self::Aggregate),
-            "synthetic" => Ok(Self::Synthetic),
-            "no_trade_fill" => Ok(Self::NoTradeFill),
-            other => Err(SdkError::contract_drift(format!(
-                "unsupported exclude_source `{other}`"
-            ))),
-        }
-    }
-
-    fn vec_from_proto(values: Vec<String>) -> Result<Vec<Self>, SdkError> {
-        values.into_iter().map(Self::from_proto).collect()
     }
 }

@@ -426,7 +426,6 @@ let out = client
         pairs: pairs(["BTCUSDT", "ETHUSDT"]),
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
-        exclude_sources: None,
         metadata: Some(false),
         format: Some(HttpFormat::Json),
     })
@@ -444,16 +443,16 @@ match out {
 
 ## Endpoint And Transport Matrix
 
-| Family            | HTTP                                                      | gRPC                     | WS                                  | Cursor                                      | Managed recovery                 | Notes                                  |
-| ----------------- | --------------------------------------------------------- | ------------------------ | ----------------------------------- | ------------------------------------------- | -------------------------------- | -------------------------------------- |
+| Family            | HTTP                                                                      | gRPC                     | WS                                  | Cursor                                      | Managed recovery                 | Notes                                  |
+| ----------------- | ------------------------------------------------------------------------- | ------------------------ | ----------------------------------- | ------------------------------------------- | -------------------------------- | -------------------------------------- |
 | Docs              | `docs_system`, `docs_summary`, `docs_themes`, `docs_endpoints`, `openapi` | No                       | No                                  | No                                          | No                               | Public documentation and OpenAPI reads |
-| Discovery         | `pairs_status`, `pairs_list`, `files_downloads`           | No                       | No                                  | `pairs_status` supports paging-style fields | No                               | Public pair and file discovery         |
-| Latest bars       | `latest_bars`                                             | `latest_bars_grpc`       | No                                  | No                                          | No                               | Current aligned bar snapshot           |
-| Range bars        | `range_bars`                                              | `range_bars_grpc`        | `connect_bars_ws`                   | Yes                                         | `connect_bars_ws_recovering`     | Windowed bars reads and bars stream    |
-| Search bars       | `search_bars`                                             | `search_bars_grpc`       | No                                  | Yes                                         | No                               | Predicate-driven hit search            |
-| Time-machine bars | `time_machine_bars`                                       | `time_machine_bars_grpc` | No                                  | Yes                                         | No                               | Context around hits                    |
-| Bars WS helpers   | No                                                        | No                       | `connect_bars_ws_make_before_break` | N/A                                         | `connect_bars_ws_recovering`     | Immutable subscription per connection  |
-| Messages WS       | No                                                        | No                       | `connect_messages_ws`               | N/A                                         | `connect_messages_ws_recovering` | In-band subscribe and unsubscribe      |
+| Discovery         | `pairs_status`, `pairs_list`, `files_downloads`                           | No                       | No                                  | `pairs_status` supports paging-style fields | No                               | Public pair and file discovery         |
+| Latest bars       | `latest_bars`                                                             | `latest_bars_grpc`       | No                                  | No                                          | No                               | Current aligned bar snapshot           |
+| Range bars        | `range_bars`                                                              | `range_bars_grpc`        | `connect_bars_ws`                   | Yes                                         | `connect_bars_ws_recovering`     | Windowed bars reads and bars stream    |
+| Search bars       | `search_bars`                                                             | `search_bars_grpc`       | No                                  | Yes                                         | No                               | Predicate-driven hit search            |
+| Time-machine bars | `time_machine_bars`                                                       | `time_machine_bars_grpc` | No                                  | Yes                                         | No                               | Context around hits                    |
+| Bars WS helpers   | No                                                                        | No                       | `connect_bars_ws_make_before_break` | N/A                                         | `connect_bars_ws_recovering`     | Immutable subscription per connection  |
+| Messages WS       | No                                                                        | No                       | `connect_messages_ws`               | N/A                                         | `connect_messages_ws_recovering` | In-band subscribe and unsubscribe      |
 
 ## Which Endpoint To Use
 
@@ -631,7 +630,6 @@ let out = client
         pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
-        exclude_sources: None,
         metadata: Some(false),
         format: Some(HttpFormat::Json),
     })
@@ -667,7 +665,6 @@ let out = client
         cursor: None,
         close_end: Some(TimeInput::Utc("2026-02-02T06:00:00Z".to_string())),
         limit: Some(1000),
-        exclude_sources: None,
         metadata: Some(false),
         format: Some(HttpFormat::Json),
     })
@@ -699,7 +696,6 @@ let request = RangeBarsRequest {
     cursor: None,
     close_end: Some(TimeInput::Utc("2026-02-02T06:00:00Z".to_string())),
     limit: Some(1000),
-    exclude_sources: None,
     metadata: Some(false),
     format: Some(HttpFormat::Json),
 };
@@ -725,7 +721,6 @@ let request = RangeBarsRequest {
     cursor: None,
     close_end: None,
     limit: Some(1000),
-    exclude_sources: None,
     metadata: Some(false),
     format: Some(HttpFormat::Json),
 };
@@ -749,7 +744,7 @@ become true?
 ```rust
 use mathilde_sdk_rs::core::time::TimeInput;
 use mathilde_sdk_rs::systems::aggregator::{SearchBarsRequest, SearchBarsResponse};
-use mathilde_sdk_rs::systems::types::{ExcludeSource, HttpFormat, Timeframe};
+use mathilde_sdk_rs::systems::types::{HttpFormat, Timeframe};
 
 let out = client
     .search_bars(&SearchBarsRequest {
@@ -759,7 +754,6 @@ let out = client
         cursor: None,
         predicate: "BTCUSDT.c > ETHUSDT.c * 1.5 && ETHUSDT.v > 10".to_string(),
         evaluate_pair: Some("BTCUSDT".to_string()),
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill]),
         metadata: Some(false),
         max_hits: Some(500),
         format: Some(HttpFormat::Json),
@@ -794,7 +788,7 @@ around these hits?
 ```rust
 use mathilde_sdk_rs::core::time::TimeInput;
 use mathilde_sdk_rs::systems::aggregator::{TimeMachineBarsRequest, TimeMachineBarsResponse};
-use mathilde_sdk_rs::systems::types::{ExcludeSource, HttpFormat, Timeframe};
+use mathilde_sdk_rs::systems::types::{HttpFormat, Timeframe};
 
 let out = client
     .time_machine_bars(&TimeMachineBarsRequest {
@@ -805,7 +799,6 @@ let out = client
         predicate: Some("BTCUSDT.c > ETHUSDT.c * 1.5".to_string()),
         hits: None,
         output_pairs: Some(vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()]),
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill]),
         metadata: Some(false),
         before_bars: Some(10),
         after_bars: Some(10),
@@ -1035,5 +1028,3 @@ That is current behavior, not a wider transport design claim.
 - [Streaming inventory](src/streaming/docs/inventory.md)
 - [Systems inventory](src/systems/docs/inventory.md)
 - [Tests inventory](src/tests/docs/inventory.md)
-- [Cross-endpoint consistency spec](.dev/specs/SDK_CROSS_ENDPOINT_CONSISTENCY_SPEC_2026-04-08.md)
-- [Shared WS recovery spec](.dev/specs/SDK_SHARED_WS_RECOVERY_SPEC_2026-04-08.md)

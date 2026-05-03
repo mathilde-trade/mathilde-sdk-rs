@@ -3,7 +3,7 @@ use crate::core::config::{AggregatorConfig, GrpcTransportConfig, HttpTransportCo
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
 use crate::systems::aggregator::{AggregatorClient, RangeBarsGrpcRequest, RangeBarsResponse};
-use crate::systems::types::{AlignMode, ExcludeSource, Timeframe};
+use crate::systems::types::{AlignMode, Timeframe};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
@@ -110,12 +110,6 @@ fn proto_range_response_min() -> proto::BarsRangeResponseV1 {
     proto::BarsRangeResponseV1 {
         rows: vec![proto_bar_min("BTCUSDT")],
         next_cursor: Some("cursor-1".to_string()),
-        excluded_sources: vec!["no_trade_fill".to_string()],
-        excluded_rows_total: Some(1),
-        excluded_rows_by_source: vec![proto::ExcludedSourceCountV1 {
-            source: "no_trade_fill".to_string(),
-            count: 1,
-        }],
         close_end_ms: 1770003600000,
     }
 }
@@ -127,9 +121,6 @@ fn proto_range_response_full() -> proto::BarsRangeResponseV1 {
     proto::BarsRangeResponseV1 {
         rows: vec![bar],
         next_cursor: None,
-        excluded_sources: vec!["no_trade_fill".to_string()],
-        excluded_rows_total: Some(0),
-        excluded_rows_by_source: Vec::new(),
         close_end_ms: 1770003600000,
     }
 }
@@ -334,7 +325,6 @@ async fn test_range_bars_grpc_tail_mode_uses_unary_path_and_decodes_min_response
         cursor: None,
         close_end: None,
         limit: Some(100),
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill, ExcludeSource::FixData]),
         metadata: Some(false),
     };
 
@@ -358,10 +348,6 @@ async fn test_range_bars_grpc_tail_mode_uses_unary_path_and_decodes_min_response
     assert_eq!(captured.body.close_end_ms, 0);
     assert!(captured.body.cursor.is_none());
     assert_eq!(captured.body.limit, Some(100));
-    assert_eq!(
-        captured.body.exclude_sources,
-        vec!["no_trade_fill".to_string(), "fix-data".to_string()]
-    );
     assert!(!captured.body.metadata);
     assert!(captured.body.align_mode.is_none());
 
@@ -392,7 +378,6 @@ async fn test_range_bars_grpc_explicit_window_decodes_full_response() {
         cursor: Some("cursor-1".to_string()),
         close_end: Some(1770003600000_i64.into()),
         limit: Some(100),
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill]),
         metadata: Some(true),
     };
 
@@ -439,7 +424,6 @@ async fn test_range_bars_grpc_missing_grpc_config_is_typed_error() {
         cursor: None,
         close_end: None,
         limit: Some(100),
-        exclude_sources: None,
         metadata: Some(false),
     };
 
@@ -471,7 +455,6 @@ async fn test_range_bars_grpc_non_ok_status_is_typed_error() {
         cursor: None,
         close_end: None,
         limit: Some(100),
-        exclude_sources: None,
         metadata: Some(false),
     };
 
@@ -503,7 +486,6 @@ async fn test_range_bars_grpc_call_send_matches_one_page_method() {
         cursor: None,
         close_end: None,
         limit: Some(100),
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill, ExcludeSource::FixData]),
         metadata: Some(false),
     };
 
@@ -541,7 +523,6 @@ async fn test_range_bars_grpc_call_traverse_freezes_omitted_close_end_from_first
         cursor: None,
         close_end: None,
         limit: Some(2),
-        exclude_sources: None,
         metadata: Some(false),
     };
 

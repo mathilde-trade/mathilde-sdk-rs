@@ -5,7 +5,7 @@ use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
 use crate::systems::aggregator::{
     AggregatorClient, TimeMachineBarsGrpcRequest, TimeMachineBarsResponse,
 };
-use crate::systems::types::{ExcludeSource, Timeframe};
+use crate::systems::types::Timeframe;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
@@ -275,7 +275,6 @@ async fn test_time_machine_bars_grpc_predicate_mode_uses_unary_path_and_decodes_
         predicate: Some("BTCUSDT.c > ETHUSDT.c * 1.5".to_string()),
         hits: None,
         output_pairs: Some(vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()]),
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill, ExcludeSource::FixData]),
         metadata: Some(false),
         before_bars: Some(10),
         after_bars: Some(10),
@@ -309,10 +308,6 @@ async fn test_time_machine_bars_grpc_predicate_mode_uses_unary_path_and_decodes_
     assert_eq!(
         captured.body.output_pairs,
         vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()]
-    );
-    assert_eq!(
-        captured.body.exclude_sources,
-        vec!["no_trade_fill".to_string(), "fix-data".to_string()]
     );
     assert!(!captured.body.metadata);
     assert_eq!(captured.body.before_bars, Some(10));
@@ -358,7 +353,6 @@ async fn test_time_machine_bars_grpc_hits_mode_omitted_close_end_decodes_full_re
         predicate: None,
         hits: Some(vec![1770000060000, 1770000120000]),
         output_pairs: Some(vec!["BTCUSDT".to_string()]),
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill]),
         metadata: Some(true),
         before_bars: Some(2),
         after_bars: Some(2),
@@ -378,10 +372,6 @@ async fn test_time_machine_bars_grpc_hits_mode_omitted_close_end_decodes_full_re
     assert!(captured.body.predicate.is_none());
     assert_eq!(captured.body.hits, vec![1770000060000, 1770000120000]);
     assert_eq!(captured.body.output_pairs, vec!["BTCUSDT".to_string()]);
-    assert_eq!(
-        captured.body.exclude_sources,
-        vec!["no_trade_fill".to_string()]
-    );
     assert!(captured.body.metadata);
     assert_eq!(captured.body.before_bars, Some(2));
     assert_eq!(captured.body.after_bars, Some(2));
@@ -426,7 +416,6 @@ async fn test_time_machine_bars_grpc_returns_missing_config_error_without_grpc_t
             predicate: Some("BTCUSDT.c > 0".to_string()),
             hits: None,
             output_pairs: Some(vec!["BTCUSDT".to_string()]),
-            exclude_sources: None,
             metadata: Some(false),
             before_bars: Some(1),
             after_bars: Some(1),
@@ -460,7 +449,6 @@ async fn test_time_machine_bars_grpc_maps_non_ok_grpc_status() {
             predicate: Some("BTCUSDT.c > 0".to_string()),
             hits: None,
             output_pairs: Some(vec!["BTCUSDT".to_string()]),
-            exclude_sources: None,
             metadata: Some(false),
             before_bars: Some(1),
             after_bars: Some(1),
@@ -491,7 +479,6 @@ async fn test_time_machine_bars_grpc_call_traverse_requires_explicit_close_end()
         predicate: Some("BTCUSDT.c > ETHUSDT.c * 1.5".to_string()),
         hits: None,
         output_pairs: Some(vec!["BTCUSDT".to_string()]),
-        exclude_sources: None,
         metadata: Some(false),
         before_bars: Some(5),
         after_bars: Some(5),

@@ -3,7 +3,7 @@ use crate::core::config::{AggregatorConfig, GrpcTransportConfig, HttpTransportCo
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
 use crate::systems::aggregator::{AggregatorClient, LatestBarsGrpcRequest, LatestBarsResponse};
-use crate::systems::types::{BarsView, ExcludeSource, LatestMode, Timeframe};
+use crate::systems::types::{BarsView, LatestMode, Timeframe};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
@@ -116,12 +116,6 @@ fn proto_latest_response_min() -> proto::BarsLatestResponseV1 {
             age_ms: Some(101),
         }],
         missing_pairs: vec!["ETHUSDT".to_string()],
-        excluded_sources: vec!["no_trade_fill".to_string()],
-        excluded_rows_total: Some(1),
-        excluded_rows_by_source: vec![proto::ExcludedSourceCountV1 {
-            source: "no_trade_fill".to_string(),
-            count: 1,
-        }],
     }
 }
 
@@ -139,9 +133,6 @@ fn proto_latest_response_full() -> proto::BarsLatestResponseV1 {
             age_ms: Some(101),
         }],
         missing_pairs: Vec::new(),
-        excluded_sources: vec!["no_trade_fill".to_string()],
-        excluded_rows_total: Some(0),
-        excluded_rows_by_source: Vec::new(),
     }
 }
 
@@ -266,7 +257,6 @@ async fn test_latest_bars_grpc_uses_unary_path_and_decodes_min_response() {
         pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill, ExcludeSource::FixData]),
         metadata: Some(false),
     };
 
@@ -287,10 +277,6 @@ async fn test_latest_bars_grpc_uses_unary_path_and_decodes_min_response() {
     assert_eq!(captured.body.pairs, vec!["BTCUSDT", "ETHUSDT"]);
     assert_eq!(captured.body.tf, "1m");
     assert_eq!(captured.body.latest_mode, "exact_watermark");
-    assert_eq!(
-        captured.body.exclude_sources,
-        vec!["no_trade_fill".to_string(), "fix-data".to_string()]
-    );
     assert!(!captured.body.metadata);
 
     match out {
@@ -317,7 +303,6 @@ async fn test_latest_bars_grpc_decodes_full_response() {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
-        exclude_sources: Some(vec![ExcludeSource::NoTradeFill]),
         metadata: Some(true),
     };
 
@@ -353,7 +338,6 @@ async fn test_latest_bars_grpc_missing_grpc_config_is_typed_error() {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
-        exclude_sources: None,
         metadata: Some(false),
     };
 
@@ -381,7 +365,6 @@ async fn test_latest_bars_grpc_non_ok_status_is_typed_error() {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
-        exclude_sources: None,
         metadata: Some(false),
     };
 

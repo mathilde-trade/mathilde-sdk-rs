@@ -218,7 +218,10 @@ impl RecoveringMessagesWsConnection {
     }
 
     pub fn active_subscription_ids(&self) -> Vec<&str> {
-        self.active_subscriptions.keys().map(String::as_str).collect()
+        self.active_subscriptions
+            .keys()
+            .map(String::as_str)
+            .collect()
     }
 
     pub async fn send_subscribe(

@@ -13,8 +13,8 @@ use std::collections::VecDeque;
 use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep, timeout};
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
 const BARS_WS_PATH: &str = "/v1/ws/bars";
@@ -194,8 +194,9 @@ impl BarsWsSubscribeRequest {
     }
 
     pub fn to_subscribe_text(&self) -> Result<String, SdkError> {
-        serde_json::to_string(&self.normalize()?)
-            .map_err(|source| SdkError::request_build(format!("bars ws subscribe JSON failed: {source}")))
+        serde_json::to_string(&self.normalize()?).map_err(|source| {
+            SdkError::request_build(format!("bars ws subscribe JSON failed: {source}"))
+        })
     }
 }
 
@@ -205,10 +206,9 @@ impl BarsWsConnection {
         request: &BarsWsSubscribeRequest,
     ) -> Result<Self, SdkError> {
         let url = transport.endpoint_url(BARS_WS_PATH)?;
-        let mut upgrade = url
-            .as_str()
-            .into_client_request()
-            .map_err(|source| SdkError::ws_transport(format!("ws upgrade request build failed: {source}")))?;
+        let mut upgrade = url.as_str().into_client_request().map_err(|source| {
+            SdkError::ws_transport(format!("ws upgrade request build failed: {source}"))
+        })?;
 
         let headers = transport.upgrade_headers()?;
         for (name, value) in headers.iter() {
@@ -222,7 +222,9 @@ impl BarsWsConnection {
         stream
             .send(Message::Text(request.to_subscribe_text()?.into()))
             .await
-            .map_err(|source| SdkError::ws_transport(format!("ws subscribe send failed: {source}")))?;
+            .map_err(|source| {
+                SdkError::ws_transport(format!("ws subscribe send failed: {source}"))
+            })?;
 
         Ok(Self { stream })
     }
@@ -237,7 +239,7 @@ impl BarsWsConnection {
                 Some(Err(source)) => {
                     return Err(SdkError::ws_transport(format!(
                         "ws receive failed: {source}"
-                    )))
+                    )));
                 }
                 None => return Ok(None),
             };
@@ -381,7 +383,10 @@ impl RecoveringBarsWsConnection {
             match self.active.next_frame(&self.request).await {
                 Ok(Some(frame)) => return Ok(Some(frame)),
                 Ok(None) => self.reconnect("bars ws connection closed").await?,
-                Err(error) => self.reconnect(&format!("bars ws receive failed: {error}")).await?,
+                Err(error) => {
+                    self.reconnect(&format!("bars ws receive failed: {error}"))
+                        .await?
+                }
             }
         }
     }
@@ -389,9 +394,7 @@ impl RecoveringBarsWsConnection {
     async fn reconnect(&mut self, reason: &str) -> Result<(), SdkError> {
         loop {
             let delay = self.backoff.next_sleep_duration().ok_or_else(|| {
-                SdkError::ws_transport(format!(
-                    "{reason}; ws recovery attempts exhausted for bars"
-                ))
+                SdkError::ws_transport(format!("{reason}; ws recovery attempts exhausted for bars"))
             })?;
             sleep(delay).await;
 
@@ -424,8 +427,8 @@ fn decode_text_frame(
     if request.metadata.unwrap_or(false) {
         let rows = serde_json::from_str::<Vec<BarsWsJsonFullRow>>(text)
             .map_err(|source| {
-            SdkError::contract_drift(format!("bars ws full JSON rows decode failed: {source}"))
-        })?
+                SdkError::contract_drift(format!("bars ws full JSON rows decode failed: {source}"))
+            })?
             .into_iter()
             .map(|row| row.bar)
             .collect();
@@ -434,8 +437,8 @@ fn decode_text_frame(
 
     let rows = serde_json::from_str::<Vec<BarsWsJsonMinRow>>(text)
         .map_err(|source| {
-        SdkError::contract_drift(format!("bars ws min JSON rows decode failed: {source}"))
-    })?
+            SdkError::contract_drift(format!("bars ws min JSON rows decode failed: {source}"))
+        })?
         .into_iter()
         .map(|row| row.bar)
         .collect();

@@ -20,9 +20,10 @@ currently exist for `src/systems`.
 - `src/systems/aggregator/client.rs`: typed public client entrypoints for aggregator HTTP, gRPC, and WS surfaces.
 - `src/systems/aggregator/docs.rs`: aggregator public documentation and OpenAPI bindings.
 - `src/systems/aggregator/pairs.rs`: aggregator public pairs discovery and status bindings.
-- `src/systems/aggregator/files.rs`: aggregator public file-download bindings.
+- `src/systems/aggregator/files.rs`: aggregator public file-download issuance bindings and typed local-download convenience.
 - `src/systems/aggregator/bars_http.rs`: aggregator public bars HTTP bindings.
 - `src/systems/aggregator/bars_grpc.rs`: aggregator public bars gRPC bindings.
+- `src/systems/aggregator/bars_pagination.rs`: aggregator explicit call-wrapper, pager, and traverse helpers layered on the one-page bars bindings.
 - `src/systems/aggregator/bars_ws.rs`: aggregator public bars WS bindings, make-before-break, and managed recovery.
 - `src/systems/aggregator/messages_ws.rs`: aggregator public messages WS bindings and managed recovery.
-- `src/systems/aggregator/types.rs`: aggregator-specific request, response, and WS frame types.
+- `src/systems/aggregator/types.rs`: aggregator-specific request, response, traversal-result, and WS frame types.

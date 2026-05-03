@@ -12,9 +12,10 @@ use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use prost::Message;
+use std::collections::VecDeque;
 use std::convert::Infallible;
 use tokio::net::TcpListener;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug)]
 struct CapturedRangeRequest {
@@ -243,12 +244,85 @@ async fn spawn_range_grpc_server(
     (format!("http://{addr}"), captured_rx)
 }
 
+async fn spawn_range_grpc_server_sequence(
+    replies: Vec<RangeGrpcUnaryReply>,
+) -> (String, mpsc::UnboundedReceiver<CapturedRangeRequest>) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind grpc test server");
+    let addr = listener.local_addr().expect("grpc test addr");
+    let (captured_tx, captured_rx) = mpsc::unbounded_channel();
+
+    tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.expect("accept grpc test conn");
+        let io = TokioIo::new(stream);
+        let captured_tx = captured_tx.clone();
+        let replies = std::sync::Arc::new(std::sync::Mutex::new(VecDeque::from(replies)));
+
+        let service = service_fn(move |request: Request<Incoming>| {
+            let captured_tx = captured_tx.clone();
+            let replies = replies.clone();
+
+            async move {
+                let path = request.uri().path().to_string();
+                let authorization = request
+                    .headers()
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok())
+                    .map(ToOwned::to_owned);
+                let body_bytes = request
+                    .into_body()
+                    .collect()
+                    .await
+                    .expect("collect grpc request body")
+                    .to_bytes();
+                let decoded = decode_grpc_message::<proto::RangeBarsRequestV1>(&body_bytes);
+
+                let _ = captured_tx.send(CapturedRangeRequest {
+                    path,
+                    authorization,
+                    body: decoded,
+                });
+
+                let reply = replies
+                    .lock()
+                    .expect("reply mutex")
+                    .pop_front()
+                    .expect("grpc reply available");
+
+                let response = match reply {
+                    RangeGrpcUnaryReply::Success(message) => Response::builder()
+                        .status(200)
+                        .header("content-type", "application/grpc")
+                        .header("grpc-status", "0")
+                        .body(Full::new(Bytes::from(encode_grpc_message(message))))
+                        .expect("grpc success response"),
+                    RangeGrpcUnaryReply::Status { code, message } => Response::builder()
+                        .status(200)
+                        .header("content-type", "application/grpc")
+                        .header("grpc-status", grpc_status_number(code))
+                        .header("grpc-message", message)
+                        .body(Full::new(Bytes::new()))
+                        .expect("grpc status response"),
+                };
+
+                Ok::<_, Infallible>(response)
+            }
+        });
+
+        http2::Builder::new(TokioExecutor::new())
+            .serve_connection(io, service)
+            .await
+            .expect("serve grpc test connection");
+    });
+
+    (format!("http://{addr}"), captured_rx)
+}
+
 #[tokio::test]
 async fn test_range_bars_grpc_tail_mode_uses_unary_path_and_decodes_min_response() {
-    let (base_url, captured_rx) = spawn_range_grpc_server(RangeGrpcUnaryReply::Success(
-        proto_range_response_min(),
-    ))
-    .await;
+    let (base_url, captured_rx) =
+        spawn_range_grpc_server(RangeGrpcUnaryReply::Success(proto_range_response_min())).await;
 
     let token = BearerToken::new("feed_public_token").expect("valid token");
     let client = AggregatorClient::new(config_for_grpc(&base_url, Some(token))).expect("client");
@@ -306,10 +380,8 @@ async fn test_range_bars_grpc_tail_mode_uses_unary_path_and_decodes_min_response
 
 #[tokio::test]
 async fn test_range_bars_grpc_explicit_window_decodes_full_response() {
-    let (base_url, captured_rx) = spawn_range_grpc_server(RangeGrpcUnaryReply::Success(
-        proto_range_response_full(),
-    ))
-    .await;
+    let (base_url, captured_rx) =
+        spawn_range_grpc_server(RangeGrpcUnaryReply::Success(proto_range_response_full())).await;
 
     let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
     let request = RangeBarsGrpcRequest {
@@ -414,5 +486,100 @@ async fn test_range_bars_grpc_non_ok_status_is_typed_error() {
             assert_eq!(message, "forbidden");
         }
         other => panic!("expected grpc status error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_range_bars_grpc_call_send_matches_one_page_method() {
+    let (base_url, _) =
+        spawn_range_grpc_server(RangeGrpcUnaryReply::Success(proto_range_response_min())).await;
+
+    let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
+    let request = RangeBarsGrpcRequest {
+        pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
+        tf: Timeframe::M1,
+        align_mode: None,
+        close_start: None,
+        cursor: None,
+        close_end: None,
+        limit: Some(100),
+        exclude_sources: Some(vec![ExcludeSource::NoTradeFill, ExcludeSource::FixData]),
+        metadata: Some(false),
+    };
+
+    let one_page = client
+        .range_bars_grpc(&request)
+        .await
+        .expect("one-page grpc range success");
+    let via_call = client
+        .range_bars_grpc_call(request.clone())
+        .send()
+        .await
+        .expect("wrapper grpc range send success");
+
+    assert_eq!(via_call, one_page);
+}
+
+#[tokio::test]
+async fn test_range_bars_grpc_call_traverse_freezes_omitted_close_end_from_first_page() {
+    let mut second_reply = proto_range_response_min();
+    second_reply.rows = vec![proto_bar_min("ETHUSDT")];
+    second_reply.next_cursor = None;
+
+    let (base_url, mut captured_rx) = spawn_range_grpc_server_sequence(vec![
+        RangeGrpcUnaryReply::Success(proto_range_response_min()),
+        RangeGrpcUnaryReply::Success(second_reply),
+    ])
+    .await;
+
+    let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
+    let request = RangeBarsGrpcRequest {
+        pairs: vec!["BTCUSDT".to_string()],
+        tf: Timeframe::M1,
+        align_mode: None,
+        close_start: Some("2026-02-02T00:00:00Z".into()),
+        cursor: None,
+        close_end: None,
+        limit: Some(2),
+        exclude_sources: None,
+        metadata: Some(false),
+    };
+
+    let out = client
+        .range_bars_grpc_call(request)
+        .traverse()
+        .await
+        .expect("grpc range traverse success");
+
+    let first = captured_rx
+        .recv()
+        .await
+        .expect("first captured grpc request");
+    let second = captured_rx
+        .recv()
+        .await
+        .expect("second captured grpc request");
+
+    assert_eq!(first.body.close_end_ms, 0);
+    assert!(first.body.cursor.is_none());
+    assert_eq!(second.body.close_end_ms, 1770003600000);
+    assert_eq!(second.body.cursor.as_deref(), Some("cursor-1"));
+    assert_eq!(out.pages_fetched, 2);
+    assert_eq!(out.pages.len(), 2);
+
+    match &out.pages[0] {
+        RangeBarsResponse::Min(response) => {
+            assert_eq!(response.rows[0].pair, "BTCUSDT");
+            assert_eq!(response.next_cursor.as_deref(), Some("cursor-1"));
+        }
+        other => panic!("expected min first grpc page, got {other:?}"),
+    }
+
+    match &out.pages[1] {
+        RangeBarsResponse::Min(response) => {
+            assert_eq!(response.rows[0].pair, "ETHUSDT");
+            assert!(response.next_cursor.is_none());
+        }
+        other => panic!("expected min second grpc page, got {other:?}"),
     }
 }

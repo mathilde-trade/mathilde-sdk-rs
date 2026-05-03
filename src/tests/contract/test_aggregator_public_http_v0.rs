@@ -1,5 +1,5 @@
 use crate::core::auth::{BearerToken, apply_bearer_auth};
-use crate::core::config::{AggregatorConfig, HttpTransportConfig};
+use crate::core::config::{AggregatorConfig, HttpTransportConfig, MathildePublicHosts};
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
 use crate::systems::aggregator::{AggregatorClient, LatestBarsRequest, LatestBarsResponse};
@@ -136,6 +136,62 @@ fn test_config_rejects_malformed_http_base_url() {
 }
 
 #[test]
+fn test_aggregator_config_mathilde_public_default_uses_manifest_hosts() {
+    let token = BearerToken::new("abc123").expect("valid token");
+    let config =
+        AggregatorConfig::mathilde_public_default(Some(token.clone())).expect("default config");
+
+    assert_eq!(
+        config
+            .require_http()
+            .expect("http transport")
+            .base_url
+            .as_str(),
+        "https://aggregator.api.mathilde.dev/"
+    );
+    assert_eq!(
+        config
+            .require_grpc()
+            .expect("grpc transport")
+            .base_url
+            .as_str(),
+        "https://aggregator.grpc.mathilde.dev/"
+    );
+    assert_eq!(
+        config.require_ws().expect("ws transport").base_url.as_str(),
+        "wss://aggregator.api.mathilde.dev/"
+    );
+    assert_eq!(
+        config.bearer_token.as_ref().map(BearerToken::as_str),
+        Some("abc123")
+    );
+
+    assert_eq!(
+        MathildePublicHosts::PRIMITIVES_HTTP,
+        "https://primitives.api.mathilde.dev"
+    );
+    assert_eq!(
+        MathildePublicHosts::PRIMITIVES_GRPC,
+        "https://primitives.grpc.mathilde.dev"
+    );
+    assert_eq!(
+        MathildePublicHosts::REGIME_HTTP,
+        "https://regime.api.mathilde.dev"
+    );
+    assert_eq!(
+        MathildePublicHosts::REGIME_GRPC,
+        "https://regime.grpc.mathilde.dev"
+    );
+    assert_eq!(MathildePublicHosts::INTRO, "https://api.mathilde.dev");
+}
+
+#[tokio::test]
+async fn test_aggregator_client_mathilde_public_default_builds_transports() {
+    let token = BearerToken::new("abc123").expect("valid token");
+    let _client = AggregatorClient::mathilde_public_default(Some(token)).expect("default client");
+}
+
+#[test]
 fn test_auth_helper_injects_bearer_token_when_present() {
     let token = BearerToken::new("abc123").expect("valid token");
     let headers = apply_bearer_auth(HeaderMap::new(), Some(&token)).expect("header injection");
@@ -155,11 +211,20 @@ fn test_auth_helper_omits_bearer_token_when_absent() {
 async fn test_docs_system_forms_correct_path_and_decodes_payload() {
     let server = MockServer::start().await;
     let response = ResponseTemplate::new(200).set_body_json(serde_json::json!({
-        "slug": "aggregator",
+        "subsystem": "aggregator",
         "kind": "system",
         "title": "Aggregator",
-        "format": "markdown",
-        "content": "# Aggregator"
+        "anchor": "aggregator",
+        "source_path": "docs/public/systems/aggregator/public/aggregator.md",
+        "generated_by": "export_public_page_json.sh",
+        "intro": "Aggregator intro.",
+        "sections": [{
+            "heading": "What It Is",
+            "slug": "what-it-is",
+            "level": 2,
+            "content": "Aggregator content.",
+            "children": []
+        }]
     }));
 
     Mock::given(method("GET"))
@@ -171,9 +236,10 @@ async fn test_docs_system_forms_correct_path_and_decodes_payload() {
     let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
     let doc = client.docs_system().await.expect("docs_system success");
 
-    assert_eq!(doc.slug, "aggregator");
-    assert_eq!(doc.kind, "system");
-    assert_eq!(doc.format, "markdown");
+    assert_eq!(doc.subsystem, "aggregator");
+    assert_eq!(doc.anchor, "aggregator");
+    assert_eq!(doc.sections.len(), 1);
+    assert_eq!(doc.sections[0].slug, "what-it-is");
 }
 
 #[tokio::test]
@@ -652,16 +718,18 @@ async fn test_docs_system_sends_bearer_auth_when_present() {
         .and(path("/v1/docs/system"))
         .and(header("authorization", "Bearer public-token"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "slug": "aggregator",
-            "kind": "system",
+            "subsystem": "aggregator",
             "title": "Aggregator",
-            "format": "markdown",
-            "content": "# Aggregator"
+            "anchor": "aggregator",
+            "source_path": "docs/public/systems/aggregator/public/aggregator.md",
+            "generated_by": "export_public_page_json.sh",
+            "intro": "Aggregator intro.",
+            "sections": []
         })))
         .mount(&server)
         .await;
 
     let client = AggregatorClient::new(config).expect("client");
     let doc = client.docs_system().await.expect("docs_system success");
-    assert_eq!(doc.slug, "aggregator");
+    assert_eq!(doc.subsystem, "aggregator");
 }

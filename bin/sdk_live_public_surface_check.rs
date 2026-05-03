@@ -992,23 +992,43 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
     let client = &runtime.client;
 
     match client.docs_system().await {
-        Ok(out) if !out.content.trim().is_empty() => {
+        Ok(out) if !out.intro.trim().is_empty() => {
             record_pass(
                 report,
                 "docs_system",
-                format!("slug={} kind={}", out.slug, out.kind),
+                format!(
+                    "subsystem={} sections={}",
+                    out.subsystem,
+                    out.sections.len()
+                ),
             );
         }
         Ok(_) => record_fail(report, "docs_system", "empty docs content"),
         Err(error) => record_fail(report, "docs_system", error.to_string()),
     }
 
+    match client.docs_summary().await {
+        Ok(out) if !out.intro.trim().is_empty() => {
+            record_pass(
+                report,
+                "docs_summary",
+                format!(
+                    "subsystem={} sections={}",
+                    out.subsystem,
+                    out.sections.len()
+                ),
+            );
+        }
+        Ok(_) => record_fail(report, "docs_summary", "empty summary content"),
+        Err(error) => record_fail(report, "docs_summary", error.to_string()),
+    }
+
     match client.docs_themes().await {
-        Ok(out) if !out.content.trim().is_empty() => {
+        Ok(out) if !out.themes.is_empty() => {
             record_pass(
                 report,
                 "docs_themes",
-                format!("slug={} index_rows={}", out.slug, out.index.len()),
+                format!("subsystem={} themes={}", out.subsystem, out.themes.len()),
             );
         }
         Ok(_) => record_fail(report, "docs_themes", "empty themes content"),
@@ -1016,11 +1036,15 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
     }
 
     match client.docs_endpoints().await {
-        Ok(out) if !out.content.trim().is_empty() => {
+        Ok(out) if !out.intro.trim().is_empty() => {
             record_pass(
                 report,
                 "docs_endpoints",
-                format!("slug={} kind={}", out.slug, out.kind),
+                format!(
+                    "subsystem={} sections={}",
+                    out.subsystem,
+                    out.sections.len()
+                ),
             );
         }
         Ok(_) => record_fail(report, "docs_endpoints", "empty endpoints content"),

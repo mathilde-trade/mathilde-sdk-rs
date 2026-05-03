@@ -5,9 +5,7 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=src/generated/aggregator/proto/feed_bars_v1.proto");
-    println!(
-        "cargo:rerun-if-changed=src/generated/aggregator/proto/feed_bars_service_v1.proto"
-    );
+    println!("cargo:rerun-if-changed=src/generated/aggregator/proto/feed_bars_service_v1.proto");
 
     let mut config = prost_build::Config::new();
     config.include_file("aggregator_bars_proto.rs");

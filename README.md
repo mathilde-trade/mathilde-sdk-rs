@@ -73,6 +73,7 @@ interpretation, or endpoint-family overview before integration. The current
 public docs surfaces are:
 
 - `docs_system` for the canonical public system document
+- `docs_summary` for the short public subsystem entry summary
 - `docs_themes` for the compiled public themes corpus
 - `docs_endpoints` for the public machine-first endpoint selection guide
 
@@ -134,7 +135,9 @@ Use file downloads when the task is export-oriented retrieval and you want one
 unified flat list of signed download URLs instead of calling internal file
 discovery and URL endpoints separately. The public surface here is
 `files_downloads`, which returns signed URLs and `expires_at_utc`, not file
-bytes.
+bytes. The SDK also exposes `files_download_items` as an explicit convenience
+layer that downloads selected returned rows to local parquet files with bearer
+auth.
 
 When not to use it:
 Do not use file downloads as a substitute for direct bars querying or pair
@@ -274,8 +277,20 @@ let start = TimeInput::Utc("2026-02-02T00:00:00Z".to_string());
 let end = TimeInput::Ms(1770003600000);
 ```
 
-Traversal is manual by default. If an endpoint exposes a cursor, the SDK does
-not automatically walk pages for you.
+Traversal is explicit and additive. The one-page methods stay unchanged, and
+cursor-aware endpoint families also expose call wrappers with explicit
+continuation helpers:
+
+- one page: `client.range_bars(&request).await?`
+- one page through wrapper: `client.range_bars_call(request.clone()).send().await?`
+- full traversal: `client.range_bars_call(request).traverse().await?`
+- manual paging: `client.range_bars_call(request).pager()?.next().await?`
+
+The same explicit call-wrapper pattern exists for `search_bars` and
+`time_machine_bars`, including their gRPC equivalents.
+
+Range traversal may freeze an omitted `close_end` from the first page. Search
+and time-machine traversal or pager use require explicit `close_end`.
 
 WebSocket conventions are explicit:
 
@@ -364,7 +379,18 @@ mathilde-sdk-rs = { path = "." }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-The client is created from typed transport config:
+The smallest public-default construction path is:
+
+```rust
+use mathilde_sdk_rs::core::auth::BearerToken;
+use mathilde_sdk_rs::systems::aggregator::AggregatorClient;
+
+let client =
+    AggregatorClient::mathilde_public_default(Some(BearerToken::new("feed_public_token")?))?;
+```
+
+If you need explicit transport overrides, the typed config path remains
+available:
 
 ```rust
 use mathilde_sdk_rs::core::auth::BearerToken;
@@ -388,17 +414,12 @@ place to start:
 
 ```rust
 use mathilde_sdk_rs::core::auth::BearerToken;
-use mathilde_sdk_rs::core::config::{AggregatorConfig, HttpTransportConfig};
 use mathilde_sdk_rs::systems::aggregator::{AggregatorClient, LatestBarsRequest, LatestBarsResponse};
 use mathilde_sdk_rs::systems::helpers::pairs;
 use mathilde_sdk_rs::systems::types::{HttpFormat, LatestMode, Timeframe};
 
-let client = AggregatorClient::new(AggregatorConfig {
-    http: Some(HttpTransportConfig::new("http://127.0.0.1:18182")?),
-    grpc: None,
-    ws: None,
-    bearer_token: Some(BearerToken::new("feed_public_token")?),
-})?;
+let client =
+    AggregatorClient::mathilde_public_default(Some(BearerToken::new("feed_public_token")?))?;
 
 let out = client
     .latest_bars(&LatestBarsRequest {
@@ -425,7 +446,7 @@ match out {
 
 | Family            | HTTP                                                      | gRPC                     | WS                                  | Cursor                                      | Managed recovery                 | Notes                                  |
 | ----------------- | --------------------------------------------------------- | ------------------------ | ----------------------------------- | ------------------------------------------- | -------------------------------- | -------------------------------------- |
-| Docs              | `docs_system`, `docs_themes`, `docs_endpoints`, `openapi` | No                       | No                                  | No                                          | No                               | Public documentation and OpenAPI reads |
+| Docs              | `docs_system`, `docs_summary`, `docs_themes`, `docs_endpoints`, `openapi` | No                       | No                                  | No                                          | No                               | Public documentation and OpenAPI reads |
 | Discovery         | `pairs_status`, `pairs_list`, `files_downloads`           | No                       | No                                  | `pairs_status` supports paging-style fields | No                               | Public pair and file discovery         |
 | Latest bars       | `latest_bars`                                             | `latest_bars_grpc`       | No                                  | No                                          | No                               | Current aligned bar snapshot           |
 | Range bars        | `range_bars`                                              | `range_bars_grpc`        | `connect_bars_ws`                   | Yes                                         | `connect_bars_ws_recovering`     | Windowed bars reads and bars stream    |
@@ -476,7 +497,7 @@ Current aggregator binding:
 
 What not to infer:
 
-- traversal is not automatic
+- traversal is explicit, not automatic
 - a cursor is paging state, not a different query family
 - range is not a search surface
 
@@ -662,15 +683,15 @@ match out {
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-Manual cursor continuation remains explicit:
+Full traversal is explicit when you want the whole bounded range:
 
 ```rust
 use mathilde_sdk_rs::core::time::TimeInput;
-use mathilde_sdk_rs::systems::aggregator::{RangeBarsRequest, RangeBarsResponse};
+use mathilde_sdk_rs::systems::aggregator::RangeBarsRequest;
 use mathilde_sdk_rs::systems::helpers::pairs;
 use mathilde_sdk_rs::systems::types::{AlignMode, HttpFormat, Timeframe};
 
-let mut request = RangeBarsRequest {
+let request = RangeBarsRequest {
     pairs: pairs(["BTCUSDT"]),
     tf: Timeframe::M1,
     align_mode: Some(AlignMode::Exact),
@@ -683,16 +704,39 @@ let mut request = RangeBarsRequest {
     format: Some(HttpFormat::Json),
 };
 
-let page_1 = client.range_bars(&request).await?;
+let out = client.range_bars_call(request).traverse().await?;
+println!("pages_fetched={}", out.pages_fetched);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
 
-let next_cursor = match &page_1 {
-    RangeBarsResponse::Min(r) => r.next_cursor.clone(),
-    RangeBarsResponse::Full(r) => r.next_cursor.clone(),
+Manual continuation is also explicit through the pager:
+
+```rust
+use mathilde_sdk_rs::core::time::TimeInput;
+use mathilde_sdk_rs::systems::aggregator::{RangeBarsRequest, RangeBarsResponse};
+use mathilde_sdk_rs::systems::helpers::pairs;
+use mathilde_sdk_rs::systems::types::{AlignMode, HttpFormat, Timeframe};
+
+let request = RangeBarsRequest {
+    pairs: pairs(["BTCUSDT"]),
+    tf: Timeframe::M1,
+    align_mode: Some(AlignMode::Exact),
+    close_start: Some(TimeInput::Utc("2026-02-02T00:00:00Z".to_string())),
+    cursor: None,
+    close_end: None,
+    limit: Some(1000),
+    exclude_sources: None,
+    metadata: Some(false),
+    format: Some(HttpFormat::Json),
 };
 
-if let Some(next_cursor) = next_cursor {
-    request.cursor = Some(next_cursor);
-    let _page_2 = client.range_bars(&request).await?;
+let mut pager = client.range_bars_call(request).pager()?;
+
+while let Some(page) = pager.next().await? {
+    match page {
+        RangeBarsResponse::Min(r) => println!("page rows={}", r.rows.len()),
+        RangeBarsResponse::Full(r) => println!("page rows={}", r.rows.len()),
+    }
 }
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -733,6 +777,15 @@ match out {
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+If you want full traversal across every search page, keep `close_end`
+explicit and use:
+
+```rust
+let out = client.search_bars_call(request).traverse().await?;
+println!("pages_fetched={}", out.pages_fetched);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
 ### Time-Machine Bars
 
 This example answers the question: what did the local bars context look like
@@ -769,6 +822,15 @@ match out {
     }
     TimeMachineBarsResponse::Full(_) => unreachable!(),
 }
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+If you want full traversal across every time-machine page, keep `close_end`
+explicit and use:
+
+```rust
+let out = client.time_machine_bars_call(request).traverse().await?;
+println!("pages_fetched={}", out.pages_fetched);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 

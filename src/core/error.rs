@@ -27,10 +27,7 @@ pub enum SdkError {
         source: tonic::transport::Error,
     },
     #[error("grpc status {code}: {message}")]
-    GrpcStatus {
-        code: tonic::Code,
-        message: String,
-    },
+    GrpcStatus { code: tonic::Code, message: String },
     #[error("grpc metadata error: {message}")]
     GrpcMetadata { message: String },
     #[error("ws transport error: {message}")]
@@ -42,8 +39,15 @@ pub enum SdkError {
         #[source]
         source: reqwest::Error,
     },
+    #[error("io error: {source}")]
+    Io {
+        #[source]
+        source: std::io::Error,
+    },
     #[error("contract drift: {message}")]
     ContractDrift { message: String },
+    #[error("unsupported or unproved usage: {message}")]
+    UnsupportedOrUnprovedUsage { message: String },
 }
 
 impl SdkError {
@@ -96,6 +100,16 @@ impl SdkError {
 
     pub fn contract_drift(message: impl Into<String>) -> Self {
         Self::ContractDrift {
+            message: message.into(),
+        }
+    }
+
+    pub fn io(source: std::io::Error) -> Self {
+        Self::Io { source }
+    }
+
+    pub fn unsupported_or_unproved_usage(message: impl Into<String>) -> Self {
+        Self::UnsupportedOrUnprovedUsage {
             message: message.into(),
         }
     }

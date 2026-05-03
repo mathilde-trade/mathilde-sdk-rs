@@ -1,8 +1,11 @@
-use crate::core::auth::{apply_bearer_auth, BearerToken};
+use crate::core::auth::{BearerToken, apply_bearer_auth};
 use crate::core::config::HttpTransportConfig;
 use crate::core::error::SdkError;
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Method, RequestBuilder, Response};
+use std::path::Path;
+use tokio::fs::{File, create_dir_all};
+use tokio::io::AsyncWriteExt;
 use url::Url;
 
 #[derive(Debug, Clone)]
@@ -34,6 +37,22 @@ impl HttpTransport {
         Ok(self.client.request(method, url).headers(headers))
     }
 
+    pub fn request_absolute(
+        &self,
+        method: Method,
+        absolute_url: impl AsRef<str>,
+    ) -> Result<RequestBuilder, SdkError> {
+        let raw = absolute_url.as_ref();
+        let url =
+            Url::parse(raw).map_err(|source| SdkError::invalid_url(raw.to_string(), source))?;
+        let headers = apply_bearer_auth(HeaderMap::new(), self.bearer_token.as_ref())?;
+        Ok(self.client.request(method, url).headers(headers))
+    }
+
+    pub fn has_bearer_token(&self) -> bool {
+        self.bearer_token.is_some()
+    }
+
     pub async fn execute(&self, request: RequestBuilder) -> Result<Response, SdkError> {
         request
             .send()
@@ -55,5 +74,32 @@ impl HttpTransport {
             status: status.as_u16(),
             body,
         })
+    }
+
+    pub async fn download_to_path(
+        &self,
+        request: RequestBuilder,
+        destination_path: &Path,
+    ) -> Result<u64, SdkError> {
+        if let Some(parent) = destination_path.parent() {
+            create_dir_all(parent).await.map_err(SdkError::io)?;
+        }
+
+        let response = self.execute(request).await?;
+        let mut response = self.ensure_success(response).await?;
+        let mut file = File::create(destination_path).await.map_err(SdkError::io)?;
+        let mut bytes_written: u64 = 0;
+
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|source| SdkError::Decode { source })?
+        {
+            file.write_all(&chunk).await.map_err(SdkError::io)?;
+            bytes_written += chunk.len() as u64;
+        }
+
+        file.flush().await.map_err(SdkError::io)?;
+        Ok(bytes_written)
     }
 }

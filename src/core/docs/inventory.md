@@ -18,5 +18,5 @@ currently exist for `src/core`.
 - `src/core/client.rs`: shared base client helpers for HTTP request execution.
 - `src/core/config.rs`: typed SDK transport configuration surfaces and builders.
 - `src/core/error.rs`: shared typed SDK error surface across transports and endpoint families.
-- `src/core/pagination.rs`: shared pagination and cursor-facing primitives.
+- `src/core/pagination.rs`: shared pagination state-machine primitives, repeated-cursor guards, and explicit traversal-admission helpers.
 - `src/core/time.rs`: shared `TimeInput` parsing and UTC-ms normalization logic.

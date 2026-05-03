@@ -6,28 +6,48 @@ use crate::systems::types::{
 };
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct PublicDocResponse {
+pub struct PublicPageSection {
+    pub heading: String,
     pub slug: String,
-    pub kind: String,
-    pub title: String,
-    pub format: String,
+    pub level: u8,
     pub content: String,
+    pub children: Vec<PublicPageSection>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct PublicDocIndexRow {
+pub struct PublicPageDoc {
+    pub subsystem: String,
     pub title: String,
     pub anchor: String,
+    pub source_path: String,
+    pub generated_by: String,
+    pub intro: String,
+    pub sections: Vec<PublicPageSection>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct PublicDocWithIndexResponse {
+pub struct PublicThemeSection {
+    pub heading: String,
     pub slug: String,
-    pub kind: String,
-    pub title: String,
-    pub format: String,
     pub content: String,
-    pub index: Vec<PublicDocIndexRow>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct PublicThemeDoc {
+    pub theme_key: String,
+    pub title: String,
+    pub anchor: String,
+    pub source_path: String,
+    pub intro: String,
+    pub sections: Vec<PublicThemeSection>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct PublicThemesCompiled {
+    pub subsystem: String,
+    pub source_manifest: String,
+    pub generated_by: String,
+    pub themes: Vec<PublicThemeDoc>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Default)]
@@ -184,6 +204,13 @@ pub struct FilesDownloadsRow {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct FilesDownloadsResponse {
     pub rows: Vec<FilesDownloadsRow>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct DownloadedFile {
+    pub row: FilesDownloadsRow,
+    pub destination_path: String,
+    pub bytes_written: u64,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -842,6 +869,24 @@ pub enum RangeBarsResponse {
 }
 
 impl RangeBarsResponse {
+    pub fn next_cursor(&self) -> Option<&str> {
+        match self {
+            Self::Min(response) => response.next_cursor.as_deref(),
+            Self::Full(response) => response.next_cursor.as_deref(),
+        }
+    }
+
+    pub fn close_end_ms(&self) -> i64 {
+        match self {
+            Self::Min(response) => response.close_end_ms,
+            Self::Full(response) => response.close_end_ms,
+        }
+    }
+
+    pub fn done(&self) -> bool {
+        self.next_cursor().is_none()
+    }
+
     pub fn from_proto(
         response: proto::BarsRangeResponseV1,
         metadata: bool,
@@ -888,6 +933,12 @@ impl RangeBarsResponse {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct RangeBarsTraverseResult {
+    pub pages: Vec<RangeBarsResponse>,
+    pub pages_fetched: usize,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct SearchBarsMinResponse {
     pub hits: Vec<i64>,
@@ -921,6 +972,20 @@ pub enum SearchBarsResponse {
 }
 
 impl SearchBarsResponse {
+    pub fn next_cursor(&self) -> Option<&str> {
+        match self {
+            Self::Min(response) => response.next_cursor.as_deref(),
+            Self::Full(response) => response.next_cursor.as_deref(),
+        }
+    }
+
+    pub fn done(&self) -> bool {
+        match self {
+            Self::Min(response) => response.done,
+            Self::Full(response) => response.done,
+        }
+    }
+
     pub fn from_proto(
         response: proto::BarsSearchResponseV1,
         metadata: bool,
@@ -973,6 +1038,12 @@ impl SearchBarsResponse {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct SearchBarsTraverseResult {
+    pub pages: Vec<SearchBarsResponse>,
+    pub pages_fetched: usize,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct TimeMachineBarsMinRow {
     pub hit_close_ms: i64,
@@ -1018,6 +1089,20 @@ pub enum TimeMachineBarsResponse {
 }
 
 impl TimeMachineBarsResponse {
+    pub fn next_cursor(&self) -> Option<&str> {
+        match self {
+            Self::Min(response) => response.next_cursor.as_deref(),
+            Self::Full(response) => response.next_cursor.as_deref(),
+        }
+    }
+
+    pub fn done(&self) -> bool {
+        match self {
+            Self::Min(response) => response.done,
+            Self::Full(response) => response.done,
+        }
+    }
+
     pub fn from_proto(
         response: proto::BarsTimeMachineResponseV1,
         metadata: bool,
@@ -1054,6 +1139,12 @@ impl TimeMachineBarsResponse {
             }))
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TimeMachineBarsTraverseResult {
+    pub pages: Vec<TimeMachineBarsResponse>,
+    pub pages_fetched: usize,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]

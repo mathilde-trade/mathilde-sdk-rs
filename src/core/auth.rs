@@ -27,7 +27,9 @@ impl BearerToken {
 
     pub fn as_authorization_value(&self) -> Result<HeaderValue, SdkError> {
         HeaderValue::from_str(&format!("Bearer {}", self.0)).map_err(|_| {
-            SdkError::invalid_auth_token("bearer token cannot be encoded as an authorization header")
+            SdkError::invalid_auth_token(
+                "bearer token cannot be encoded as an authorization header",
+            )
         })
     }
 }

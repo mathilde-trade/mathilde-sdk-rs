@@ -1,7 +1,7 @@
 use crate::core::error::SdkError;
 use crate::systems::aggregator::types::{
-    join_optional_pair_values_csv,
     PairsListRequest, PairsListResponse, PairsStatusRequest, PairsStatusResponse,
+    join_optional_pair_values_csv,
 };
 use crate::transport::http::HttpTransport;
 use reqwest::Method;
@@ -56,7 +56,10 @@ pub async fn pairs_list(
     let query = [
         ("after_pair", request.after_pair.clone()),
         ("limit", request.limit.map(|value| value.to_string())),
-        ("enabled_only", request.enabled_only.map(|value| value.to_string())),
+        (
+            "enabled_only",
+            request.enabled_only.map(|value| value.to_string()),
+        ),
     ];
 
     let request = transport

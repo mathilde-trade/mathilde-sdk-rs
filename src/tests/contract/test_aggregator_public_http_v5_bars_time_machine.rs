@@ -215,7 +215,10 @@ async fn test_time_machine_bars_uses_post_and_normalizes_time_inputs_and_decodes
             assert_eq!(out.rows[0].bar.pair, "BTCUSDT");
             assert_eq!(out.rows[0].offset, 0);
             assert_eq!(out.next_cursor.as_deref(), Some("cursor-1"));
-            assert_eq!(out.predicate_normalized.as_deref(), Some("BTCUSDT.c > ETHUSDT.c * 1.5"));
+            assert_eq!(
+                out.predicate_normalized.as_deref(),
+                Some("BTCUSDT.c > ETHUSDT.c * 1.5")
+            );
         }
         TimeMachineBarsResponse::Full(other) => {
             panic!("expected min time-machine response, got full: {other:?}")
@@ -579,5 +582,175 @@ async fn test_time_machine_bars_invalid_protobuf_returns_contract_drift() {
             assert!(message.contains("protobuf decode failed"));
         }
         other => panic!("expected contract drift error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_time_machine_bars_call_send_matches_one_page_method() {
+    let server = MockServer::start().await;
+    let request = TimeMachineBarsRequest {
+        tf: Timeframe::M1,
+        close_start: "2026-02-02T00:00:00Z".into(),
+        close_end: Some(1770007200000_i64.into()),
+        cursor: None,
+        predicate: Some("BTCUSDT.c > ETHUSDT.c * 1.5".to_string()),
+        hits: None,
+        output_pairs: Some(vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()]),
+        exclude_sources: Some(vec![ExcludeSource::NoTradeFill, ExcludeSource::FixData]),
+        metadata: Some(false),
+        before_bars: Some(10),
+        after_bars: Some(10),
+        max_hits: Some(500),
+        overlap_mode: Some("merge".to_string()),
+        format: Some(HttpFormat::Json),
+    };
+
+    let expected_body = serde_json::json!({
+        "tf": "1m",
+        "close_start_ms": 1769990400000i64,
+        "close_end_ms": 1770007200000i64,
+        "cursor": null,
+        "predicate": "BTCUSDT.c > ETHUSDT.c * 1.5",
+        "hits": null,
+        "output_pairs": ["BTCUSDT", "ETHUSDT"],
+        "exclude_sources": ["no_trade_fill", "fix-data"],
+        "metadata": false,
+        "before_bars": 10,
+        "after_bars": 10,
+        "max_hits": 500,
+        "overlap_mode": "merge",
+        "format": "json"
+    });
+
+    let response = ResponseTemplate::new(200).set_body_json(serde_json::json!({
+        "rows": [{
+            "hit_close_ms": 1770000060000i64,
+            "offset": 0,
+            "bar": {
+                "pair": "BTCUSDT",
+                "tf": "1m",
+                "open_ms": 1770000000000i64,
+                "close_ms": 1770000060000i64,
+                "open_utc": "2026-02-02T00:00:00Z",
+                "close_utc": "2026-02-02T00:01:00Z",
+                "o": 100.0,
+                "h": 101.0,
+                "l": 99.5,
+                "c": 100.5,
+                "v": 12.34,
+                "quote_v": 1234.56,
+                "taker_known_v": 6.17,
+                "taker_signed_v": 1.23,
+                "taker_known_quote_v": 617.28,
+                "taker_signed_quote_v": 123.45,
+                "taker_known_n": 18,
+                "taker_signed_n": 3,
+                "vw": 100.21,
+                "n": null
+            }
+        }],
+        "next_cursor": "cursor-1",
+        "done": false,
+        "returned_hits": 1,
+        "effective_hits_limit": 500,
+        "truncated": false,
+        "predicate_pairs": ["BTCUSDT", "ETHUSDT"],
+        "predicate_normalized": "BTCUSDT.c > ETHUSDT.c * 1.5"
+    }));
+
+    Mock::given(method("POST"))
+        .and(path("/v1/bars/time-machine"))
+        .and(body_json(expected_body))
+        .respond_with(response)
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let one_page = client
+        .time_machine_bars(&request)
+        .await
+        .expect("one-page time-machine success");
+    let via_call = client
+        .time_machine_bars_call(request.clone())
+        .send()
+        .await
+        .expect("wrapper time-machine send success");
+
+    assert_eq!(via_call, one_page);
+}
+
+#[tokio::test]
+async fn test_time_machine_bars_call_traverse_requires_explicit_close_end() {
+    let client =
+        AggregatorClient::new(config_for_http("http://127.0.0.1:1")).expect("dummy client");
+    let request = TimeMachineBarsRequest {
+        tf: Timeframe::M1,
+        close_start: "2026-02-02T00:00:00Z".into(),
+        close_end: None,
+        cursor: None,
+        predicate: Some("BTCUSDT.c > ETHUSDT.c * 1.5".to_string()),
+        hits: None,
+        output_pairs: Some(vec!["BTCUSDT".to_string()]),
+        exclude_sources: None,
+        metadata: Some(false),
+        before_bars: Some(5),
+        after_bars: Some(5),
+        max_hits: Some(100),
+        overlap_mode: Some("merge".to_string()),
+        format: Some(HttpFormat::Json),
+    };
+
+    let err = client
+        .time_machine_bars_call(request)
+        .traverse()
+        .await
+        .expect_err("open-ended time-machine traverse must fail closed");
+
+    match err {
+        SdkError::UnsupportedOrUnprovedUsage { message } => {
+            assert_eq!(
+                message,
+                "time-machine traversal requires explicit close_end"
+            );
+        }
+        other => panic!("expected UnsupportedOrUnprovedUsage, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_time_machine_bars_pager_requires_explicit_close_end() {
+    let client =
+        AggregatorClient::new(config_for_http("http://127.0.0.1:1")).expect("dummy client");
+    let request = TimeMachineBarsRequest {
+        tf: Timeframe::M1,
+        close_start: "2026-02-02T00:00:00Z".into(),
+        close_end: None,
+        cursor: None,
+        predicate: Some("BTCUSDT.c > ETHUSDT.c * 1.5".to_string()),
+        hits: None,
+        output_pairs: Some(vec!["BTCUSDT".to_string()]),
+        exclude_sources: None,
+        metadata: Some(false),
+        before_bars: Some(5),
+        after_bars: Some(5),
+        max_hits: Some(100),
+        overlap_mode: Some("merge".to_string()),
+        format: Some(HttpFormat::Json),
+    };
+
+    let err = client
+        .time_machine_bars_call(request)
+        .pager()
+        .expect_err("open-ended time-machine pager must fail closed");
+
+    match err {
+        SdkError::UnsupportedOrUnprovedUsage { message } => {
+            assert_eq!(
+                message,
+                "time-machine traversal requires explicit close_end"
+            );
+        }
+        other => panic!("expected UnsupportedOrUnprovedUsage, got {other:?}"),
     }
 }

@@ -516,3 +516,310 @@ async fn test_range_bars_invalid_protobuf_returns_contract_drift() {
         other => panic!("expected contract drift error, got {other:?}"),
     }
 }
+
+#[tokio::test]
+async fn test_range_bars_call_send_matches_one_page_method() {
+    let server = MockServer::start().await;
+    let request = RangeBarsRequest {
+        pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
+        tf: Timeframe::M1,
+        align_mode: Some(AlignMode::Floor),
+        close_start: Some("2026-02-02T00:00:00Z".into()),
+        cursor: None,
+        close_end: Some(1770003600000_i64.into()),
+        limit: Some(1000),
+        exclude_sources: Some(vec![ExcludeSource::NoTradeFill, ExcludeSource::FixData]),
+        metadata: Some(false),
+        format: Some(HttpFormat::Json),
+    };
+
+    let expected_body = serde_json::json!({
+        "pairs": "BTCUSDT,ETHUSDT",
+        "tf": "1m",
+        "align_mode": "floor",
+        "close_start_ms": 1769990400000i64,
+        "cursor": null,
+        "close_end_ms": 1770003600000i64,
+        "limit": 1000,
+        "exclude_sources": ["no_trade_fill", "fix-data"],
+        "metadata": false,
+        "format": "json"
+    });
+
+    let response = ResponseTemplate::new(200).set_body_json(serde_json::json!({
+        "rows": [{
+            "pair": "BTCUSDT",
+            "tf": "1m",
+            "open_ms": 1770000000000i64,
+            "close_ms": 1770000060000i64,
+            "open_utc": "2026-02-02T00:00:00Z",
+            "close_utc": "2026-02-02T00:01:00Z",
+            "o": 100.0,
+            "h": 101.0,
+            "l": 99.5,
+            "c": 100.5,
+            "v": 12.34,
+            "quote_v": 1234.56,
+            "taker_known_v": 6.17,
+            "taker_signed_v": 1.23,
+            "taker_known_quote_v": 617.28,
+            "taker_signed_quote_v": 123.45,
+            "taker_known_n": 18,
+            "taker_signed_n": 3,
+            "vw": 100.21,
+            "n": null
+        }],
+        "close_end_ms": 1770003600000i64,
+        "next_cursor": "cursor-1",
+        "excluded_sources": ["no_trade_fill", "fix-data"],
+        "excluded_rows_total": 1,
+        "excluded_rows_by_source": [{"source": "no_trade_fill", "count": 1}]
+    }));
+
+    Mock::given(method("POST"))
+        .and(path("/v1/bars/range"))
+        .and(body_json(expected_body))
+        .respond_with(response)
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+
+    let one_page = client
+        .range_bars(&request)
+        .await
+        .expect("one-page range success");
+    let via_call = client
+        .range_bars_call(request.clone())
+        .send()
+        .await
+        .expect("wrapper send success");
+
+    assert_eq!(via_call, one_page);
+}
+
+#[tokio::test]
+async fn test_range_bars_call_traverse_freezes_omitted_close_end_from_first_page() {
+    let server = MockServer::start().await;
+    let request = RangeBarsRequest {
+        pairs: vec!["BTCUSDT".to_string()],
+        tf: Timeframe::M1,
+        align_mode: None,
+        close_start: Some("2026-02-02T00:00:00Z".into()),
+        cursor: None,
+        close_end: None,
+        limit: Some(2),
+        exclude_sources: None,
+        metadata: Some(false),
+        format: Some(HttpFormat::Json),
+    };
+
+    let first_body = serde_json::json!({
+        "pairs": "BTCUSDT",
+        "tf": "1m",
+        "align_mode": null,
+        "close_start_ms": 1769990400000i64,
+        "cursor": null,
+        "close_end_ms": null,
+        "limit": 2,
+        "exclude_sources": null,
+        "metadata": false,
+        "format": "json"
+    });
+
+    let second_body = serde_json::json!({
+        "pairs": "BTCUSDT",
+        "tf": "1m",
+        "align_mode": null,
+        "close_start_ms": 1769990400000i64,
+        "cursor": "cursor-1",
+        "close_end_ms": 1770003600000i64,
+        "limit": 2,
+        "exclude_sources": null,
+        "metadata": false,
+        "format": "json"
+    });
+
+    let first_response = ResponseTemplate::new(200).set_body_json(serde_json::json!({
+        "rows": [{
+            "pair": "BTCUSDT",
+            "tf": "1m",
+            "open_ms": 1770000000000i64,
+            "close_ms": 1770000060000i64,
+            "open_utc": "2026-02-02T00:00:00Z",
+            "close_utc": "2026-02-02T00:01:00Z",
+            "o": 100.0,
+            "h": 101.0,
+            "l": 99.5,
+            "c": 100.5,
+            "v": 12.34,
+            "quote_v": 1234.56,
+            "taker_known_v": 6.17,
+            "taker_signed_v": 1.23,
+            "taker_known_quote_v": 617.28,
+            "taker_signed_quote_v": 123.45,
+            "taker_known_n": 18,
+            "taker_signed_n": 3,
+            "vw": 100.21,
+            "n": null
+        }],
+        "close_end_ms": 1770003600000i64,
+        "next_cursor": "cursor-1",
+        "excluded_sources": [],
+        "excluded_rows_total": 0,
+        "excluded_rows_by_source": []
+    }));
+
+    let second_response = ResponseTemplate::new(200).set_body_json(serde_json::json!({
+        "rows": [{
+            "pair": "ETHUSDT",
+            "tf": "1m",
+            "open_ms": 1770000060000i64,
+            "close_ms": 1770000120000i64,
+            "open_utc": "2026-02-02T00:01:00Z",
+            "close_utc": "2026-02-02T00:02:00Z",
+            "o": 200.0,
+            "h": 201.0,
+            "l": 199.5,
+            "c": 200.5,
+            "v": 21.0,
+            "quote_v": 2100.0,
+            "taker_known_v": 10.5,
+            "taker_signed_v": 2.1,
+            "taker_known_quote_v": 1050.0,
+            "taker_signed_quote_v": 210.0,
+            "taker_known_n": 12,
+            "taker_signed_n": 2,
+            "vw": 200.2,
+            "n": null
+        }],
+        "close_end_ms": 1770003600000i64,
+        "next_cursor": null,
+        "excluded_sources": [],
+        "excluded_rows_total": 0,
+        "excluded_rows_by_source": []
+    }));
+
+    Mock::given(method("POST"))
+        .and(path("/v1/bars/range"))
+        .and(body_json(first_body))
+        .respond_with(first_response)
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/bars/range"))
+        .and(body_json(second_body))
+        .respond_with(second_response)
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let out = client
+        .range_bars_call(request)
+        .traverse()
+        .await
+        .expect("range traverse success");
+
+    assert_eq!(out.pages_fetched, 2);
+    assert_eq!(out.pages.len(), 2);
+
+    match &out.pages[0] {
+        RangeBarsResponse::Min(response) => {
+            assert_eq!(response.rows[0].pair, "BTCUSDT");
+            assert_eq!(response.next_cursor.as_deref(), Some("cursor-1"));
+        }
+        other => panic!("expected min first page, got {other:?}"),
+    }
+
+    match &out.pages[1] {
+        RangeBarsResponse::Min(response) => {
+            assert_eq!(response.rows[0].pair, "ETHUSDT");
+            assert!(response.next_cursor.is_none());
+        }
+        other => panic!("expected min second page, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_range_bars_pager_next_returns_none_after_terminal_page() {
+    let server = MockServer::start().await;
+    let request = RangeBarsRequest {
+        pairs: vec!["BTCUSDT".to_string()],
+        tf: Timeframe::M1,
+        align_mode: None,
+        close_start: Some("2026-02-02T00:00:00Z".into()),
+        cursor: None,
+        close_end: Some(1770003600000_i64.into()),
+        limit: Some(1),
+        exclude_sources: None,
+        metadata: Some(false),
+        format: Some(HttpFormat::Json),
+    };
+
+    let expected_body = serde_json::json!({
+        "pairs": "BTCUSDT",
+        "tf": "1m",
+        "align_mode": null,
+        "close_start_ms": 1769990400000i64,
+        "cursor": null,
+        "close_end_ms": 1770003600000i64,
+        "limit": 1,
+        "exclude_sources": null,
+        "metadata": false,
+        "format": "json"
+    });
+
+    let response = ResponseTemplate::new(200).set_body_json(serde_json::json!({
+        "rows": [{
+            "pair": "BTCUSDT",
+            "tf": "1m",
+            "open_ms": 1770000000000i64,
+            "close_ms": 1770000060000i64,
+            "open_utc": "2026-02-02T00:00:00Z",
+            "close_utc": "2026-02-02T00:01:00Z",
+            "o": 100.0,
+            "h": 101.0,
+            "l": 99.5,
+            "c": 100.5,
+            "v": 12.34,
+            "quote_v": 1234.56,
+            "taker_known_v": 6.17,
+            "taker_signed_v": 1.23,
+            "taker_known_quote_v": 617.28,
+            "taker_signed_quote_v": 123.45,
+            "taker_known_n": 18,
+            "taker_signed_n": 3,
+            "vw": 100.21,
+            "n": null
+        }],
+        "close_end_ms": 1770003600000i64,
+        "next_cursor": null,
+        "excluded_sources": [],
+        "excluded_rows_total": 0,
+        "excluded_rows_by_source": []
+    }));
+
+    Mock::given(method("POST"))
+        .and(path("/v1/bars/range"))
+        .and(body_json(expected_body))
+        .respond_with(response)
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let mut pager = client
+        .range_bars_call(request)
+        .pager()
+        .expect("range pager");
+
+    let first = pager.next().await.expect("first page");
+    assert!(first.is_some());
+
+    let second = pager.next().await.expect("terminal none");
+    assert!(second.is_none());
+}

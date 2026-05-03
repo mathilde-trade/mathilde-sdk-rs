@@ -1,29 +1,35 @@
+use crate::core::auth::BearerToken;
 use crate::core::config::AggregatorConfig;
 use crate::core::error::SdkError;
+use crate::streaming::make_before_break::MakeBeforeBreakConfig;
+use crate::streaming::subscription::ExponentialBackoffConfig;
 use crate::systems::aggregator::bars_grpc;
 use crate::systems::aggregator::bars_http;
+use crate::systems::aggregator::bars_pagination::{
+    RangeBarsCall, RangeBarsGrpcCall, SearchBarsCall, SearchBarsGrpcCall, TimeMachineBarsCall,
+    TimeMachineBarsGrpcCall,
+};
 use crate::systems::aggregator::bars_ws;
 use crate::systems::aggregator::docs;
 use crate::systems::aggregator::files;
 use crate::systems::aggregator::messages_ws;
 use crate::systems::aggregator::pairs;
-use crate::streaming::make_before_break::MakeBeforeBreakConfig;
-use crate::streaming::subscription::ExponentialBackoffConfig;
+use crate::systems::aggregator::types::{
+    DownloadedFile, FilesDownloadsRequest, FilesDownloadsResponse, FilesDownloadsRow,
+    LatestBarsGrpcRequest, LatestBarsRequest, LatestBarsResponse, PairsListRequest,
+    PairsListResponse, PairsStatusRequest, PairsStatusResponse, PublicOpenApiDocument,
+    PublicPageDoc, PublicThemesCompiled, RangeBarsGrpcRequest, RangeBarsRequest, RangeBarsResponse,
+    SearchBarsGrpcRequest, SearchBarsRequest, SearchBarsResponse, TimeMachineBarsGrpcRequest,
+    TimeMachineBarsRequest, TimeMachineBarsResponse,
+};
 use crate::systems::aggregator::{
     BarsWsConnection, BarsWsMakeBeforeBreak, BarsWsSubscribeRequest, MessagesWsConnection,
     RecoveringBarsWsConnection, RecoveringMessagesWsConnection,
 };
-use crate::systems::aggregator::types::{
-    FilesDownloadsRequest, FilesDownloadsResponse, LatestBarsGrpcRequest, LatestBarsRequest,
-    LatestBarsResponse, PairsListRequest, PairsListResponse, PairsStatusRequest,
-    PairsStatusResponse, PublicDocResponse, PublicDocWithIndexResponse, PublicOpenApiDocument,
-    RangeBarsGrpcRequest, RangeBarsRequest, RangeBarsResponse, SearchBarsGrpcRequest,
-    SearchBarsRequest, SearchBarsResponse, TimeMachineBarsGrpcRequest, TimeMachineBarsRequest,
-    TimeMachineBarsResponse,
-};
 use crate::transport::grpc::GrpcTransport;
 use crate::transport::http::HttpTransport;
 use crate::transport::ws::WsTransport;
+use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub struct AggregatorClient {
@@ -52,15 +58,23 @@ impl AggregatorClient {
         })
     }
 
-    pub async fn docs_system(&self) -> Result<PublicDocResponse, SdkError> {
+    pub fn mathilde_public_default(bearer_token: Option<BearerToken>) -> Result<Self, SdkError> {
+        Self::new(AggregatorConfig::mathilde_public_default(bearer_token)?)
+    }
+
+    pub async fn docs_system(&self) -> Result<PublicPageDoc, SdkError> {
         docs::docs_system(&self.http).await
     }
 
-    pub async fn docs_themes(&self) -> Result<PublicDocWithIndexResponse, SdkError> {
+    pub async fn docs_summary(&self) -> Result<PublicPageDoc, SdkError> {
+        docs::docs_summary(&self.http).await
+    }
+
+    pub async fn docs_themes(&self) -> Result<PublicThemesCompiled, SdkError> {
         docs::docs_themes(&self.http).await
     }
 
-    pub async fn docs_endpoints(&self) -> Result<PublicDocResponse, SdkError> {
+    pub async fn docs_endpoints(&self) -> Result<PublicPageDoc, SdkError> {
         docs::docs_endpoints(&self.http).await
     }
 
@@ -104,6 +118,14 @@ impl AggregatorClient {
         bars_grpc::range_bars_grpc(grpc, request).await
     }
 
+    pub fn range_bars_call(&self, request: RangeBarsRequest) -> RangeBarsCall<'_> {
+        RangeBarsCall::new(self, request)
+    }
+
+    pub fn range_bars_grpc_call(&self, request: RangeBarsGrpcRequest) -> RangeBarsGrpcCall<'_> {
+        RangeBarsGrpcCall::new(self, request)
+    }
+
     pub async fn search_bars(
         &self,
         request: &SearchBarsRequest,
@@ -122,6 +144,14 @@ impl AggregatorClient {
         bars_grpc::search_bars_grpc(grpc, request).await
     }
 
+    pub fn search_bars_call(&self, request: SearchBarsRequest) -> SearchBarsCall<'_> {
+        SearchBarsCall::new(self, request)
+    }
+
+    pub fn search_bars_grpc_call(&self, request: SearchBarsGrpcRequest) -> SearchBarsGrpcCall<'_> {
+        SearchBarsGrpcCall::new(self, request)
+    }
+
     pub async fn time_machine_bars(
         &self,
         request: &TimeMachineBarsRequest,
@@ -138,6 +168,20 @@ impl AggregatorClient {
             .as_ref()
             .ok_or_else(|| SdkError::missing_transport_config("grpc"))?;
         bars_grpc::time_machine_bars_grpc(grpc, request).await
+    }
+
+    pub fn time_machine_bars_call(
+        &self,
+        request: TimeMachineBarsRequest,
+    ) -> TimeMachineBarsCall<'_> {
+        TimeMachineBarsCall::new(self, request)
+    }
+
+    pub fn time_machine_bars_grpc_call(
+        &self,
+        request: TimeMachineBarsGrpcRequest,
+    ) -> TimeMachineBarsGrpcCall<'_> {
+        TimeMachineBarsGrpcCall::new(self, request)
     }
 
     pub async fn connect_bars_ws(
@@ -159,8 +203,7 @@ impl AggregatorClient {
             .ws
             .as_ref()
             .ok_or_else(|| SdkError::missing_transport_config("ws"))?;
-        bars_ws::BarsWsMakeBeforeBreak::connect(ws, request, MakeBeforeBreakConfig::default())
-            .await
+        bars_ws::BarsWsMakeBeforeBreak::connect(ws, request, MakeBeforeBreakConfig::default()).await
     }
 
     pub async fn connect_bars_ws_recovering(
@@ -213,5 +256,13 @@ impl AggregatorClient {
         request: &FilesDownloadsRequest,
     ) -> Result<FilesDownloadsResponse, SdkError> {
         files::files_downloads(&self.http, request).await
+    }
+
+    pub async fn files_download_items(
+        &self,
+        items: &[FilesDownloadsRow],
+        destination_root: Option<&Path>,
+    ) -> Result<Vec<DownloadedFile>, SdkError> {
+        files::files_download_items(&self.http, items, destination_root).await
     }
 }

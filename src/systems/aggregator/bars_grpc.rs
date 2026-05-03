@@ -1,8 +1,7 @@
 use crate::core::error::SdkError;
 use crate::systems::aggregator::types::{
     LatestBarsGrpcRequest, LatestBarsResponse, RangeBarsGrpcRequest, RangeBarsResponse,
-    SearchBarsGrpcRequest, SearchBarsResponse, TimeMachineBarsGrpcRequest,
-    TimeMachineBarsResponse,
+    SearchBarsGrpcRequest, SearchBarsResponse, TimeMachineBarsGrpcRequest, TimeMachineBarsResponse,
 };
 use crate::transport::grpc::GrpcTransport;
 use tonic::client::Grpc;

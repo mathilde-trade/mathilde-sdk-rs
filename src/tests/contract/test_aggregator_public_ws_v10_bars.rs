@@ -5,7 +5,7 @@ use crate::streaming::make_before_break::MakeBeforeBreakConfig;
 use crate::streaming::subscription::ExponentialBackoffConfig;
 use crate::systems::aggregator::bars_ws::BarsWsMakeBeforeBreak;
 use crate::systems::aggregator::{
-    AggregatorClient, BarsWsInboundFrame, BarsWsSubscribeRequest, BarsWsMetaFrame, BarsWsPhase,
+    AggregatorClient, BarsWsInboundFrame, BarsWsMetaFrame, BarsWsPhase, BarsWsSubscribeRequest,
 };
 use crate::systems::types::Timeframe;
 use futures_util::{SinkExt, StreamExt};
@@ -16,8 +16,8 @@ use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::time::sleep;
 use tokio_tungstenite::accept_hdr_async;
-use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 
 #[derive(Debug)]
 struct CapturedWsConnect {
@@ -153,9 +153,11 @@ async fn spawn_capture_ws_server() -> (String, oneshot::Receiver<CapturedWsConne
             subscribe_text,
         });
 
-        ws.send(Message::Text(meta_frame(1770000060000, BarsWsPhase::Live).into()))
-            .await
-            .expect("send meta");
+        ws.send(Message::Text(
+            meta_frame(1770000060000, BarsWsPhase::Live).into(),
+        ))
+        .await
+        .expect("send meta");
         ws.send(Message::Text(
             serde_json::json!([{
                 "pair": "BTCUSDT",
@@ -197,9 +199,11 @@ async fn spawn_protobuf_ws_server() -> String {
 
     tokio::spawn(async move {
         let (stream, _) = listener.accept().await.expect("accept protobuf ws conn");
-        let mut ws = accept_hdr_async(stream, |_request: &Request, response: Response| Ok(response))
-            .await
-            .expect("accept ws handshake");
+        let mut ws = accept_hdr_async(stream, |_request: &Request, response: Response| {
+            Ok(response)
+        })
+        .await
+        .expect("accept ws handshake");
 
         let _ = ws.next().await;
         ws.send(Message::Binary(proto_full_payload("BTCUSDT").into()))
@@ -220,10 +224,11 @@ async fn spawn_make_before_break_ws_server() -> String {
         for _ in 0..2 {
             let (stream, _) = listener.accept().await.expect("accept mbb ws conn");
             tokio::spawn(async move {
-                let mut ws =
-                    accept_hdr_async(stream, |_request: &Request, response: Response| Ok(response))
-                        .await
-                        .expect("accept mbb handshake");
+                let mut ws = accept_hdr_async(stream, |_request: &Request, response: Response| {
+                    Ok(response)
+                })
+                .await
+                .expect("accept mbb handshake");
 
                 let subscribe_text = match ws.next().await {
                     Some(Ok(Message::Text(text))) => text.to_string(),
@@ -243,7 +248,9 @@ async fn spawn_make_before_break_ws_server() -> String {
                         .await
                         .expect("send old meta");
                     sleep(Duration::from_millis(40)).await;
-                    let _ = ws.send(Message::Text(meta_frame(999, BarsWsPhase::Live).into())).await;
+                    let _ = ws
+                        .send(Message::Text(meta_frame(999, BarsWsPhase::Live).into()))
+                        .await;
                 } else {
                     sleep(Duration::from_millis(35)).await;
                     ws.send(Message::Text(meta_frame(2, BarsWsPhase::Live).into()))
@@ -265,17 +272,23 @@ async fn spawn_recovering_bars_ws_server() -> String {
 
     tokio::spawn(async move {
         for close_ms in [10_i64, 20_i64] {
-            let (stream, _) = listener.accept().await.expect("accept recovering bars ws conn");
+            let (stream, _) = listener
+                .accept()
+                .await
+                .expect("accept recovering bars ws conn");
             tokio::spawn(async move {
-                let mut ws =
-                    accept_hdr_async(stream, |_request: &Request, response: Response| Ok(response))
-                        .await
-                        .expect("accept recovering bars handshake");
+                let mut ws = accept_hdr_async(stream, |_request: &Request, response: Response| {
+                    Ok(response)
+                })
+                .await
+                .expect("accept recovering bars handshake");
 
                 let _ = ws.next().await;
-                ws.send(Message::Text(meta_frame(close_ms, BarsWsPhase::Live).into()))
-                    .await
-                    .expect("send recovering bars meta");
+                ws.send(Message::Text(
+                    meta_frame(close_ms, BarsWsPhase::Live).into(),
+                ))
+                .await
+                .expect("send recovering bars meta");
                 let _ = ws.close(None).await;
             });
         }
@@ -316,7 +329,10 @@ async fn test_connect_bars_ws_sends_auth_and_subscribe_and_decodes_json_min() {
 
     let subscribe_json: serde_json::Value =
         serde_json::from_str(&captured.subscribe_text).expect("subscribe json");
-    assert_eq!(subscribe_json["pairs"], serde_json::json!(["BTCUSDT", "ETHUSDT"]));
+    assert_eq!(
+        subscribe_json["pairs"],
+        serde_json::json!(["BTCUSDT", "ETHUSDT"])
+    );
     assert_eq!(subscribe_json["tfs"], serde_json::json!(["1m"]));
     assert_eq!(subscribe_json["metadata"], serde_json::json!(false));
     assert_eq!(subscribe_json["last_n_bars"], serde_json::json!(10));

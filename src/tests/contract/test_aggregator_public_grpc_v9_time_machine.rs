@@ -219,8 +219,7 @@ async fn spawn_time_machine_grpc_server(
                     .await
                     .expect("collect grpc request body")
                     .to_bytes();
-                let decoded =
-                    decode_grpc_message::<proto::TimeMachineBarsRequestV1>(&body_bytes);
+                let decoded = decode_grpc_message::<proto::TimeMachineBarsRequestV1>(&body_bytes);
 
                 if let Some(sender) = captured_tx.lock().expect("capture mutex").take() {
                     let _ = sender.send(CapturedTimeMachineRequest {
@@ -477,5 +476,42 @@ async fn test_time_machine_bars_grpc_maps_non_ok_grpc_status() {
             assert!(message.contains("predicate or hits mode required"));
         }
         other => panic!("expected grpc status error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_time_machine_bars_grpc_call_traverse_requires_explicit_close_end() {
+    let client =
+        AggregatorClient::new(config_for_grpc("http://127.0.0.1:1", None)).expect("client");
+    let request = TimeMachineBarsGrpcRequest {
+        tf: Timeframe::M1,
+        close_start: "2026-02-02T00:00:00Z".into(),
+        close_end: None,
+        cursor: None,
+        predicate: Some("BTCUSDT.c > ETHUSDT.c * 1.5".to_string()),
+        hits: None,
+        output_pairs: Some(vec!["BTCUSDT".to_string()]),
+        exclude_sources: None,
+        metadata: Some(false),
+        before_bars: Some(5),
+        after_bars: Some(5),
+        max_hits: Some(100),
+        overlap_mode: Some("merge".to_string()),
+    };
+
+    let err = client
+        .time_machine_bars_grpc_call(request)
+        .traverse()
+        .await
+        .expect_err("open-ended grpc time-machine traverse must fail closed");
+
+    match err {
+        SdkError::UnsupportedOrUnprovedUsage { message } => {
+            assert_eq!(
+                message,
+                "time-machine traversal requires explicit close_end"
+            );
+        }
+        other => panic!("expected UnsupportedOrUnprovedUsage, got {other:?}"),
     }
 }

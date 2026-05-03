@@ -1,8 +1,6 @@
 use crate::core::config::{AggregatorConfig, HttpTransportConfig};
 use crate::core::error::SdkError;
-use crate::systems::aggregator::{
-    AggregatorClient, PairsListRequest, PairsStatusRequest,
-};
+use crate::systems::aggregator::{AggregatorClient, PairsListRequest, PairsStatusRequest};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -16,20 +14,58 @@ fn config_for_http(base_url: &str) -> AggregatorConfig {
 }
 
 #[tokio::test]
+async fn test_docs_summary_forms_correct_path_and_decodes_payload() {
+    let server = MockServer::start().await;
+    let response = ResponseTemplate::new(200).set_body_json(serde_json::json!({
+        "subsystem": "aggregator",
+        "title": "Aggregator Summary",
+        "anchor": "aggregator-summary",
+        "source_path": "docs/public/systems/aggregator/public/summary.md",
+        "generated_by": "export_public_page_json.sh",
+        "intro": "Summary intro.",
+        "sections": [{
+            "heading": "Start Here",
+            "slug": "start-here",
+            "level": 2,
+            "content": "Summary content.",
+            "children": []
+        }]
+    }));
+
+    Mock::given(method("GET"))
+        .and(path("/v1/docs/summary"))
+        .respond_with(response)
+        .mount(&server)
+        .await;
+
+    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let out = client.docs_summary().await.expect("docs_summary success");
+
+    assert_eq!(out.subsystem, "aggregator");
+    assert_eq!(out.anchor, "aggregator-summary");
+    assert_eq!(out.sections.len(), 1);
+    assert_eq!(out.sections[0].slug, "start-here");
+}
+
+#[tokio::test]
 async fn test_docs_themes_forms_correct_path_and_decodes_payload() {
     let server = MockServer::start().await;
     let response = ResponseTemplate::new(200).set_body_json(serde_json::json!({
-        "slug": "aggregator",
-        "kind": "themes",
-        "title": "Aggregator Public Themes",
-        "format": "markdown",
-        "content": "# Themes",
-        "index": [
-            {
-                "title": "Why Time Bars Are A Modeling Choice",
-                "anchor": "why-time-bars-are-a-modeling-choice"
-            }
-        ]
+        "subsystem": "aggregator",
+        "source_manifest": "docs/public/themes/manifest.json",
+        "generated_by": "compile_public_themes.py",
+        "themes": [{
+            "theme_key": "why-time-bars-are-a-modeling-choice",
+            "title": "Why Time Bars Are A Modeling Choice",
+            "anchor": "why-time-bars-are-a-modeling-choice",
+            "source_path": "docs/public/themes/why_time_bars.md",
+            "intro": "Theme intro.",
+            "sections": [{
+                "heading": "Core Idea",
+                "slug": "core-idea",
+                "content": "Theme content."
+            }]
+        }]
     }));
 
     Mock::given(method("GET"))
@@ -41,21 +77,29 @@ async fn test_docs_themes_forms_correct_path_and_decodes_payload() {
     let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
     let out = client.docs_themes().await.expect("docs_themes success");
 
-    assert_eq!(out.slug, "aggregator");
-    assert_eq!(out.kind, "themes");
-    assert_eq!(out.index.len(), 1);
-    assert_eq!(out.index[0].anchor, "why-time-bars-are-a-modeling-choice");
+    assert_eq!(out.subsystem, "aggregator");
+    assert_eq!(out.themes.len(), 1);
+    assert_eq!(out.themes[0].anchor, "why-time-bars-are-a-modeling-choice");
+    assert_eq!(out.themes[0].sections[0].slug, "core-idea");
 }
 
 #[tokio::test]
 async fn test_docs_endpoints_forms_correct_path_and_decodes_payload() {
     let server = MockServer::start().await;
     let response = ResponseTemplate::new(200).set_body_json(serde_json::json!({
-        "slug": "feed",
-        "kind": "endpoint_usage_public",
+        "subsystem": "aggregator_feed_public_endpoint_usage",
         "title": "Feed Public Endpoint Usage",
-        "format": "markdown",
-        "content": "# Feed Public Endpoint Usage"
+        "anchor": "feed-public-endpoint-usage",
+        "source_path": "docs/public/endpoints/feed_public_endpoint_usage.md",
+        "generated_by": "export_public_page_json.sh",
+        "intro": "Endpoints intro.",
+        "sections": [{
+            "heading": "Families",
+            "slug": "families",
+            "level": 2,
+            "content": "Endpoint content.",
+            "children": []
+        }]
     }));
 
     Mock::given(method("GET"))
@@ -65,11 +109,14 @@ async fn test_docs_endpoints_forms_correct_path_and_decodes_payload() {
         .await;
 
     let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
-    let out = client.docs_endpoints().await.expect("docs_endpoints success");
+    let out = client
+        .docs_endpoints()
+        .await
+        .expect("docs_endpoints success");
 
-    assert_eq!(out.slug, "feed");
-    assert_eq!(out.kind, "endpoint_usage_public");
-    assert_eq!(out.format, "markdown");
+    assert_eq!(out.subsystem, "aggregator_feed_public_endpoint_usage");
+    assert_eq!(out.anchor, "feed-public-endpoint-usage");
+    assert_eq!(out.sections.len(), 1);
 }
 
 #[tokio::test]
@@ -161,9 +208,15 @@ async fn test_pairs_list_serializes_query_and_decodes_response() {
         .await;
 
     let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
-    let out = client.pairs_list(&request).await.expect("pairs_list success");
+    let out = client
+        .pairs_list(&request)
+        .await
+        .expect("pairs_list success");
 
-    assert_eq!(out.pairs, vec!["ETHUSDT".to_string(), "SOLUSDT".to_string()]);
+    assert_eq!(
+        out.pairs,
+        vec!["ETHUSDT".to_string(), "SOLUSDT".to_string()]
+    );
     assert_eq!(out.next_after_pair.as_deref(), Some("SOLUSDT"));
 }
 
@@ -181,16 +234,13 @@ async fn test_openapi_forms_correct_path_and_decodes_raw_json() {
     }));
 
     Mock::given(method("GET"))
-        .and(path("/openapi-public.json"))
+        .and(path("/openapi.json"))
         .respond_with(response)
         .mount(&server)
         .await;
 
     let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
-    let out = client
-        .openapi()
-        .await
-        .expect("openapi success");
+    let out = client.openapi().await.expect("openapi success");
 
     assert_eq!(out["openapi"], "3.1.0");
     assert_eq!(out["info"]["title"], "MATHILDE Feed Public API");
@@ -202,7 +252,7 @@ async fn test_openapi_non_success_http_status_is_typed_error() {
     let server = MockServer::start().await;
 
     Mock::given(method("GET"))
-        .and(path("/openapi-public.json"))
+        .and(path("/openapi.json"))
         .respond_with(
             ResponseTemplate::new(503)
                 .set_body_string(r#"{"kind":"service_unavailable","error":"service_unavailable"}"#),

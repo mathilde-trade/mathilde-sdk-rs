@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio_tungstenite::accept_hdr_async;
-use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 
 #[derive(Debug)]
 struct CapturedMessagesConnect {
@@ -141,7 +141,9 @@ async fn spawn_recovering_messages_ws_server() -> (String, oneshot::Receiver<Vec
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind recovering messages ws test server");
-    let addr = listener.local_addr().expect("recovering messages ws test addr");
+    let addr = listener
+        .local_addr()
+        .expect("recovering messages ws test addr");
     let (captured_tx, captured_rx) = oneshot::channel();
 
     tokio::spawn(async move {
@@ -151,10 +153,11 @@ async fn spawn_recovering_messages_ws_server() -> (String, oneshot::Receiver<Vec
             .accept()
             .await
             .expect("accept first recovering messages conn");
-        let mut ws_1 =
-            accept_hdr_async(stream_1, |_request: &Request, response: Response| Ok(response))
-                .await
-                .expect("accept first recovering messages handshake");
+        let mut ws_1 = accept_hdr_async(stream_1, |_request: &Request, response: Response| {
+            Ok(response)
+        })
+        .await
+        .expect("accept first recovering messages handshake");
         let subscribe_text = match ws_1.next().await {
             Some(Ok(Message::Text(text))) => text.to_string(),
             other => panic!("expected first subscribe text, got {other:?}"),
@@ -166,10 +169,11 @@ async fn spawn_recovering_messages_ws_server() -> (String, oneshot::Receiver<Vec
             .accept()
             .await
             .expect("accept second recovering messages conn");
-        let mut ws_2 =
-            accept_hdr_async(stream_2, |_request: &Request, response: Response| Ok(response))
-                .await
-                .expect("accept second recovering messages handshake");
+        let mut ws_2 = accept_hdr_async(stream_2, |_request: &Request, response: Response| {
+            Ok(response)
+        })
+        .await
+        .expect("accept second recovering messages handshake");
         let replayed_subscribe_text = match ws_2.next().await {
             Some(Ok(Message::Text(text))) => text.to_string(),
             other => panic!("expected replayed subscribe text, got {other:?}"),
@@ -243,7 +247,10 @@ async fn test_connect_messages_ws_sends_auth_and_control_frames_and_decodes_serv
         subscribe_json["predicate"],
         serde_json::json!("BTCUSDT.c > ETHUSDT.c")
     );
-    assert_eq!(subscribe_json["message"], serde_json::json!("rule triggered"));
+    assert_eq!(
+        subscribe_json["message"],
+        serde_json::json!("rule triggered")
+    );
     assert_eq!(
         subscribe_json["payload"],
         serde_json::json!({"strategy":"alpha"})
@@ -378,7 +385,9 @@ async fn test_connect_messages_ws_recovering_replays_active_subscriptions_after_
         other => panic!("expected subscribed frame after reconnect, got {other:?}"),
     }
 
-    let captured = captured_rx.await.expect("captured recovering messages frames");
+    let captured = captured_rx
+        .await
+        .expect("captured recovering messages frames");
     assert_eq!(captured.len(), 2);
 
     let first: serde_json::Value =

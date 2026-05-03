@@ -43,7 +43,10 @@ impl GrpcTransport {
         self.channel.clone()
     }
 
-    pub fn apply_bearer<T>(&self, mut request: tonic::Request<T>) -> Result<tonic::Request<T>, SdkError> {
+    pub fn apply_bearer<T>(
+        &self,
+        mut request: tonic::Request<T>,
+    ) -> Result<tonic::Request<T>, SdkError> {
         if let Some(token) = self.bearer_token.as_ref() {
             let value = MetadataValue::try_from(format!("Bearer {}", token.as_str()))
                 .map_err(|_| SdkError::grpc_metadata("invalid grpc bearer token metadata"))?;

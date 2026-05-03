@@ -34,7 +34,7 @@ enum SearchGrpcUnaryReply {
 
 fn config_for_grpc(base_url: &str, bearer_token: Option<BearerToken>) -> AggregatorConfig {
     AggregatorConfig {
-        http: Some(HttpTransportConfig::new("http://127.0.0.1:1").expect("valid dummy http url")),
+        http: HttpTransportConfig::new("http://127.0.0.1:1").expect("valid dummy http url"),
         grpc: Some(GrpcTransportConfig::new(base_url).expect("valid grpc url")),
         ws: None,
         bearer_token,
@@ -63,8 +63,8 @@ fn proto_bar_min(pair: &str) -> proto::BarRowV1 {
         taker_signed_n: Some(3),
         vw: Some(100.21),
         n: None,
-        coverage_ratio: None,
-        at_ms: None,
+        coverage_ratio: Some(0.95),
+        at_ms: Some(1770000060005),
         metadata: None,
     }
 }
@@ -105,7 +105,7 @@ fn proto_metadata() -> proto::BarMetadataV1 {
         frontier_5s_synth_ratio: Some(0.0),
         frontier_5s_trade_n: Some(12),
         frontier_5s_trade_ratio: Some(1.0),
-        age_ms: None,
+        age_ms: Some(202),
     }
 }
 
@@ -342,6 +342,20 @@ async fn test_search_bars_grpc_omitted_close_end_decodes_full_response() {
         SearchBarsResponse::Full(out) => {
             assert_eq!(out.hits, vec![1770000060000]);
             assert_eq!(out.evaluated_rows.as_ref().expect("rows").len(), 1);
+            assert_eq!(
+                out.evaluated_rows.as_ref().expect("rows")[0].coverage_ratio,
+                Some(0.95)
+            );
+            assert_eq!(
+                out.evaluated_rows.as_ref().expect("rows")[0].at_ms,
+                Some(1770000060005)
+            );
+            assert_eq!(
+                out.evaluated_rows.as_ref().expect("rows")[0]
+                    .metadata
+                    .age_ms,
+                Some(202)
+            );
             assert!(out.next_cursor.is_none());
             assert!(out.done);
             assert_eq!(out.returned_hits, 1);
@@ -359,7 +373,7 @@ async fn test_search_bars_grpc_omitted_close_end_decodes_full_response() {
 #[tokio::test]
 async fn test_search_bars_grpc_returns_missing_config_error_without_grpc_transport() {
     let client = AggregatorClient::new(AggregatorConfig {
-        http: Some(HttpTransportConfig::new("http://127.0.0.1:1").expect("valid dummy http url")),
+        http: HttpTransportConfig::new("http://127.0.0.1:1").expect("valid dummy http url"),
         grpc: None,
         ws: None,
         bearer_token: None,

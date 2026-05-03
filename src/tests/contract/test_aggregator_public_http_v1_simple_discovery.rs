@@ -6,7 +6,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn config_for_http(base_url: &str) -> AggregatorConfig {
     AggregatorConfig {
-        http: Some(HttpTransportConfig::new(base_url).expect("valid test url")),
+        http: HttpTransportConfig::new(base_url).expect("valid test url"),
         grpc: None,
         ws: None,
         bearer_token: None,

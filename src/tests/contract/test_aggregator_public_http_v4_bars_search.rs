@@ -9,7 +9,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn config_for_http(base_url: &str) -> AggregatorConfig {
     AggregatorConfig {
-        http: Some(HttpTransportConfig::new(base_url).expect("valid test url")),
+        http: HttpTransportConfig::new(base_url).expect("valid test url"),
         grpc: None,
         ws: None,
         bearer_token: None,
@@ -38,8 +38,8 @@ fn proto_bar_min(pair: &str) -> proto::BarRowV1 {
         taker_signed_n: Some(3),
         vw: Some(100.21),
         n: None,
-        coverage_ratio: None,
-        at_ms: None,
+        coverage_ratio: Some(0.95),
+        at_ms: Some(1770000060005),
         metadata: None,
     }
 }
@@ -80,7 +80,7 @@ fn proto_metadata() -> proto::BarMetadataV1 {
         frontier_5s_synth_ratio: Some(0.0),
         frontier_5s_trade_n: Some(12),
         frontier_5s_trade_ratio: Some(1.0),
-        age_ms: None,
+        age_ms: Some(202),
     }
 }
 
@@ -360,6 +360,14 @@ async fn test_search_bars_protobuf_decodes_min_response() {
                 out.evaluated_rows.as_ref().expect("rows")[0].pair,
                 "BTCUSDT"
             );
+            assert_eq!(
+                out.evaluated_rows.as_ref().expect("rows")[0].coverage_ratio,
+                Some(0.95)
+            );
+            assert_eq!(
+                out.evaluated_rows.as_ref().expect("rows")[0].at_ms,
+                Some(1770000060005)
+            );
             assert_eq!(out.next_cursor.as_deref(), Some("cursor-1"));
         }
         SearchBarsResponse::Full(other) => {
@@ -408,6 +416,12 @@ async fn test_search_bars_protobuf_decodes_full_response() {
                     .metadata
                     .source,
                 "frontier"
+            );
+            assert_eq!(
+                out.evaluated_rows.as_ref().expect("rows")[0]
+                    .metadata
+                    .age_ms,
+                Some(202)
             );
         }
         SearchBarsResponse::Min(other) => {

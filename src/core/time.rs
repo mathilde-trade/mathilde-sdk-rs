@@ -43,8 +43,19 @@ pub fn validate_utc_ms(value: i64) -> Result<i64, SdkError> {
 }
 
 pub fn parse_utc_string_to_ms(value: &str) -> Result<i64, SdkError> {
-    if let Ok(parsed) = DateTime::parse_from_rfc3339(value) {
-        return Ok(parsed.with_timezone(&Utc).timestamp_millis());
+    if value.ends_with('Z') {
+        if let Ok(parsed) = DateTime::parse_from_rfc3339(value) {
+            return Ok(parsed.with_timezone(&Utc).timestamp_millis());
+        }
+    }
+
+    let time_portion = value.split_once('T').map(|(_, rest)| rest);
+    if time_portion.is_some()
+        && (value.contains('+') || time_portion.is_some_and(|rest| rest.contains('-')))
+    {
+        return Err(SdkError::invalid_time_input(format!(
+            "unsupported utc time input `{value}`"
+        )));
     }
 
     if let Ok(parsed) = NaiveDateTime::parse_from_str(value, "%Y-%m-%d:%H:%M") {

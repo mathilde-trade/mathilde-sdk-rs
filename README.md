@@ -400,7 +400,7 @@ use mathilde_sdk_rs::core::config::{
 use mathilde_sdk_rs::systems::aggregator::AggregatorClient;
 
 let client = AggregatorClient::new(AggregatorConfig {
-    http: Some(HttpTransportConfig::new("http://127.0.0.1:18182")?),
+    http: HttpTransportConfig::new("http://127.0.0.1:18182")?,
     grpc: Some(GrpcTransportConfig::new("http://127.0.0.1:18092")?),
     ws: Some(WsTransportConfig::new("ws://127.0.0.1:18182")?),
     bearer_token: Some(BearerToken::new("feed_public_token")?),
@@ -1016,9 +1016,8 @@ Do not infer from this README that:
 - local time parsing is supported for time inputs
 - every MATHILDE subsystem is already bound here
 
-Also note one current construction limit from code: `AggregatorClient::new(...)`
-currently requires HTTP config even if a caller plans to use only gRPC or WS.
-That is current behavior, not a wider transport design claim.
+Also note the current public config contract: `AggregatorConfig` always
+requires HTTP config, even if a caller plans to use only gRPC or WS.
 
 ## Further Reading
 

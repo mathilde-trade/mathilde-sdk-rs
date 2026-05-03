@@ -40,7 +40,7 @@ pub struct AggregatorClient {
 
 impl AggregatorClient {
     pub fn new(config: AggregatorConfig) -> Result<Self, SdkError> {
-        let http = config.require_http()?.clone();
+        let http = config.require_http().clone();
         let grpc = config
             .grpc
             .as_ref()

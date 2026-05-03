@@ -24,6 +24,12 @@ fn test_rfc3339_utc_parses_to_ms() {
 }
 
 #[test]
+fn test_rfc3339_utc_fractional_parses_to_ms() {
+    let out = parse_utc_string_to_ms("2026-04-08T12:34:56.123Z").expect("valid utc");
+    assert_eq!(out, 1_775_651_696_123);
+}
+
+#[test]
 fn test_compact_utc_minute_form_parses_to_ms() {
     let out = parse_utc_string_to_ms("2026-04-08:12:34").expect("valid compact utc");
     assert_eq!(out, 1_775_651_640_000);
@@ -42,6 +48,30 @@ fn test_invalid_string_is_rejected() {
         .expect_err("expected invalid string");
     match err {
         SdkError::InvalidTimeInput { .. } => {}
+        other => panic!("expected InvalidTimeInput, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_rfc3339_offset_form_is_rejected() {
+    let err = parse_utc_string_to_ms("2026-04-08T12:34:56+02:00")
+        .expect_err("expected offset-form rejection");
+    match err {
+        SdkError::InvalidTimeInput { message } => {
+            assert!(message.contains("unsupported utc time input"));
+        }
+        other => panic!("expected InvalidTimeInput, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_rfc3339_zero_offset_form_is_rejected_without_z() {
+    let err = parse_utc_string_to_ms("2026-04-08T12:34:56+00:00")
+        .expect_err("expected zero-offset rejection");
+    match err {
+        SdkError::InvalidTimeInput { message } => {
+            assert!(message.contains("unsupported utc time input"));
+        }
         other => panic!("expected InvalidTimeInput, got {other:?}"),
     }
 }

@@ -10,7 +10,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn config_for_http(base_url: &str) -> AggregatorConfig {
     AggregatorConfig {
-        http: Some(HttpTransportConfig::new(base_url).expect("valid test url")),
+        http: HttpTransportConfig::new(base_url).expect("valid test url"),
         grpc: None,
         ws: None,
         bearer_token: None,
@@ -19,7 +19,7 @@ fn config_for_http(base_url: &str) -> AggregatorConfig {
 
 fn config_for_http_with_bearer(base_url: &str, bearer: &str) -> AggregatorConfig {
     AggregatorConfig {
-        http: Some(HttpTransportConfig::new(base_url).expect("valid test url")),
+        http: HttpTransportConfig::new(base_url).expect("valid test url"),
         grpc: None,
         ws: None,
         bearer_token: Some(BearerToken::new(bearer).expect("valid token")),
@@ -392,5 +392,30 @@ async fn test_files_download_items_without_bearer_surfaces_typed_usage_error() {
             assert!(message.contains("requires bearer auth"));
         }
         other => panic!("expected UnsupportedOrUnprovedUsage error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_files_download_items_rejects_foreign_origin_absolute_url() {
+    let server = MockServer::start().await;
+    let row = sample_download_row(
+        "https://evil.example.com/v1/files/download?token=abc123".to_string(),
+        "BTCUSDT",
+        "1m",
+        "2026-02-21",
+    );
+
+    let client = AggregatorClient::new(config_for_http_with_bearer(&server.uri(), "public-token"))
+        .expect("client");
+    let err = client
+        .files_download_items(&[row], None)
+        .await
+        .expect_err("foreign-origin download URL should fail");
+
+    match err {
+        SdkError::RequestBuild { message } => {
+            assert!(message.contains("does not match configured http origin"));
+        }
+        other => panic!("expected RequestBuild error, got {other:?}"),
     }
 }

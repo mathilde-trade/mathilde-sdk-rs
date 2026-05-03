@@ -173,7 +173,13 @@ impl BarsWsSubscribeRequest {
             ));
         }
 
-        let last_n_bars = self.last_n_bars.filter(|value| *value > 0);
+        if let Some(last_n_bars) = self.last_n_bars {
+            if last_n_bars <= 0 {
+                return Err(SdkError::request_build(
+                    "bars ws subscribe requires `last_n_bars` > 0 when provided",
+                ));
+            }
+        }
 
         Ok(NormalizedBarsWsSubscribeRequest {
             pairs,
@@ -188,7 +194,7 @@ impl BarsWsSubscribeRequest {
                 .as_ref()
                 .map(TimeInput::to_utc_ms)
                 .transpose()?,
-            last_n_bars,
+            last_n_bars: self.last_n_bars,
             format: self.format.unwrap_or_default(),
         })
     }

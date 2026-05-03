@@ -45,6 +45,7 @@ impl HttpTransport {
         let raw = absolute_url.as_ref();
         let url =
             Url::parse(raw).map_err(|source| SdkError::invalid_url(raw.to_string(), source))?;
+        self.ensure_same_origin(&url)?;
         let headers = apply_bearer_auth(HeaderMap::new(), self.bearer_token.as_ref())?;
         Ok(self.client.request(method, url).headers(headers))
     }
@@ -101,5 +102,20 @@ impl HttpTransport {
 
         file.flush().await.map_err(SdkError::io)?;
         Ok(bytes_written)
+    }
+
+    fn ensure_same_origin(&self, url: &Url) -> Result<(), SdkError> {
+        if self.base_url.scheme() == url.scheme()
+            && self.base_url.host_str() == url.host_str()
+            && self.base_url.port_or_known_default() == url.port_or_known_default()
+        {
+            return Ok(());
+        }
+
+        Err(SdkError::request_build(format!(
+            "absolute download URL origin `{}` does not match configured http origin `{}`",
+            url.origin().ascii_serialization(),
+            self.base_url.origin().ascii_serialization()
+        )))
     }
 }

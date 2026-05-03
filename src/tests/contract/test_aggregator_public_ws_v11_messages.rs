@@ -23,7 +23,7 @@ struct CapturedMessagesConnect {
 
 fn config_for_ws(base_url: &str, bearer_token: Option<BearerToken>) -> AggregatorConfig {
     AggregatorConfig {
-        http: Some(HttpTransportConfig::new("http://127.0.0.1:1").expect("valid dummy http url")),
+        http: HttpTransportConfig::new("http://127.0.0.1:1").expect("valid dummy http url"),
         grpc: None,
         ws: Some(WsTransportConfig::new(base_url).expect("valid ws url")),
         bearer_token,
@@ -325,7 +325,7 @@ async fn test_connect_messages_ws_sends_auth_and_control_frames_and_decodes_serv
 #[tokio::test]
 async fn test_connect_messages_ws_missing_config_is_typed_error() {
     let client = AggregatorClient::new(AggregatorConfig {
-        http: Some(HttpTransportConfig::new("http://127.0.0.1:1").expect("valid dummy http url")),
+        http: HttpTransportConfig::new("http://127.0.0.1:1").expect("valid dummy http url"),
         grpc: None,
         ws: None,
         bearer_token: None,

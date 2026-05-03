@@ -200,7 +200,7 @@ fn build_client_with_ws_override(
     let bearer_token = optional_env(BEARER_ENV).map(BearerToken::new).transpose()?;
 
     let config = AggregatorConfig {
-        http: Some(HttpTransportConfig::new(&runtime.summary.http_base_url)?),
+        http: HttpTransportConfig::new(&runtime.summary.http_base_url)?,
         grpc: runtime
             .summary
             .grpc_base_url
@@ -929,7 +929,7 @@ fn build_runtime_config() -> Result<RuntimeConfig, SdkError> {
     let bearer_token = optional_env(BEARER_ENV).map(BearerToken::new).transpose()?;
 
     let config = AggregatorConfig {
-        http: Some(HttpTransportConfig::new(&http_base_url)?),
+        http: HttpTransportConfig::new(&http_base_url)?,
         grpc: grpc_base_url
             .as_ref()
             .map(GrpcTransportConfig::new)

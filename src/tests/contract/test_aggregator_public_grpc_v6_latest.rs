@@ -34,7 +34,7 @@ enum GrpcUnaryReply {
 
 fn config_for_grpc(base_url: &str, bearer_token: Option<BearerToken>) -> AggregatorConfig {
     AggregatorConfig {
-        http: Some(HttpTransportConfig::new("http://127.0.0.1:1").expect("valid dummy http url")),
+        http: HttpTransportConfig::new("http://127.0.0.1:1").expect("valid dummy http url"),
         grpc: Some(GrpcTransportConfig::new(base_url).expect("valid grpc url")),
         ws: None,
         bearer_token,
@@ -63,8 +63,8 @@ fn proto_bar_min(pair: &str) -> proto::BarRowV1 {
         taker_signed_n: Some(3),
         vw: Some(100.21),
         n: None,
-        coverage_ratio: None,
-        at_ms: None,
+        coverage_ratio: Some(0.95),
+        at_ms: Some(1770000060005),
         metadata: None,
     }
 }
@@ -101,7 +101,7 @@ fn proto_metadata() -> proto::BarMetadataV1 {
         frontier_5s_synth_ratio: Some(0.0),
         frontier_5s_trade_n: Some(12),
         frontier_5s_trade_ratio: Some(1.0),
-        age_ms: None,
+        age_ms: Some(202),
     }
 }
 
@@ -285,6 +285,8 @@ async fn test_latest_bars_grpc_uses_unary_path_and_decodes_min_response() {
             assert_eq!(out.view, BarsView::Min);
             assert_eq!(out.rows.len(), 1);
             assert_eq!(out.rows[0].bar.pair, "BTCUSDT");
+            assert_eq!(out.rows[0].bar.coverage_ratio, Some(0.95));
+            assert_eq!(out.rows[0].bar.at_ms, Some(1770000060005));
             assert_eq!(out.missing_pairs, vec!["ETHUSDT".to_string()]);
         }
         LatestBarsResponse::Full(other) => {
@@ -317,6 +319,7 @@ async fn test_latest_bars_grpc_decodes_full_response() {
             assert_eq!(out.rows.len(), 1);
             assert_eq!(out.rows[0].bar.pair, "BTCUSDT");
             assert_eq!(out.rows[0].bar.metadata.source, "frontier");
+            assert_eq!(out.rows[0].bar.metadata.age_ms, Some(202));
         }
         LatestBarsResponse::Min(other) => {
             panic!("expected full latest bars grpc response, got min: {other:?}")
@@ -327,7 +330,7 @@ async fn test_latest_bars_grpc_decodes_full_response() {
 #[tokio::test]
 async fn test_latest_bars_grpc_missing_grpc_config_is_typed_error() {
     let client = AggregatorClient::new(AggregatorConfig {
-        http: Some(HttpTransportConfig::new("http://127.0.0.1:1").expect("valid http url")),
+        http: HttpTransportConfig::new("http://127.0.0.1:1").expect("valid http url"),
         grpc: None,
         ws: None,
         bearer_token: None,
@@ -349,6 +352,87 @@ async fn test_latest_bars_grpc_missing_grpc_config_is_typed_error() {
     match error {
         SdkError::MissingTransportConfig { transport } => assert_eq!(transport, "grpc"),
         other => panic!("expected missing grpc transport config, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_latest_bars_grpc_missing_present_row_age_ms_is_contract_drift() {
+    let mut reply = proto_latest_response_min();
+    reply.rows[0].age_ms = None;
+    let (base_url, _) = spawn_latest_grpc_server(GrpcUnaryReply::Success(reply)).await;
+
+    let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
+    let request = LatestBarsGrpcRequest {
+        pairs: vec!["BTCUSDT".to_string()],
+        tf: Timeframe::M1,
+        latest_mode: LatestMode::ExactWatermark,
+        metadata: Some(false),
+    };
+
+    let err = client
+        .latest_bars_grpc(&request)
+        .await
+        .expect_err("missing present-row age_ms should fail");
+
+    match err {
+        SdkError::ContractDrift { message } => {
+            assert!(message.contains("missing `age_ms`"));
+        }
+        other => panic!("expected contract drift error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_latest_bars_grpc_missing_bar_s_utc_is_contract_drift() {
+    let mut reply = proto_latest_response_min();
+    reply.rows[0].bar.as_mut().expect("bar").s_utc = None;
+    let (base_url, _) = spawn_latest_grpc_server(GrpcUnaryReply::Success(reply)).await;
+
+    let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
+    let request = LatestBarsGrpcRequest {
+        pairs: vec!["BTCUSDT".to_string()],
+        tf: Timeframe::M1,
+        latest_mode: LatestMode::ExactWatermark,
+        metadata: Some(false),
+    };
+
+    let err = client
+        .latest_bars_grpc(&request)
+        .await
+        .expect_err("missing s_utc should fail");
+
+    match err {
+        SdkError::ContractDrift { message } => {
+            assert!(message.contains("missing `s_utc`"));
+        }
+        other => panic!("expected contract drift error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_latest_bars_grpc_missing_bar_e_utc_is_contract_drift() {
+    let mut reply = proto_latest_response_min();
+    reply.rows[0].bar.as_mut().expect("bar").e_utc = None;
+    let (base_url, _) = spawn_latest_grpc_server(GrpcUnaryReply::Success(reply)).await;
+
+    let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
+    let request = LatestBarsGrpcRequest {
+        pairs: vec!["BTCUSDT".to_string()],
+        tf: Timeframe::M1,
+        latest_mode: LatestMode::ExactWatermark,
+        metadata: Some(false),
+    };
+
+    let err = client
+        .latest_bars_grpc(&request)
+        .await
+        .expect_err("missing e_utc should fail");
+
+    match err {
+        SdkError::ContractDrift { message } => {
+            assert!(message.contains("missing `e_utc`"));
+        }
+        other => panic!("expected contract drift error, got {other:?}"),
     }
 }
 

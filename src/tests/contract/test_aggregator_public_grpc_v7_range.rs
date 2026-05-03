@@ -35,7 +35,7 @@ enum RangeGrpcUnaryReply {
 
 fn config_for_grpc(base_url: &str, bearer_token: Option<BearerToken>) -> AggregatorConfig {
     AggregatorConfig {
-        http: Some(HttpTransportConfig::new("http://127.0.0.1:1").expect("valid dummy http url")),
+        http: HttpTransportConfig::new("http://127.0.0.1:1").expect("valid dummy http url"),
         grpc: Some(GrpcTransportConfig::new(base_url).expect("valid grpc url")),
         ws: None,
         bearer_token,
@@ -64,8 +64,8 @@ fn proto_bar_min(pair: &str) -> proto::BarRowV1 {
         taker_signed_n: Some(3),
         vw: Some(100.21),
         n: None,
-        coverage_ratio: None,
-        at_ms: None,
+        coverage_ratio: Some(0.95),
+        at_ms: Some(1770000060005),
         metadata: None,
     }
 }
@@ -102,7 +102,7 @@ fn proto_metadata() -> proto::BarMetadataV1 {
         frontier_5s_synth_ratio: Some(0.0),
         frontier_5s_trade_n: Some(12),
         frontier_5s_trade_ratio: Some(1.0),
-        age_ms: None,
+        age_ms: Some(202),
     }
 }
 
@@ -355,6 +355,8 @@ async fn test_range_bars_grpc_tail_mode_uses_unary_path_and_decodes_min_response
         RangeBarsResponse::Min(out) => {
             assert_eq!(out.rows.len(), 1);
             assert_eq!(out.rows[0].pair, "BTCUSDT");
+            assert_eq!(out.rows[0].coverage_ratio, Some(0.95));
+            assert_eq!(out.rows[0].at_ms, Some(1770000060005));
             assert_eq!(out.next_cursor.as_deref(), Some("cursor-1"));
             assert_eq!(out.close_end_ms, 1770003600000);
         }
@@ -398,6 +400,7 @@ async fn test_range_bars_grpc_explicit_window_decodes_full_response() {
             assert_eq!(out.rows.len(), 1);
             assert_eq!(out.rows[0].pair, "BTCUSDT");
             assert_eq!(out.rows[0].metadata.source, "frontier");
+            assert_eq!(out.rows[0].metadata.age_ms, Some(202));
             assert!(out.next_cursor.is_none());
         }
         RangeBarsResponse::Min(other) => {
@@ -409,7 +412,7 @@ async fn test_range_bars_grpc_explicit_window_decodes_full_response() {
 #[tokio::test]
 async fn test_range_bars_grpc_missing_grpc_config_is_typed_error() {
     let client = AggregatorClient::new(AggregatorConfig {
-        http: Some(HttpTransportConfig::new("http://127.0.0.1:1").expect("valid http url")),
+        http: HttpTransportConfig::new("http://127.0.0.1:1").expect("valid http url"),
         grpc: None,
         ws: None,
         bearer_token: None,

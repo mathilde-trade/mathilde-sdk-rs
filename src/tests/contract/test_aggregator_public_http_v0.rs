@@ -11,7 +11,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn config_for_http(base_url: &str) -> AggregatorConfig {
     AggregatorConfig {
-        http: Some(HttpTransportConfig::new(base_url).expect("valid test url")),
+        http: HttpTransportConfig::new(base_url).expect("valid test url"),
         grpc: None,
         ws: None,
         bearer_token: None,
@@ -40,8 +40,8 @@ fn proto_bar_min(pair: &str) -> proto::BarRowV1 {
         taker_signed_n: Some(3),
         vw: Some(100.21),
         n: None,
-        coverage_ratio: None,
-        at_ms: None,
+        coverage_ratio: Some(0.95),
+        at_ms: Some(1770000060005),
         metadata: None,
     }
 }
@@ -82,7 +82,7 @@ fn proto_metadata() -> proto::BarMetadataV1 {
         frontier_5s_synth_ratio: Some(0.0),
         frontier_5s_trade_n: Some(12),
         frontier_5s_trade_ratio: Some(1.0),
-        age_ms: None,
+        age_ms: Some(202),
     }
 }
 
@@ -133,11 +133,7 @@ fn test_aggregator_config_mathilde_public_default_uses_manifest_hosts() {
         AggregatorConfig::mathilde_public_default(Some(token.clone())).expect("default config");
 
     assert_eq!(
-        config
-            .require_http()
-            .expect("http transport")
-            .base_url
-            .as_str(),
+        config.require_http().base_url.as_str(),
         "https://aggregator.api.mathilde.dev/"
     );
     assert_eq!(
@@ -527,6 +523,8 @@ async fn test_latest_bars_format_protobuf_decodes_min_response() {
             assert_eq!(out.rows.len(), 1);
             assert_eq!(out.rows[0].bar.pair, "BTCUSDT");
             assert_eq!(out.rows[0].age_ms, 101);
+            assert_eq!(out.rows[0].bar.coverage_ratio, Some(0.95));
+            assert_eq!(out.rows[0].bar.at_ms, Some(1770000060005));
         }
         LatestBarsResponse::Full(other) => {
             panic!("expected min latest bars protobuf response, got full: {other:?}")
@@ -579,6 +577,7 @@ async fn test_latest_bars_format_protobuf_decodes_full_response() {
             assert_eq!(out.rows[0].bar.pair, "BTCUSDT");
             assert_eq!(out.rows[0].bar.metadata.source, "frontier");
             assert_eq!(out.rows[0].bar.metadata.frontier_5s_expected, Some(12));
+            assert_eq!(out.rows[0].bar.metadata.age_ms, Some(202));
         }
         LatestBarsResponse::Min(other) => {
             panic!("expected full latest bars protobuf response, got min: {other:?}")
@@ -678,7 +677,7 @@ async fn test_docs_system_sends_bearer_auth_when_present() {
     let server = MockServer::start().await;
     let token = BearerToken::new("public-token").expect("valid token");
     let config = AggregatorConfig {
-        http: Some(HttpTransportConfig::new(server.uri()).expect("valid test url")),
+        http: HttpTransportConfig::new(server.uri()).expect("valid test url"),
         grpc: None,
         ws: None,
         bearer_token: Some(token),

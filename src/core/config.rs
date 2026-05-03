@@ -57,9 +57,9 @@ impl WsTransportConfig {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct AggregatorConfig {
-    pub http: Option<HttpTransportConfig>,
+    pub http: HttpTransportConfig,
     pub grpc: Option<GrpcTransportConfig>,
     pub ws: Option<WsTransportConfig>,
     pub bearer_token: Option<BearerToken>,
@@ -77,9 +77,7 @@ fn derive_ws_url_from_http_base(http_base_url: &str) -> Result<Url, SdkError> {
 impl AggregatorConfig {
     pub fn mathilde_public_default(bearer_token: Option<BearerToken>) -> Result<Self, SdkError> {
         Ok(Self {
-            http: Some(HttpTransportConfig::new(
-                MathildePublicHosts::AGGREGATOR_HTTP,
-            )?),
+            http: HttpTransportConfig::new(MathildePublicHosts::AGGREGATOR_HTTP)?,
             grpc: Some(GrpcTransportConfig::new(
                 MathildePublicHosts::AGGREGATOR_GRPC,
             )?),
@@ -90,10 +88,8 @@ impl AggregatorConfig {
         })
     }
 
-    pub fn require_http(&self) -> Result<&HttpTransportConfig, SdkError> {
-        self.http
-            .as_ref()
-            .ok_or_else(|| SdkError::missing_transport_config("http"))
+    pub fn require_http(&self) -> &HttpTransportConfig {
+        &self.http
     }
 
     pub fn require_grpc(&self) -> Result<&GrpcTransportConfig, SdkError> {

@@ -1,5 +1,6 @@
 use crate::core::auth::BearerToken;
 use crate::core::config::{AggregatorConfig, HttpTransportConfig, WsTransportConfig};
+use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
 use crate::streaming::make_before_break::MakeBeforeBreakConfig;
 use crate::streaming::subscription::ExponentialBackoffConfig;
@@ -28,7 +29,7 @@ struct CapturedWsConnect {
 
 fn config_for_ws(base_url: &str, bearer_token: Option<BearerToken>) -> AggregatorConfig {
     AggregatorConfig {
-        http: Some(HttpTransportConfig::new("http://127.0.0.1:1").expect("valid dummy http url")),
+        http: HttpTransportConfig::new("http://127.0.0.1:1").expect("valid dummy http url"),
         grpc: None,
         ws: Some(WsTransportConfig::new(base_url).expect("valid ws url")),
         bearer_token,
@@ -72,8 +73,8 @@ fn proto_full_payload(pair: &str) -> Vec<u8> {
                 taker_signed_n: None,
                 vw: None,
                 n: Some(1),
-                coverage_ratio: None,
-                at_ms: None,
+                coverage_ratio: Some(0.95),
+                at_ms: Some(1770000060005),
                 metadata: Some(proto::BarMetadataV1 {
                     source: "frontier".to_string(),
                     process: None,
@@ -105,7 +106,7 @@ fn proto_full_payload(pair: &str) -> Vec<u8> {
                     frontier_5s_synth_ratio: None,
                     frontier_5s_trade_n: None,
                     frontier_5s_trade_ratio: None,
-                    age_ms: None,
+                    age_ms: Some(202),
                 }),
             }),
             age_ms: Some(10),
@@ -395,7 +396,10 @@ async fn test_connect_bars_ws_decodes_protobuf_full_rows() {
         BarsWsInboundFrame::ProtobufRowsFull(rows) => {
             assert_eq!(rows.len(), 1);
             assert_eq!(rows[0].pair, "BTCUSDT");
+            assert_eq!(rows[0].coverage_ratio, Some(0.95));
+            assert_eq!(rows[0].at_ms, Some(1770000060005));
             assert_eq!(rows[0].metadata.source, "frontier");
+            assert_eq!(rows[0].metadata.age_ms, Some(202));
         }
         other => panic!("expected protobuf full rows, got {other:?}"),
     }
@@ -513,4 +517,28 @@ async fn test_connect_bars_ws_recovering_reconnects_with_same_request_after_clos
 
     assert_eq!(connection.active_request(), &request);
     assert_eq!(connection.next_attempt(), 1);
+}
+
+#[test]
+fn test_bars_ws_subscribe_rejects_non_positive_last_n_bars() {
+    let request = BarsWsSubscribeRequest {
+        pairs: vec!["BTCUSDT".to_string()],
+        tfs: vec![Timeframe::M1],
+        metadata: Some(false),
+        from_close: None,
+        last_n_bars: Some(0),
+        format: None,
+    };
+
+    let err = request
+        .to_subscribe_text()
+        .expect_err("non-positive last_n_bars should fail");
+
+    match err {
+        SdkError::RequestBuild { message } => {
+            assert!(message.contains("last_n_bars"));
+            assert!(message.contains("> 0"));
+        }
+        other => panic!("expected RequestBuild error, got {other:?}"),
+    }
 }

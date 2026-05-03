@@ -9,7 +9,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn config_for_http(base_url: &str) -> AggregatorConfig {
     AggregatorConfig {
-        http: Some(HttpTransportConfig::new(base_url).expect("valid test url")),
+        http: HttpTransportConfig::new(base_url).expect("valid test url"),
         grpc: None,
         ws: None,
         bearer_token: None,
@@ -38,8 +38,8 @@ fn proto_bar_min(pair: &str) -> proto::BarRowV1 {
         taker_signed_n: Some(3),
         vw: Some(100.21),
         n: None,
-        coverage_ratio: None,
-        at_ms: None,
+        coverage_ratio: Some(0.95),
+        at_ms: Some(1770000060005),
         metadata: None,
     }
 }
@@ -80,7 +80,7 @@ fn proto_metadata() -> proto::BarMetadataV1 {
         frontier_5s_synth_ratio: Some(0.0),
         frontier_5s_trade_n: Some(12),
         frontier_5s_trade_ratio: Some(1.0),
-        age_ms: None,
+        age_ms: Some(202),
     }
 }
 
@@ -171,6 +171,8 @@ async fn test_range_bars_uses_post_and_normalizes_time_inputs_and_decodes_min_js
         RangeBarsResponse::Min(out) => {
             assert_eq!(out.rows.len(), 1);
             assert_eq!(out.rows[0].pair, "BTCUSDT");
+            assert!(out.rows[0].coverage_ratio.is_none());
+            assert!(out.rows[0].at_ms.is_none());
             assert_eq!(out.next_cursor.as_deref(), Some("cursor-1"));
         }
         RangeBarsResponse::Full(other) => {
@@ -371,6 +373,7 @@ async fn test_range_bars_protobuf_decodes_full_response() {
         RangeBarsResponse::Full(out) => {
             assert_eq!(out.rows.len(), 1);
             assert_eq!(out.rows[0].metadata.source, "frontier");
+            assert_eq!(out.rows[0].metadata.age_ms, Some(202));
         }
         RangeBarsResponse::Min(other) => {
             panic!("expected full protobuf range response, got min: {other:?}")

@@ -707,6 +707,8 @@ pub struct Bar {
     pub taker_signed_n: Option<i64>,
     pub vw: Option<f64>,
     pub n: Option<i64>,
+    pub coverage_ratio: Option<f64>,
+    pub at_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -749,6 +751,7 @@ pub struct BarMetadata {
     pub frontier_5s_synth_ratio: Option<f64>,
     pub frontier_5s_trade_n: Option<i64>,
     pub frontier_5s_trade_ratio: Option<f64>,
+    pub age_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -773,6 +776,8 @@ pub struct BarWithMetadata {
     pub taker_signed_n: Option<i64>,
     pub vw: Option<f64>,
     pub n: Option<i64>,
+    pub coverage_ratio: Option<f64>,
+    pub at_ms: Option<i64>,
     pub metadata: BarMetadata,
 }
 
@@ -1196,7 +1201,9 @@ impl LatestBarsPresentRow {
             bar: Bar::from_proto(value.bar.ok_or_else(|| {
                 SdkError::contract_drift("latest bars protobuf row missing `bar`")
             })?)?,
-            age_ms: value.age_ms.unwrap_or(0),
+            age_ms: value.age_ms.ok_or_else(|| {
+                SdkError::contract_drift("latest bars protobuf row missing `age_ms`")
+            })?,
         })
     }
 }
@@ -1207,7 +1214,9 @@ impl LatestBarsWithMetadataPresentRow {
             bar: BarWithMetadata::from_proto(value.bar.ok_or_else(|| {
                 SdkError::contract_drift("latest bars protobuf row missing `bar`")
             })?)?,
-            age_ms: value.age_ms.unwrap_or(0),
+            age_ms: value.age_ms.ok_or_else(|| {
+                SdkError::contract_drift("latest bars protobuf row missing `age_ms`")
+            })?,
         })
     }
 }
@@ -1243,8 +1252,12 @@ impl Bar {
             tf: Timeframe::from_proto(&value.tf)?,
             open_ms: value.s_ms,
             close_ms: value.e_ms,
-            open_utc: value.s_utc.unwrap_or_default(),
-            close_utc: value.e_utc.unwrap_or_default(),
+            open_utc: value
+                .s_utc
+                .ok_or_else(|| SdkError::contract_drift("bar protobuf row missing `s_utc`"))?,
+            close_utc: value
+                .e_utc
+                .ok_or_else(|| SdkError::contract_drift("bar protobuf row missing `e_utc`"))?,
             o: value.o,
             h: value.h,
             l: value.l,
@@ -1259,6 +1272,8 @@ impl Bar {
             taker_signed_n: value.taker_signed_n,
             vw: value.vw,
             n: value.n,
+            coverage_ratio: value.coverage_ratio,
+            at_ms: value.at_ms,
         })
     }
 }
@@ -1270,8 +1285,12 @@ impl BarWithMetadata {
             tf: Timeframe::from_proto(&value.tf)?,
             open_ms: value.s_ms,
             close_ms: value.e_ms,
-            open_utc: value.s_utc.unwrap_or_default(),
-            close_utc: value.e_utc.unwrap_or_default(),
+            open_utc: value
+                .s_utc
+                .ok_or_else(|| SdkError::contract_drift("bar protobuf row missing `s_utc`"))?,
+            close_utc: value
+                .e_utc
+                .ok_or_else(|| SdkError::contract_drift("bar protobuf row missing `e_utc`"))?,
             o: value.o,
             h: value.h,
             l: value.l,
@@ -1286,6 +1305,8 @@ impl BarWithMetadata {
             taker_signed_n: value.taker_signed_n,
             vw: value.vw,
             n: value.n,
+            coverage_ratio: value.coverage_ratio,
+            at_ms: value.at_ms,
             metadata: BarMetadata::from_proto(value.metadata.ok_or_else(|| {
                 SdkError::contract_drift("latest bars full protobuf row missing `metadata`")
             })?),
@@ -1334,6 +1355,7 @@ impl BarMetadata {
             frontier_5s_synth_ratio: value.frontier_5s_synth_ratio,
             frontier_5s_trade_n: value.frontier_5s_trade_n,
             frontier_5s_trade_ratio: value.frontier_5s_trade_ratio,
+            age_ms: value.age_ms,
         }
     }
 }

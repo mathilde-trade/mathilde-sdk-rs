@@ -11,7 +11,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn config_for_http(base_url: &str) -> AggregatorConfig {
     AggregatorConfig {
-        http: Some(HttpTransportConfig::new(base_url).expect("valid test url")),
+        http: HttpTransportConfig::new(base_url).expect("valid test url"),
         grpc: None,
         ws: None,
         bearer_token: None,
@@ -40,8 +40,8 @@ fn proto_bar_min(pair: &str) -> proto::BarRowV1 {
         taker_signed_n: Some(3),
         vw: Some(100.21),
         n: None,
-        coverage_ratio: None,
-        at_ms: None,
+        coverage_ratio: Some(0.95),
+        at_ms: Some(1770000060005),
         metadata: None,
     }
 }
@@ -82,7 +82,7 @@ fn proto_metadata() -> proto::BarMetadataV1 {
         frontier_5s_synth_ratio: Some(0.0),
         frontier_5s_trade_n: Some(12),
         frontier_5s_trade_ratio: Some(1.0),
-        age_ms: None,
+        age_ms: Some(202),
     }
 }
 
@@ -397,6 +397,8 @@ async fn test_time_machine_bars_protobuf_decodes_min_response() {
         TimeMachineBarsResponse::Min(out) => {
             assert_eq!(out.rows.len(), 1);
             assert_eq!(out.rows[0].bar.pair, "BTCUSDT");
+            assert_eq!(out.rows[0].bar.coverage_ratio, Some(0.95));
+            assert_eq!(out.rows[0].bar.at_ms, Some(1770000060005));
             assert_eq!(out.next_cursor.as_deref(), Some("cursor-1"));
         }
         TimeMachineBarsResponse::Full(other) => {
@@ -445,6 +447,7 @@ async fn test_time_machine_bars_protobuf_decodes_full_response() {
         TimeMachineBarsResponse::Full(out) => {
             assert_eq!(out.rows.len(), 1);
             assert_eq!(out.rows[0].bar.metadata.source, "frontier");
+            assert_eq!(out.rows[0].bar.metadata.age_ms, Some(202));
         }
         TimeMachineBarsResponse::Min(other) => {
             panic!("expected full protobuf time-machine response, got min: {other:?}")

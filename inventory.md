@@ -1,6 +1,6 @@
 # `mathilde-sdk-rs` — Global Inventory (GENERATED; DO NOT EDIT)
 
-Generated: 2026-05-03T12:40:30Z
+Generated: 2026-05-03T13:42:49Z
 Protocol: `.dev/specs/SDK_INVENTORY_SYSTEM_SPEC_2026-04-08.md`
 
 This file is generated from per-component inventories under `crates/*/docs/inventory.md`, `services/*/docs/inventory.md`, and SDK module inventories under `src/*/docs/inventory.md`.
@@ -26,7 +26,7 @@ If a file purpose is missing in a component inventory, this file will mark it as
 ### Source Files
 
 - `src/core/auth.rs`: bearer-token validation and HTTP auth-header helper.
-- `src/core/client.rs`: shared base client helpers for HTTP request execution.
+- `src/core/client.rs`: reserved placeholder for a future top-level SDK facade; no implemented runtime code yet.
 - `src/core/config.rs`: typed SDK transport configuration surfaces and builders.
 - `src/core/error.rs`: shared typed SDK error surface across transports and endpoint families.
 - `src/core/mod.rs`: core module wiring and exports for shared SDK primitives.

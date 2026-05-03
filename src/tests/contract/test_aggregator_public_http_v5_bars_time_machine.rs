@@ -1,9 +1,7 @@
 use crate::core::config::{AggregatorConfig, HttpTransportConfig};
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
-use crate::systems::aggregator::{
-    AggregatorClient, TimeMachineBarsRequest, TimeMachineBarsResponse,
-};
+use crate::systems::aggregator::{Aggregator, TimeMachineBarsRequest, TimeMachineBarsResponse};
 use crate::systems::types::{HttpFormat, Timeframe};
 use prost::Message;
 use wiremock::matchers::{body_json, method, path};
@@ -201,9 +199,9 @@ async fn test_time_machine_bars_uses_post_and_normalizes_time_inputs_and_decodes
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client
-        .time_machine_bars(&request)
+        .time_machine(&request)
         .await
         .expect("time-machine success");
 
@@ -338,9 +336,9 @@ async fn test_time_machine_bars_omitted_close_end_serializes_as_absent_and_decod
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client
-        .time_machine_bars(&request)
+        .time_machine(&request)
         .await
         .expect("time-machine success");
 
@@ -387,9 +385,9 @@ async fn test_time_machine_bars_protobuf_decodes_min_response() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client
-        .time_machine_bars(&request)
+        .time_machine(&request)
         .await
         .expect("protobuf time-machine success");
 
@@ -437,9 +435,9 @@ async fn test_time_machine_bars_protobuf_decodes_full_response() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client
-        .time_machine_bars(&request)
+        .time_machine(&request)
         .await
         .expect("protobuf full time-machine success");
 
@@ -480,9 +478,9 @@ async fn test_time_machine_bars_non_success_http_status_returns_typed_error() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let err = client
-        .time_machine_bars(&request)
+        .time_machine(&request)
         .await
         .expect_err("expected http status error");
 
@@ -524,9 +522,9 @@ async fn test_time_machine_bars_invalid_json_returns_decode_error() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let err = client
-        .time_machine_bars(&request)
+        .time_machine(&request)
         .await
         .expect_err("expected decode error");
 
@@ -565,9 +563,9 @@ async fn test_time_machine_bars_invalid_protobuf_returns_contract_drift() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let err = client
-        .time_machine_bars(&request)
+        .time_machine(&request)
         .await
         .expect_err("expected contract drift error");
 
@@ -658,13 +656,13 @@ async fn test_time_machine_bars_call_send_matches_one_page_method() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let one_page = client
-        .time_machine_bars(&request)
+        .time_machine(&request)
         .await
         .expect("one-page time-machine success");
     let via_call = client
-        .time_machine_bars_call(request.clone())
+        .time_machine_call(request.clone())
         .send()
         .await
         .expect("wrapper time-machine send success");
@@ -674,8 +672,7 @@ async fn test_time_machine_bars_call_send_matches_one_page_method() {
 
 #[tokio::test]
 async fn test_time_machine_bars_call_traverse_requires_explicit_close_end() {
-    let client =
-        AggregatorClient::new(config_for_http("http://127.0.0.1:1")).expect("dummy client");
+    let client = Aggregator::new(config_for_http("http://127.0.0.1:1")).expect("dummy client");
     let request = TimeMachineBarsRequest {
         tf: Timeframe::M1,
         close_start: "2026-02-02T00:00:00Z".into(),
@@ -693,7 +690,7 @@ async fn test_time_machine_bars_call_traverse_requires_explicit_close_end() {
     };
 
     let err = client
-        .time_machine_bars_call(request)
+        .time_machine_call(request)
         .traverse()
         .await
         .expect_err("open-ended time-machine traverse must fail closed");
@@ -711,8 +708,7 @@ async fn test_time_machine_bars_call_traverse_requires_explicit_close_end() {
 
 #[tokio::test]
 async fn test_time_machine_bars_pager_requires_explicit_close_end() {
-    let client =
-        AggregatorClient::new(config_for_http("http://127.0.0.1:1")).expect("dummy client");
+    let client = Aggregator::new(config_for_http("http://127.0.0.1:1")).expect("dummy client");
     let request = TimeMachineBarsRequest {
         tf: Timeframe::M1,
         close_start: "2026-02-02T00:00:00Z".into(),
@@ -730,7 +726,7 @@ async fn test_time_machine_bars_pager_requires_explicit_close_end() {
     };
 
     let err = client
-        .time_machine_bars_call(request)
+        .time_machine_call(request)
         .pager()
         .expect_err("open-ended time-machine pager must fail closed");
 

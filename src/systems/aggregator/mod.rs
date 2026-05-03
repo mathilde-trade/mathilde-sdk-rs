@@ -19,7 +19,7 @@ pub use bars_ws::{
     BarsWsMetaFrame, BarsWsPhase, BarsWsSubscribeRequest, NormalizedBarsWsSubscribeRequest,
     RecoveringBarsWsConnection,
 };
-pub use client::AggregatorClient;
+pub use client::Aggregator;
 pub use messages_ws::{
     MessagesWsClientFrame, MessagesWsConnection, MessagesWsErrorFrame, MessagesWsHeartbeatFrame,
     MessagesWsMessageFrame, MessagesWsServerFrame, MessagesWsSubscribeFrame,

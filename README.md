@@ -225,17 +225,17 @@ The SDK uses a small number of explicit conventions across the public surface.
 
 Bars-family method names keep `bars` as the suffix:
 
-- `latest_bars`
-- `range_bars`
-- `search_bars`
-- `time_machine_bars`
+- `latest`
+- `range`
+- `search`
+- `time_machine`
 
 Transport-equivalent gRPC methods append `_grpc`:
 
-- `latest_bars_grpc`
-- `range_bars_grpc`
-- `search_bars_grpc`
-- `time_machine_bars_grpc`
+- `latest_grpc`
+- `range_grpc`
+- `search_grpc`
+- `time_machine_grpc`
 
 HTTP and gRPC request shapes stay aligned where possible. The main default
 difference is that HTTP request structs may expose `format`, while gRPC does
@@ -281,13 +281,13 @@ Traversal is explicit and additive. The one-page methods stay unchanged, and
 cursor-aware endpoint families also expose call wrappers with explicit
 continuation helpers:
 
-- one page: `client.range_bars(&request).await?`
-- one page through wrapper: `client.range_bars_call(request.clone()).send().await?`
-- full traversal: `client.range_bars_call(request).traverse().await?`
-- manual paging: `client.range_bars_call(request).pager()?.next().await?`
+- one page: `client.range(&request).await?`
+- one page through wrapper: `client.range_call(request.clone()).send().await?`
+- full traversal: `client.range_call(request).traverse().await?`
+- manual paging: `client.range_call(request).pager()?.next().await?`
 
-The same explicit call-wrapper pattern exists for `search_bars` and
-`time_machine_bars`, including their gRPC equivalents.
+The same explicit call-wrapper pattern exists for `search` and
+`time_machine`, including their gRPC equivalents.
 
 Range traversal may freeze an omitted `close_end` from the first page. Search
 and time-machine traversal or pager use require explicit `close_end`.
@@ -358,10 +358,10 @@ has(BTCUSDT.venues_expected, "binance")
 
 Predicates are currently used by these public surfaces:
 
-- `search_bars`
-- `search_bars_grpc`
-- `time_machine_bars` in predicate mode
-- `time_machine_bars_grpc` in predicate mode
+- `search`
+- `search_grpc`
+- `time_machine` in predicate mode
+- `time_machine_grpc` in predicate mode
 - `connect_messages_ws`
 - `connect_messages_ws_recovering`
 
@@ -383,10 +383,9 @@ The smallest public-default construction path is:
 
 ```rust
 use mathilde_sdk_rs::core::auth::BearerToken;
-use mathilde_sdk_rs::systems::aggregator::AggregatorClient;
+use mathilde_sdk_rs::systems::aggregator::Aggregator;
 
-let client =
-    AggregatorClient::mathilde_public_default(Some(BearerToken::new("feed_public_token")?))?;
+let client = Aggregator::client(Some(BearerToken::new("feed_public_token")?))?;
 ```
 
 If you need explicit transport overrides, the typed config path remains
@@ -397,9 +396,9 @@ use mathilde_sdk_rs::core::auth::BearerToken;
 use mathilde_sdk_rs::core::config::{
     AggregatorConfig, GrpcTransportConfig, HttpTransportConfig, WsTransportConfig,
 };
-use mathilde_sdk_rs::systems::aggregator::AggregatorClient;
+use mathilde_sdk_rs::systems::aggregator::Aggregator;
 
-let client = AggregatorClient::new(AggregatorConfig {
+let client = Aggregator::new(AggregatorConfig {
     http: HttpTransportConfig::new("http://127.0.0.1:18182")?,
     grpc: Some(GrpcTransportConfig::new("http://127.0.0.1:18092")?),
     ws: Some(WsTransportConfig::new("ws://127.0.0.1:18182")?),
@@ -409,20 +408,19 @@ let client = AggregatorClient::new(AggregatorConfig {
 
 ## Quick Start
 
-If you want one aligned bar snapshot quickly, `latest_bars` is the smallest
+If you want one aligned bar snapshot quickly, `latest` is the smallest
 place to start:
 
 ```rust
 use mathilde_sdk_rs::core::auth::BearerToken;
-use mathilde_sdk_rs::systems::aggregator::{AggregatorClient, LatestBarsRequest, LatestBarsResponse};
+use mathilde_sdk_rs::systems::aggregator::{Aggregator, LatestBarsRequest, LatestBarsResponse};
 use mathilde_sdk_rs::systems::helpers::pairs;
 use mathilde_sdk_rs::systems::types::{HttpFormat, LatestMode, Timeframe};
 
-let client =
-    AggregatorClient::mathilde_public_default(Some(BearerToken::new("feed_public_token")?))?;
+let client = Aggregator::client(Some(BearerToken::new("feed_public_token")?))?;
 
 let out = client
-    .latest_bars(&LatestBarsRequest {
+    .latest(&LatestBarsRequest {
         pairs: pairs(["BTCUSDT", "ETHUSDT"]),
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
@@ -447,10 +445,10 @@ match out {
 | ----------------- | ------------------------------------------------------------------------- | ------------------------ | ----------------------------------- | ------------------------------------------- | -------------------------------- | -------------------------------------- |
 | Docs              | `docs_system`, `docs_summary`, `docs_themes`, `docs_endpoints`, `openapi` | No                       | No                                  | No                                          | No                               | Public documentation and OpenAPI reads |
 | Discovery         | `pairs_status`, `pairs_list`, `files_downloads`                           | No                       | No                                  | `pairs_status` supports paging-style fields | No                               | Public pair and file discovery         |
-| Latest bars       | `latest_bars`                                                             | `latest_bars_grpc`       | No                                  | No                                          | No                               | Current aligned bar snapshot           |
-| Range bars        | `range_bars`                                                              | `range_bars_grpc`        | `connect_bars_ws`                   | Yes                                         | `connect_bars_ws_recovering`     | Windowed bars reads and bars stream    |
-| Search bars       | `search_bars`                                                             | `search_bars_grpc`       | No                                  | Yes                                         | No                               | Predicate-driven hit search            |
-| Time-machine bars | `time_machine_bars`                                                       | `time_machine_bars_grpc` | No                                  | Yes                                         | No                               | Context around hits                    |
+| Latest bars       | `latest`                                                                  | `latest_grpc`            | No                                  | No                                          | No                               | Current aligned bar snapshot           |
+| Range bars        | `range`                                                                   | `range_grpc`             | `connect_bars_ws`                   | Yes                                         | `connect_bars_ws_recovering`     | Windowed bars reads and bars stream    |
+| Search bars       | `search`                                                                  | `search_grpc`            | No                                  | Yes                                         | No                               | Predicate-driven hit search            |
+| Time-machine bars | `time_machine`                                                            | `time_machine_grpc`      | No                                  | Yes                                         | No                               | Context around hits                    |
 | Bars WS helpers   | No                                                                        | No                       | `connect_bars_ws_make_before_break` | N/A                                         | `connect_bars_ws_recovering`     | Immutable subscription per connection  |
 | Messages WS       | No                                                                        | No                       | `connect_messages_ws`               | N/A                                         | `connect_messages_ws_recovering` | In-band subscribe and unsubscribe      |
 
@@ -469,8 +467,8 @@ context around hits.
 
 Current aggregator binding:
 
-- `latest_bars`
-- `latest_bars_grpc`
+- `latest`
+- `latest_grpc`
 
 What not to infer:
 
@@ -491,8 +489,8 @@ was the local context around those hits?"
 
 Current aggregator binding:
 
-- `range_bars`
-- `range_bars_grpc`
+- `range`
+- `range_grpc`
 
 What not to infer:
 
@@ -522,8 +520,8 @@ the hit points and only want nearby context.
 
 Current aggregator binding:
 
-- `search_bars`
-- `search_bars_grpc`
+- `search`
+- `search_grpc`
 - `connect_messages_ws` for streaming predicate-triggered messages rather than
   historical hit search
 
@@ -556,8 +554,8 @@ Do not use it as a general replacement for bounded range reads.
 
 Current aggregator binding:
 
-- `time_machine_bars`
-- `time_machine_bars_grpc`
+- `time_machine`
+- `time_machine_grpc`
 
 What not to infer:
 
@@ -626,7 +624,7 @@ use mathilde_sdk_rs::systems::aggregator::{LatestBarsRequest, LatestBarsResponse
 use mathilde_sdk_rs::systems::types::{HttpFormat, LatestMode, Timeframe};
 
 let out = client
-    .latest_bars(&LatestBarsRequest {
+    .latest(&LatestBarsRequest {
         pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
@@ -657,7 +655,7 @@ use mathilde_sdk_rs::systems::helpers::pairs;
 use mathilde_sdk_rs::systems::types::{AlignMode, HttpFormat, Timeframe};
 
 let out = client
-    .range_bars(&RangeBarsRequest {
+    .range(&RangeBarsRequest {
         pairs: pairs(["BTCUSDT", "ETHUSDT"]),
         tf: Timeframe::M1,
         align_mode: Some(AlignMode::Exact),
@@ -700,7 +698,7 @@ let request = RangeBarsRequest {
     format: Some(HttpFormat::Json),
 };
 
-let out = client.range_bars_call(request).traverse().await?;
+let out = client.range_call(request).traverse().await?;
 println!("pages_fetched={}", out.pages_fetched);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -725,7 +723,7 @@ let request = RangeBarsRequest {
     format: Some(HttpFormat::Json),
 };
 
-let mut pager = client.range_bars_call(request).pager()?;
+let mut pager = client.range_call(request).pager()?;
 
 while let Some(page) = pager.next().await? {
     match page {
@@ -747,7 +745,7 @@ use mathilde_sdk_rs::systems::aggregator::{SearchBarsRequest, SearchBarsResponse
 use mathilde_sdk_rs::systems::types::{HttpFormat, Timeframe};
 
 let out = client
-    .search_bars(&SearchBarsRequest {
+    .search(&SearchBarsRequest {
         tf: Timeframe::M1,
         close_start: TimeInput::Utc("2026-02-02T00:00:00Z".to_string()),
         close_end: Some(TimeInput::Utc("2026-02-02T06:00:00Z".to_string())),
@@ -775,7 +773,7 @@ If you want full traversal across every search page, keep `close_end`
 explicit and use:
 
 ```rust
-let out = client.search_bars_call(request).traverse().await?;
+let out = client.search_call(request).traverse().await?;
 println!("pages_fetched={}", out.pages_fetched);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -791,7 +789,7 @@ use mathilde_sdk_rs::systems::aggregator::{TimeMachineBarsRequest, TimeMachineBa
 use mathilde_sdk_rs::systems::types::{HttpFormat, Timeframe};
 
 let out = client
-    .time_machine_bars(&TimeMachineBarsRequest {
+    .time_machine(&TimeMachineBarsRequest {
         tf: Timeframe::M1,
         close_start: TimeInput::Utc("2026-02-02T00:00:00Z".to_string()),
         close_end: Some(TimeInput::Utc("2026-02-02T02:00:00Z".to_string())),
@@ -822,7 +820,7 @@ If you want full traversal across every time-machine page, keep `close_end`
 explicit and use:
 
 ```rust
-let out = client.time_machine_bars_call(request).traverse().await?;
+let out = client.time_machine_call(request).traverse().await?;
 println!("pages_fetched={}", out.pages_fetched);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```

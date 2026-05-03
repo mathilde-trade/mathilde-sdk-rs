@@ -2,7 +2,7 @@ use crate::core::auth::BearerToken;
 use crate::core::config::{AggregatorConfig, GrpcTransportConfig, HttpTransportConfig};
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
-use crate::systems::aggregator::{AggregatorClient, SearchBarsGrpcRequest, SearchBarsResponse};
+use crate::systems::aggregator::{Aggregator, SearchBarsGrpcRequest, SearchBarsResponse};
 use crate::systems::types::Timeframe;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -256,7 +256,7 @@ async fn test_search_bars_grpc_uses_unary_path_and_decodes_min_response() {
         spawn_search_grpc_server(SearchGrpcUnaryReply::Success(proto_search_response_min())).await;
 
     let token = BearerToken::new("feed_public_token").expect("valid token");
-    let client = AggregatorClient::new(config_for_grpc(&base_url, Some(token))).expect("client");
+    let client = Aggregator::new(config_for_grpc(&base_url, Some(token))).expect("client");
     let request = SearchBarsGrpcRequest {
         tf: Timeframe::M1,
         close_start: "2026-02-02T00:00:00Z".into(),
@@ -269,7 +269,7 @@ async fn test_search_bars_grpc_uses_unary_path_and_decodes_min_response() {
     };
 
     let out = client
-        .search_bars_grpc(&request)
+        .search_grpc(&request)
         .await
         .expect("search bars grpc success");
 
@@ -314,7 +314,7 @@ async fn test_search_bars_grpc_omitted_close_end_decodes_full_response() {
     let (base_url, captured_rx) =
         spawn_search_grpc_server(SearchGrpcUnaryReply::Success(proto_search_response_full())).await;
 
-    let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
+    let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
     let request = SearchBarsGrpcRequest {
         tf: Timeframe::M1,
         close_start: "2026-02-02:00:00".into(),
@@ -327,7 +327,7 @@ async fn test_search_bars_grpc_omitted_close_end_decodes_full_response() {
     };
 
     let out = client
-        .search_bars_grpc(&request)
+        .search_grpc(&request)
         .await
         .expect("search bars grpc success");
 
@@ -372,7 +372,7 @@ async fn test_search_bars_grpc_omitted_close_end_decodes_full_response() {
 
 #[tokio::test]
 async fn test_search_bars_grpc_returns_missing_config_error_without_grpc_transport() {
-    let client = AggregatorClient::new(AggregatorConfig {
+    let client = Aggregator::new(AggregatorConfig {
         http: HttpTransportConfig::new("http://127.0.0.1:1").expect("valid dummy http url"),
         grpc: None,
         ws: None,
@@ -381,7 +381,7 @@ async fn test_search_bars_grpc_returns_missing_config_error_without_grpc_transpo
     .expect("client");
 
     let err = client
-        .search_bars_grpc(&SearchBarsGrpcRequest {
+        .search_grpc(&SearchBarsGrpcRequest {
             tf: Timeframe::M1,
             close_start: "2026-02-02T00:00:00Z".into(),
             close_end: None,
@@ -408,9 +408,9 @@ async fn test_search_bars_grpc_maps_non_ok_grpc_status() {
     })
     .await;
 
-    let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
+    let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
     let err = client
-        .search_bars_grpc(&SearchBarsGrpcRequest {
+        .search_grpc(&SearchBarsGrpcRequest {
             tf: Timeframe::M1,
             close_start: "2026-02-02T00:00:00Z".into(),
             close_end: None,
@@ -434,8 +434,7 @@ async fn test_search_bars_grpc_maps_non_ok_grpc_status() {
 
 #[tokio::test]
 async fn test_search_bars_grpc_call_traverse_requires_explicit_close_end() {
-    let client =
-        AggregatorClient::new(config_for_grpc("http://127.0.0.1:1", None)).expect("client");
+    let client = Aggregator::new(config_for_grpc("http://127.0.0.1:1", None)).expect("client");
     let request = SearchBarsGrpcRequest {
         tf: Timeframe::M1,
         close_start: "2026-02-02T00:00:00Z".into(),
@@ -448,7 +447,7 @@ async fn test_search_bars_grpc_call_traverse_requires_explicit_close_end() {
     };
 
     let err = client
-        .search_bars_grpc_call(request)
+        .search_grpc_call(request)
         .traverse()
         .await
         .expect_err("open-ended grpc search traverse must fail closed");

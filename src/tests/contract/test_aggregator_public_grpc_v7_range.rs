@@ -2,7 +2,7 @@ use crate::core::auth::BearerToken;
 use crate::core::config::{AggregatorConfig, GrpcTransportConfig, HttpTransportConfig};
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
-use crate::systems::aggregator::{AggregatorClient, RangeBarsGrpcRequest, RangeBarsResponse};
+use crate::systems::aggregator::{Aggregator, RangeBarsGrpcRequest, RangeBarsResponse};
 use crate::systems::types::{AlignMode, Timeframe};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -316,7 +316,7 @@ async fn test_range_bars_grpc_tail_mode_uses_unary_path_and_decodes_min_response
         spawn_range_grpc_server(RangeGrpcUnaryReply::Success(proto_range_response_min())).await;
 
     let token = BearerToken::new("feed_public_token").expect("valid token");
-    let client = AggregatorClient::new(config_for_grpc(&base_url, Some(token))).expect("client");
+    let client = Aggregator::new(config_for_grpc(&base_url, Some(token))).expect("client");
     let request = RangeBarsGrpcRequest {
         pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
@@ -329,7 +329,7 @@ async fn test_range_bars_grpc_tail_mode_uses_unary_path_and_decodes_min_response
     };
 
     let out = client
-        .range_bars_grpc(&request)
+        .range_grpc(&request)
         .await
         .expect("range bars grpc success");
 
@@ -371,7 +371,7 @@ async fn test_range_bars_grpc_explicit_window_decodes_full_response() {
     let (base_url, captured_rx) =
         spawn_range_grpc_server(RangeGrpcUnaryReply::Success(proto_range_response_full())).await;
 
-    let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
+    let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
     let request = RangeBarsGrpcRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
@@ -384,7 +384,7 @@ async fn test_range_bars_grpc_explicit_window_decodes_full_response() {
     };
 
     let out = client
-        .range_bars_grpc(&request)
+        .range_grpc(&request)
         .await
         .expect("range bars grpc full success");
 
@@ -411,7 +411,7 @@ async fn test_range_bars_grpc_explicit_window_decodes_full_response() {
 
 #[tokio::test]
 async fn test_range_bars_grpc_missing_grpc_config_is_typed_error() {
-    let client = AggregatorClient::new(AggregatorConfig {
+    let client = Aggregator::new(AggregatorConfig {
         http: HttpTransportConfig::new("http://127.0.0.1:1").expect("valid http url"),
         grpc: None,
         ws: None,
@@ -431,7 +431,7 @@ async fn test_range_bars_grpc_missing_grpc_config_is_typed_error() {
     };
 
     let error = client
-        .range_bars_grpc(&request)
+        .range_grpc(&request)
         .await
         .expect_err("expected missing grpc config error");
 
@@ -449,7 +449,7 @@ async fn test_range_bars_grpc_non_ok_status_is_typed_error() {
     })
     .await;
 
-    let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
+    let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
     let request = RangeBarsGrpcRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
@@ -462,7 +462,7 @@ async fn test_range_bars_grpc_non_ok_status_is_typed_error() {
     };
 
     let error = client
-        .range_bars_grpc(&request)
+        .range_grpc(&request)
         .await
         .expect_err("expected grpc status failure");
 
@@ -480,7 +480,7 @@ async fn test_range_bars_grpc_call_send_matches_one_page_method() {
     let (base_url, _) =
         spawn_range_grpc_server(RangeGrpcUnaryReply::Success(proto_range_response_min())).await;
 
-    let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
+    let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
     let request = RangeBarsGrpcRequest {
         pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
@@ -493,11 +493,11 @@ async fn test_range_bars_grpc_call_send_matches_one_page_method() {
     };
 
     let one_page = client
-        .range_bars_grpc(&request)
+        .range_grpc(&request)
         .await
         .expect("one-page grpc range success");
     let via_call = client
-        .range_bars_grpc_call(request.clone())
+        .range_grpc_call(request.clone())
         .send()
         .await
         .expect("wrapper grpc range send success");
@@ -517,7 +517,7 @@ async fn test_range_bars_grpc_call_traverse_freezes_omitted_close_end_from_first
     ])
     .await;
 
-    let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
+    let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
     let request = RangeBarsGrpcRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
@@ -530,7 +530,7 @@ async fn test_range_bars_grpc_call_traverse_freezes_omitted_close_end_from_first
     };
 
     let out = client
-        .range_bars_grpc_call(request)
+        .range_grpc_call(request)
         .traverse()
         .await
         .expect("grpc range traverse success");

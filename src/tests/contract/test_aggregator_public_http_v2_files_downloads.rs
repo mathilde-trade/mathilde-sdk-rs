@@ -1,7 +1,7 @@
 use crate::core::auth::BearerToken;
 use crate::core::config::{AggregatorConfig, HttpTransportConfig};
 use crate::core::error::SdkError;
-use crate::systems::aggregator::{AggregatorClient, FilesDownloadsRequest, FilesDownloadsRow};
+use crate::systems::aggregator::{Aggregator, FilesDownloadsRequest, FilesDownloadsRow};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -94,7 +94,7 @@ async fn test_files_downloads_uses_post_and_serializes_body_and_decodes_response
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client
         .files_downloads(&request)
         .await
@@ -129,7 +129,7 @@ async fn test_files_downloads_non_success_http_status_is_typed_error() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let err = client
         .files_downloads(&request)
         .await
@@ -166,7 +166,7 @@ async fn test_files_downloads_invalid_json_is_decode_error() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let err = client
         .files_downloads(&request)
         .await
@@ -206,7 +206,7 @@ async fn test_files_download_items_passes_bearer_to_absolute_public_download_url
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http_with_bearer(&server.uri(), "public-token"))
+    let client = Aggregator::new(config_for_http_with_bearer(&server.uri(), "public-token"))
         .expect("client");
     let out = client
         .files_download_items(&[row], Some(destination_root.as_path()))
@@ -249,7 +249,7 @@ async fn test_files_download_items_follows_redirect_and_writes_bytes_to_disk() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http_with_bearer(&server.uri(), "public-token"))
+    let client = Aggregator::new(config_for_http_with_bearer(&server.uri(), "public-token"))
         .expect("client");
     let out = client
         .files_download_items(&[row], Some(destination_root.as_path()))
@@ -291,7 +291,7 @@ async fn test_files_download_items_uses_default_tmp_mathilde_destination_when_om
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http_with_bearer(&server.uri(), "public-token"))
+    let client = Aggregator::new(config_for_http_with_bearer(&server.uri(), "public-token"))
         .expect("client");
     let out = client
         .files_download_items(&[row], None)
@@ -357,7 +357,7 @@ async fn test_files_download_items_preserves_row_order_in_return_value() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http_with_bearer(&server.uri(), "public-token"))
+    let client = Aggregator::new(config_for_http_with_bearer(&server.uri(), "public-token"))
         .expect("client");
     let out = client
         .files_download_items(&rows, Some(destination_root.as_path()))
@@ -381,7 +381,7 @@ async fn test_files_download_items_without_bearer_surfaces_typed_usage_error() {
         "2026-02-21",
     );
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let err = client
         .files_download_items(&[row], None)
         .await
@@ -405,7 +405,7 @@ async fn test_files_download_items_rejects_foreign_origin_absolute_url() {
         "2026-02-21",
     );
 
-    let client = AggregatorClient::new(config_for_http_with_bearer(&server.uri(), "public-token"))
+    let client = Aggregator::new(config_for_http_with_bearer(&server.uri(), "public-token"))
         .expect("client");
     let err = client
         .files_download_items(&[row], None)

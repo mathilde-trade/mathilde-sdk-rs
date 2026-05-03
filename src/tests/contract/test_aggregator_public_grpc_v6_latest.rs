@@ -2,7 +2,7 @@ use crate::core::auth::BearerToken;
 use crate::core::config::{AggregatorConfig, GrpcTransportConfig, HttpTransportConfig};
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
-use crate::systems::aggregator::{AggregatorClient, LatestBarsGrpcRequest, LatestBarsResponse};
+use crate::systems::aggregator::{Aggregator, LatestBarsGrpcRequest, LatestBarsResponse};
 use crate::systems::types::{BarsView, LatestMode, Timeframe};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -252,7 +252,7 @@ async fn test_latest_bars_grpc_uses_unary_path_and_decodes_min_response() {
         spawn_latest_grpc_server(GrpcUnaryReply::Success(proto_latest_response_min())).await;
 
     let token = BearerToken::new("feed_public_token").expect("valid token");
-    let client = AggregatorClient::new(config_for_grpc(&base_url, Some(token))).expect("client");
+    let client = Aggregator::new(config_for_grpc(&base_url, Some(token))).expect("client");
     let request = LatestBarsGrpcRequest {
         pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
@@ -261,7 +261,7 @@ async fn test_latest_bars_grpc_uses_unary_path_and_decodes_min_response() {
     };
 
     let out = client
-        .latest_bars_grpc(&request)
+        .latest_grpc(&request)
         .await
         .expect("latest bars grpc success");
 
@@ -300,7 +300,7 @@ async fn test_latest_bars_grpc_decodes_full_response() {
     let (base_url, _) =
         spawn_latest_grpc_server(GrpcUnaryReply::Success(proto_latest_response_full())).await;
 
-    let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
+    let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
     let request = LatestBarsGrpcRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
@@ -309,7 +309,7 @@ async fn test_latest_bars_grpc_decodes_full_response() {
     };
 
     let out = client
-        .latest_bars_grpc(&request)
+        .latest_grpc(&request)
         .await
         .expect("latest bars grpc full success");
 
@@ -329,7 +329,7 @@ async fn test_latest_bars_grpc_decodes_full_response() {
 
 #[tokio::test]
 async fn test_latest_bars_grpc_missing_grpc_config_is_typed_error() {
-    let client = AggregatorClient::new(AggregatorConfig {
+    let client = Aggregator::new(AggregatorConfig {
         http: HttpTransportConfig::new("http://127.0.0.1:1").expect("valid http url"),
         grpc: None,
         ws: None,
@@ -345,7 +345,7 @@ async fn test_latest_bars_grpc_missing_grpc_config_is_typed_error() {
     };
 
     let error = client
-        .latest_bars_grpc(&request)
+        .latest_grpc(&request)
         .await
         .expect_err("expected missing grpc config error");
 
@@ -361,7 +361,7 @@ async fn test_latest_bars_grpc_missing_present_row_age_ms_is_contract_drift() {
     reply.rows[0].age_ms = None;
     let (base_url, _) = spawn_latest_grpc_server(GrpcUnaryReply::Success(reply)).await;
 
-    let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
+    let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
     let request = LatestBarsGrpcRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
@@ -370,7 +370,7 @@ async fn test_latest_bars_grpc_missing_present_row_age_ms_is_contract_drift() {
     };
 
     let err = client
-        .latest_bars_grpc(&request)
+        .latest_grpc(&request)
         .await
         .expect_err("missing present-row age_ms should fail");
 
@@ -388,7 +388,7 @@ async fn test_latest_bars_grpc_missing_bar_s_utc_is_contract_drift() {
     reply.rows[0].bar.as_mut().expect("bar").s_utc = None;
     let (base_url, _) = spawn_latest_grpc_server(GrpcUnaryReply::Success(reply)).await;
 
-    let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
+    let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
     let request = LatestBarsGrpcRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
@@ -397,7 +397,7 @@ async fn test_latest_bars_grpc_missing_bar_s_utc_is_contract_drift() {
     };
 
     let err = client
-        .latest_bars_grpc(&request)
+        .latest_grpc(&request)
         .await
         .expect_err("missing s_utc should fail");
 
@@ -415,7 +415,7 @@ async fn test_latest_bars_grpc_missing_bar_e_utc_is_contract_drift() {
     reply.rows[0].bar.as_mut().expect("bar").e_utc = None;
     let (base_url, _) = spawn_latest_grpc_server(GrpcUnaryReply::Success(reply)).await;
 
-    let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
+    let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
     let request = LatestBarsGrpcRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
@@ -424,7 +424,7 @@ async fn test_latest_bars_grpc_missing_bar_e_utc_is_contract_drift() {
     };
 
     let err = client
-        .latest_bars_grpc(&request)
+        .latest_grpc(&request)
         .await
         .expect_err("missing e_utc should fail");
 
@@ -444,7 +444,7 @@ async fn test_latest_bars_grpc_non_ok_status_is_typed_error() {
     })
     .await;
 
-    let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
+    let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
     let request = LatestBarsGrpcRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
@@ -453,7 +453,7 @@ async fn test_latest_bars_grpc_non_ok_status_is_typed_error() {
     };
 
     let error = client
-        .latest_bars_grpc(&request)
+        .latest_grpc(&request)
         .await
         .expect_err("expected grpc status failure");
 

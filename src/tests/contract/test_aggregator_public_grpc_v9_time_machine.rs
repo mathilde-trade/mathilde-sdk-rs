@@ -2,9 +2,7 @@ use crate::core::auth::BearerToken;
 use crate::core::config::{AggregatorConfig, GrpcTransportConfig, HttpTransportConfig};
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
-use crate::systems::aggregator::{
-    AggregatorClient, TimeMachineBarsGrpcRequest, TimeMachineBarsResponse,
-};
+use crate::systems::aggregator::{Aggregator, TimeMachineBarsGrpcRequest, TimeMachineBarsResponse};
 use crate::systems::types::Timeframe;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -266,7 +264,7 @@ async fn test_time_machine_bars_grpc_predicate_mode_uses_unary_path_and_decodes_
     .await;
 
     let token = BearerToken::new("feed_public_token").expect("valid token");
-    let client = AggregatorClient::new(config_for_grpc(&base_url, Some(token))).expect("client");
+    let client = Aggregator::new(config_for_grpc(&base_url, Some(token))).expect("client");
     let request = TimeMachineBarsGrpcRequest {
         tf: Timeframe::M1,
         close_start: "2026-02-02T00:00:00Z".into(),
@@ -283,7 +281,7 @@ async fn test_time_machine_bars_grpc_predicate_mode_uses_unary_path_and_decodes_
     };
 
     let out = client
-        .time_machine_bars_grpc(&request)
+        .time_machine_grpc(&request)
         .await
         .expect("time-machine grpc success");
 
@@ -344,7 +342,7 @@ async fn test_time_machine_bars_grpc_hits_mode_omitted_close_end_decodes_full_re
     )
     .await;
 
-    let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
+    let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
     let request = TimeMachineBarsGrpcRequest {
         tf: Timeframe::M1,
         close_start: "2026-02-02:00:00".into(),
@@ -361,7 +359,7 @@ async fn test_time_machine_bars_grpc_hits_mode_omitted_close_end_decodes_full_re
     };
 
     let out = client
-        .time_machine_bars_grpc(&request)
+        .time_machine_grpc(&request)
         .await
         .expect("time-machine grpc success");
 
@@ -402,7 +400,7 @@ async fn test_time_machine_bars_grpc_hits_mode_omitted_close_end_decodes_full_re
 
 #[tokio::test]
 async fn test_time_machine_bars_grpc_returns_missing_config_error_without_grpc_transport() {
-    let client = AggregatorClient::new(AggregatorConfig {
+    let client = Aggregator::new(AggregatorConfig {
         http: HttpTransportConfig::new("http://127.0.0.1:1").expect("valid dummy http url"),
         grpc: None,
         ws: None,
@@ -411,7 +409,7 @@ async fn test_time_machine_bars_grpc_returns_missing_config_error_without_grpc_t
     .expect("client");
 
     let err = client
-        .time_machine_bars_grpc(&TimeMachineBarsGrpcRequest {
+        .time_machine_grpc(&TimeMachineBarsGrpcRequest {
             tf: Timeframe::M1,
             close_start: "2026-02-02T00:00:00Z".into(),
             close_end: None,
@@ -442,9 +440,9 @@ async fn test_time_machine_bars_grpc_maps_non_ok_grpc_status() {
     })
     .await;
 
-    let client = AggregatorClient::new(config_for_grpc(&base_url, None)).expect("client");
+    let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
     let err = client
-        .time_machine_bars_grpc(&TimeMachineBarsGrpcRequest {
+        .time_machine_grpc(&TimeMachineBarsGrpcRequest {
             tf: Timeframe::M1,
             close_start: "2026-02-02T00:00:00Z".into(),
             close_end: None,
@@ -472,8 +470,7 @@ async fn test_time_machine_bars_grpc_maps_non_ok_grpc_status() {
 
 #[tokio::test]
 async fn test_time_machine_bars_grpc_call_traverse_requires_explicit_close_end() {
-    let client =
-        AggregatorClient::new(config_for_grpc("http://127.0.0.1:1", None)).expect("client");
+    let client = Aggregator::new(config_for_grpc("http://127.0.0.1:1", None)).expect("client");
     let request = TimeMachineBarsGrpcRequest {
         tf: Timeframe::M1,
         close_start: "2026-02-02T00:00:00Z".into(),
@@ -490,7 +487,7 @@ async fn test_time_machine_bars_grpc_call_traverse_requires_explicit_close_end()
     };
 
     let err = client
-        .time_machine_bars_grpc_call(request)
+        .time_machine_grpc_call(request)
         .traverse()
         .await
         .expect_err("open-ended grpc time-machine traverse must fail closed");

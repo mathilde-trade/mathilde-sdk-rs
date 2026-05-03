@@ -2,7 +2,7 @@ use crate::core::auth::BearerToken;
 use crate::core::config::{AggregatorConfig, HttpTransportConfig, WsTransportConfig};
 use crate::streaming::subscription::ExponentialBackoffConfig;
 use crate::systems::aggregator::{
-    AggregatorClient, MessagesWsServerFrame, MessagesWsSubscribeFrame, MessagesWsUnsubscribeFrame,
+    Aggregator, MessagesWsServerFrame, MessagesWsSubscribeFrame, MessagesWsUnsubscribeFrame,
 };
 use crate::systems::types::Timeframe;
 use futures_util::{SinkExt, StreamExt};
@@ -202,7 +202,7 @@ async fn spawn_recovering_messages_ws_server() -> (String, oneshot::Receiver<Vec
 #[tokio::test]
 async fn test_connect_messages_ws_sends_auth_and_control_frames_and_decodes_server_frames() {
     let (base_url, captured_rx) = spawn_messages_ws_server().await;
-    let client = AggregatorClient::new(config_for_ws(
+    let client = Aggregator::new(config_for_ws(
         &base_url,
         Some(BearerToken::new("feed_public_token").expect("valid token")),
     ))
@@ -324,7 +324,7 @@ async fn test_connect_messages_ws_sends_auth_and_control_frames_and_decodes_serv
 
 #[tokio::test]
 async fn test_connect_messages_ws_missing_config_is_typed_error() {
-    let client = AggregatorClient::new(AggregatorConfig {
+    let client = Aggregator::new(AggregatorConfig {
         http: HttpTransportConfig::new("http://127.0.0.1:1").expect("valid dummy http url"),
         grpc: None,
         ws: None,
@@ -348,7 +348,7 @@ async fn test_connect_messages_ws_missing_config_is_typed_error() {
 #[tokio::test]
 async fn test_connect_messages_ws_recovering_replays_active_subscriptions_after_close() {
     let (base_url, captured_rx) = spawn_recovering_messages_ws_server().await;
-    let client = AggregatorClient::new(config_for_ws(&base_url, None)).expect("aggregator client");
+    let client = Aggregator::new(config_for_ws(&base_url, None)).expect("aggregator client");
 
     let mut connection = client
         .connect_messages_ws_recovering(ExponentialBackoffConfig {

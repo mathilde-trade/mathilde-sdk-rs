@@ -15,11 +15,11 @@ use mathilde_sdk_rs::core::error::SdkError;
 use mathilde_sdk_rs::core::time::TimeInput;
 use mathilde_sdk_rs::streaming::subscription::ExponentialBackoffConfig;
 use mathilde_sdk_rs::systems::aggregator::{
-    AggregatorClient, BarsWsFormat, BarsWsInboundFrame, BarsWsSubscribeRequest,
-    FilesDownloadsRequest, LatestBarsGrpcRequest, LatestBarsRequest, LatestBarsResponse,
-    MessagesWsServerFrame, MessagesWsSubscribeFrame, PairsListRequest, PairsStatusRequest,
-    RangeBarsGrpcRequest, RangeBarsRequest, RangeBarsResponse, SearchBarsGrpcRequest,
-    SearchBarsRequest, SearchBarsResponse, TimeMachineBarsGrpcRequest, TimeMachineBarsRequest,
+    Aggregator, BarsWsFormat, BarsWsInboundFrame, BarsWsSubscribeRequest, FilesDownloadsRequest,
+    LatestBarsGrpcRequest, LatestBarsRequest, LatestBarsResponse, MessagesWsServerFrame,
+    MessagesWsSubscribeFrame, PairsListRequest, PairsStatusRequest, RangeBarsGrpcRequest,
+    RangeBarsRequest, RangeBarsResponse, SearchBarsGrpcRequest, SearchBarsRequest,
+    SearchBarsResponse, TimeMachineBarsGrpcRequest, TimeMachineBarsRequest,
     TimeMachineBarsResponse,
 };
 use mathilde_sdk_rs::systems::types::{AlignMode, HttpFormat, LatestMode, Timeframe};
@@ -91,7 +91,7 @@ struct Report {
 #[derive(Debug)]
 struct RuntimeConfig {
     summary: RuntimeConfigSummary,
-    client: AggregatorClient,
+    client: Aggregator,
 }
 
 #[derive(Debug, Clone)]
@@ -196,7 +196,7 @@ fn join_ws_url(base_url: &str, path: &str) -> Result<String, SdkError> {
 fn build_client_with_ws_override(
     runtime: &RuntimeConfig,
     ws_base_url: &str,
-) -> Result<AggregatorClient, SdkError> {
+) -> Result<Aggregator, SdkError> {
     let bearer_token = optional_env(BEARER_ENV).map(BearerToken::new).transpose()?;
 
     let config = AggregatorConfig {
@@ -211,7 +211,7 @@ fn build_client_with_ws_override(
         bearer_token,
     };
 
-    AggregatorClient::new(config)
+    Aggregator::new(config)
 }
 
 fn is_bars_payload_message(message: &Message) -> bool {
@@ -378,7 +378,7 @@ async fn spawn_recovery_proxy(
     })
 }
 
-async fn observe_raw_bars_ws(client: &AggregatorClient, pair: &str) -> Result<String, SdkError> {
+async fn observe_raw_bars_ws(client: &Aggregator, pair: &str) -> Result<String, SdkError> {
     let request = BarsWsSubscribeRequest {
         pairs: vec![pair.to_string()],
         tfs: vec![Timeframe::M1],
@@ -465,10 +465,7 @@ async fn observe_raw_bars_ws(client: &AggregatorClient, pair: &str) -> Result<St
     ))
 }
 
-async fn observe_raw_messages_ws(
-    client: &AggregatorClient,
-    pair: &str,
-) -> Result<String, SdkError> {
+async fn observe_raw_messages_ws(client: &Aggregator, pair: &str) -> Result<String, SdkError> {
     let deadline = Instant::now() + Duration::from_secs(RAW_MESSAGES_WS_WINDOW_SECS);
     let mut stream = client.connect_messages_ws().await?;
     let subscribe = MessagesWsSubscribeFrame {
@@ -771,14 +768,14 @@ fn initial_surface_results() -> Vec<SurfaceResult> {
         ("discovery", "pairs_status"),
         ("discovery", "pairs_list"),
         ("discovery", "files_downloads"),
-        ("bars_http", "latest_bars"),
-        ("bars_http", "range_bars"),
-        ("bars_http", "search_bars"),
-        ("bars_http", "time_machine_bars"),
-        ("bars_grpc", "latest_bars_grpc"),
-        ("bars_grpc", "range_bars_grpc"),
-        ("bars_grpc", "search_bars_grpc"),
-        ("bars_grpc", "time_machine_bars_grpc"),
+        ("bars_http", "latest"),
+        ("bars_http", "range"),
+        ("bars_http", "search"),
+        ("bars_http", "time_machine"),
+        ("bars_grpc", "latest_grpc"),
+        ("bars_grpc", "range_grpc"),
+        ("bars_grpc", "search_grpc"),
+        ("bars_grpc", "time_machine_grpc"),
         ("ws", "connect_bars_ws"),
         ("ws", "connect_messages_ws"),
         ("ws_optional", "connect_bars_ws_recovering"),
@@ -941,7 +938,7 @@ fn build_runtime_config() -> Result<RuntimeConfig, SdkError> {
         bearer_token: bearer_token.clone(),
     };
 
-    let client = AggregatorClient::new(config)?;
+    let client = Aggregator::new(config)?;
     Ok(RuntimeConfig {
         summary: RuntimeConfigSummary {
             http_base_url,
@@ -1156,8 +1153,8 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
         ..latest_http_min_request.clone()
     };
 
-    let latest_http_min = client.latest_bars(&latest_http_min_request).await;
-    let latest_http_full = client.latest_bars(&latest_http_full_request).await;
+    let latest_http_min = client.latest(&latest_http_min_request).await;
+    let latest_http_full = client.latest(&latest_http_full_request).await;
 
     let anchor_close_ms = match (&latest_http_min, &latest_http_full) {
         (Ok(min), Ok(full))
@@ -1167,7 +1164,7 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             let close_end_ms = close_end_from_latest_response(min);
             record_pass(
                 report,
-                "latest_bars",
+                "latest",
                 format!(
                     "pair={} close_end_ms={}",
                     pair_from_latest_response(min).unwrap_or("unknown"),
@@ -1177,27 +1174,23 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             close_end_ms
         }
         (Ok(_), Ok(_)) => {
-            record_fail(report, "latest_bars", "min/full latest parity mismatch");
+            record_fail(report, "latest", "min/full latest parity mismatch");
             0
         }
         (Err(error), _) => {
-            record_fail(report, "latest_bars", error.to_string());
+            record_fail(report, "latest", error.to_string());
             0
         }
         (_, Err(error)) => {
-            record_fail(report, "latest_bars", error.to_string());
+            record_fail(report, "latest", error.to_string());
             0
         }
     };
 
     if anchor_close_ms <= 0 {
-        record_fail(report, "range_bars", "latest anchor was not established");
-        record_fail(report, "search_bars", "latest anchor was not established");
-        record_fail(
-            report,
-            "time_machine_bars",
-            "latest anchor was not established",
-        );
+        record_fail(report, "range", "latest anchor was not established");
+        record_fail(report, "search", "latest anchor was not established");
+        record_fail(report, "time_machine", "latest anchor was not established");
     } else {
         let range_min_request = RangeBarsRequest {
             pairs: vec![target_pair.clone()],
@@ -1216,15 +1209,15 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
         };
 
         match (
-            client.range_bars(&range_min_request).await,
-            client.range_bars(&range_full_request).await,
+            client.range(&range_min_request).await,
+            client.range(&range_full_request).await,
         ) {
             (Ok(min), Ok(full))
                 if range_rows_len(&min) > 0 && range_rows_len(&min) == range_rows_len(&full) =>
             {
                 record_pass(
                     report,
-                    "range_bars",
+                    "range",
                     format!(
                         "rows={} close_end_ms={anchor_close_ms}",
                         range_rows_len(&min)
@@ -1233,15 +1226,15 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             }
             (Ok(min), Ok(full)) => record_fail(
                 report,
-                "range_bars",
+                "range",
                 format!(
                     "unexpected min/full range rows: min={} full={}",
                     range_rows_len(&min),
                     range_rows_len(&full)
                 ),
             ),
-            (Err(error), _) => record_fail(report, "range_bars", error.to_string()),
-            (_, Err(error)) => record_fail(report, "range_bars", error.to_string()),
+            (Err(error), _) => record_fail(report, "range", error.to_string()),
+            (_, Err(error)) => record_fail(report, "range", error.to_string()),
         }
 
         let predicate = format!("{target_pair}.close > 0");
@@ -1262,29 +1255,29 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
         };
 
         match (
-            client.search_bars(&search_min_request).await,
-            client.search_bars(&search_full_request).await,
+            client.search(&search_min_request).await,
+            client.search(&search_full_request).await,
         ) {
             (Ok(min), Ok(full))
                 if search_hits_len(&min) > 0 && search_hits_len(&min) == search_hits_len(&full) =>
             {
                 record_pass(
                     report,
-                    "search_bars",
+                    "search",
                     format!("hits={} predicate={predicate}", search_hits_len(&min)),
                 );
             }
             (Ok(min), Ok(full)) => record_fail(
                 report,
-                "search_bars",
+                "search",
                 format!(
                     "unexpected min/full search hits: min={} full={}",
                     search_hits_len(&min),
                     search_hits_len(&full)
                 ),
             ),
-            (Err(error), _) => record_fail(report, "search_bars", error.to_string()),
-            (_, Err(error)) => record_fail(report, "search_bars", error.to_string()),
+            (Err(error), _) => record_fail(report, "search", error.to_string()),
+            (_, Err(error)) => record_fail(report, "search", error.to_string()),
         }
 
         let time_machine_min_request = TimeMachineBarsRequest {
@@ -1308,8 +1301,8 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
         };
 
         match (
-            client.time_machine_bars(&time_machine_min_request).await,
-            client.time_machine_bars(&time_machine_full_request).await,
+            client.time_machine(&time_machine_min_request).await,
+            client.time_machine(&time_machine_full_request).await,
         ) {
             (Ok(min), Ok(full))
                 if time_machine_rows_len(&min) > 0
@@ -1317,42 +1310,42 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             {
                 record_pass(
                     report,
-                    "time_machine_bars",
+                    "time_machine",
                     format!("rows={}", time_machine_rows_len(&min)),
                 );
             }
             (Ok(min), Ok(full)) => record_fail(
                 report,
-                "time_machine_bars",
+                "time_machine",
                 format!(
                     "unexpected min/full time-machine rows: min={} full={}",
                     time_machine_rows_len(&min),
                     time_machine_rows_len(&full)
                 ),
             ),
-            (Err(error), _) => record_fail(report, "time_machine_bars", error.to_string()),
-            (_, Err(error)) => record_fail(report, "time_machine_bars", error.to_string()),
+            (Err(error), _) => record_fail(report, "time_machine", error.to_string()),
+            (_, Err(error)) => record_fail(report, "time_machine", error.to_string()),
         }
 
         if runtime.summary.grpc_base_url.is_none() {
             record_fail(
                 report,
-                "latest_bars_grpc",
+                "latest_grpc",
                 format!("missing required environment variable `{GRPC_ENV}`"),
             );
             record_fail(
                 report,
-                "range_bars_grpc",
+                "range_grpc",
                 format!("missing required environment variable `{GRPC_ENV}`"),
             );
             record_fail(
                 report,
-                "search_bars_grpc",
+                "search_grpc",
                 format!("missing required environment variable `{GRPC_ENV}`"),
             );
             record_fail(
                 report,
-                "time_machine_bars_grpc",
+                "time_machine_grpc",
                 format!("missing required environment variable `{GRPC_ENV}`"),
             );
         } else {
@@ -1360,8 +1353,8 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             let latest_grpc_full_request = LatestBarsGrpcRequest::from(&latest_http_full_request);
 
             match (
-                client.latest_bars_grpc(&latest_grpc_min_request).await,
-                client.latest_bars_grpc(&latest_grpc_full_request).await,
+                client.latest_grpc(&latest_grpc_min_request).await,
+                client.latest_grpc(&latest_grpc_full_request).await,
             ) {
                 (Ok(min), Ok(full))
                     if pair_from_latest_response(&min).is_some()
@@ -1369,7 +1362,7 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
                 {
                     record_pass(
                         report,
-                        "latest_bars_grpc",
+                        "latest_grpc",
                         format!(
                             "pair={} close_end_ms={}",
                             pair_from_latest_response(&min).unwrap_or("unknown"),
@@ -1377,20 +1370,18 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
                         ),
                     );
                 }
-                (Ok(_), Ok(_)) => record_fail(
-                    report,
-                    "latest_bars_grpc",
-                    "min/full latest parity mismatch",
-                ),
-                (Err(error), _) => record_fail(report, "latest_bars_grpc", error.to_string()),
-                (_, Err(error)) => record_fail(report, "latest_bars_grpc", error.to_string()),
+                (Ok(_), Ok(_)) => {
+                    record_fail(report, "latest_grpc", "min/full latest parity mismatch")
+                }
+                (Err(error), _) => record_fail(report, "latest_grpc", error.to_string()),
+                (_, Err(error)) => record_fail(report, "latest_grpc", error.to_string()),
             }
 
             let range_grpc_min_request = RangeBarsGrpcRequest::from(&range_min_request);
             let range_grpc_full_request = RangeBarsGrpcRequest::from(&range_full_request);
             match (
-                client.range_bars_grpc(&range_grpc_min_request).await,
-                client.range_bars_grpc(&range_grpc_full_request).await,
+                client.range_grpc(&range_grpc_min_request).await,
+                client.range_grpc(&range_grpc_full_request).await,
             ) {
                 (Ok(min), Ok(full))
                     if range_rows_len(&min) > 0
@@ -1398,28 +1389,28 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
                 {
                     record_pass(
                         report,
-                        "range_bars_grpc",
+                        "range_grpc",
                         format!("rows={}", range_rows_len(&min)),
                     );
                 }
                 (Ok(min), Ok(full)) => record_fail(
                     report,
-                    "range_bars_grpc",
+                    "range_grpc",
                     format!(
                         "unexpected min/full range rows: min={} full={}",
                         range_rows_len(&min),
                         range_rows_len(&full)
                     ),
                 ),
-                (Err(error), _) => record_fail(report, "range_bars_grpc", error.to_string()),
-                (_, Err(error)) => record_fail(report, "range_bars_grpc", error.to_string()),
+                (Err(error), _) => record_fail(report, "range_grpc", error.to_string()),
+                (_, Err(error)) => record_fail(report, "range_grpc", error.to_string()),
             }
 
             let search_grpc_min_request = SearchBarsGrpcRequest::from(&search_min_request);
             let search_grpc_full_request = SearchBarsGrpcRequest::from(&search_full_request);
             match (
-                client.search_bars_grpc(&search_grpc_min_request).await,
-                client.search_bars_grpc(&search_grpc_full_request).await,
+                client.search_grpc(&search_grpc_min_request).await,
+                client.search_grpc(&search_grpc_full_request).await,
             ) {
                 (Ok(min), Ok(full))
                     if search_hits_len(&min) > 0
@@ -1427,21 +1418,21 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
                 {
                     record_pass(
                         report,
-                        "search_bars_grpc",
+                        "search_grpc",
                         format!("hits={}", search_hits_len(&min)),
                     );
                 }
                 (Ok(min), Ok(full)) => record_fail(
                     report,
-                    "search_bars_grpc",
+                    "search_grpc",
                     format!(
                         "unexpected min/full search hits: min={} full={}",
                         search_hits_len(&min),
                         search_hits_len(&full)
                     ),
                 ),
-                (Err(error), _) => record_fail(report, "search_bars_grpc", error.to_string()),
-                (_, Err(error)) => record_fail(report, "search_bars_grpc", error.to_string()),
+                (Err(error), _) => record_fail(report, "search_grpc", error.to_string()),
+                (_, Err(error)) => record_fail(report, "search_grpc", error.to_string()),
             }
 
             let time_machine_grpc_min_request =
@@ -1450,10 +1441,10 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
                 TimeMachineBarsGrpcRequest::from(&time_machine_full_request);
             match (
                 client
-                    .time_machine_bars_grpc(&time_machine_grpc_min_request)
+                    .time_machine_grpc(&time_machine_grpc_min_request)
                     .await,
                 client
-                    .time_machine_bars_grpc(&time_machine_grpc_full_request)
+                    .time_machine_grpc(&time_machine_grpc_full_request)
                     .await,
             ) {
                 (Ok(min), Ok(full))
@@ -1462,21 +1453,21 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
                 {
                     record_pass(
                         report,
-                        "time_machine_bars_grpc",
+                        "time_machine_grpc",
                         format!("rows={}", time_machine_rows_len(&min)),
                     );
                 }
                 (Ok(min), Ok(full)) => record_fail(
                     report,
-                    "time_machine_bars_grpc",
+                    "time_machine_grpc",
                     format!(
                         "unexpected min/full time-machine rows: min={} full={}",
                         time_machine_rows_len(&min),
                         time_machine_rows_len(&full)
                     ),
                 ),
-                (Err(error), _) => record_fail(report, "time_machine_bars_grpc", error.to_string()),
-                (_, Err(error)) => record_fail(report, "time_machine_bars_grpc", error.to_string()),
+                (Err(error), _) => record_fail(report, "time_machine_grpc", error.to_string()),
+                (_, Err(error)) => record_fail(report, "time_machine_grpc", error.to_string()),
             }
         }
     }
@@ -1579,7 +1570,7 @@ async fn run() -> Result<Report, String> {
 
     report.config = Some(runtime.summary.clone());
     report.proved_observations.push(format!(
-        "loaded `{}` and constructed `AggregatorClient` successfully",
+        "loaded `{}` and constructed `Aggregator` successfully",
         HTTP_ENV
     ));
     report

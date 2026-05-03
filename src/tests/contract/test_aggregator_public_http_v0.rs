@@ -2,7 +2,7 @@ use crate::core::auth::{BearerToken, apply_bearer_auth};
 use crate::core::config::{AggregatorConfig, HttpTransportConfig, MathildePublicHosts};
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
-use crate::systems::aggregator::{AggregatorClient, LatestBarsRequest, LatestBarsResponse};
+use crate::systems::aggregator::{Aggregator, LatestBarsRequest, LatestBarsResponse};
 use crate::systems::types::{BarsView, HttpFormat, LatestMode, Timeframe};
 use prost::Message;
 use reqwest::header::{AUTHORIZATION, HeaderMap};
@@ -175,7 +175,7 @@ fn test_aggregator_config_mathilde_public_default_uses_manifest_hosts() {
 #[tokio::test]
 async fn test_aggregator_client_mathilde_public_default_builds_transports() {
     let token = BearerToken::new("abc123").expect("valid token");
-    let _client = AggregatorClient::mathilde_public_default(Some(token)).expect("default client");
+    let _client = Aggregator::client(Some(token)).expect("default client");
 }
 
 #[test]
@@ -220,7 +220,7 @@ async fn test_docs_system_forms_correct_path_and_decodes_payload() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let doc = client.docs_system().await.expect("docs_system success");
 
     assert_eq!(doc.subsystem, "aggregator");
@@ -286,11 +286,8 @@ async fn test_latest_bars_uses_post_and_serializes_body_and_decodes_response() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
-    let out = client
-        .latest_bars(&request)
-        .await
-        .expect("latest bars success");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
+    let out = client.latest(&request).await.expect("latest bars success");
 
     match out {
         LatestBarsResponse::Min(out) => {
@@ -398,9 +395,9 @@ async fn test_latest_bars_metadata_true_decodes_full_response() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client
-        .latest_bars(&request)
+        .latest(&request)
         .await
         .expect("latest bars full success");
 
@@ -462,11 +459,8 @@ async fn test_latest_bars_omitted_format_still_uses_json_branch() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
-    let out = client
-        .latest_bars(&request)
-        .await
-        .expect("latest bars success");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
+    let out = client.latest(&request).await.expect("latest bars success");
 
     match out {
         LatestBarsResponse::Min(out) => {
@@ -511,9 +505,9 @@ async fn test_latest_bars_format_protobuf_decodes_min_response() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client
-        .latest_bars(&request)
+        .latest(&request)
         .await
         .expect("protobuf latest bars min success");
 
@@ -564,9 +558,9 @@ async fn test_latest_bars_format_protobuf_decodes_full_response() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client
-        .latest_bars(&request)
+        .latest(&request)
         .await
         .expect("protobuf latest bars full success");
 
@@ -615,9 +609,9 @@ async fn test_latest_bars_invalid_protobuf_is_contract_drift() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let err = client
-        .latest_bars(&request)
+        .latest(&request)
         .await
         .expect_err("expected protobuf decode failure");
 
@@ -637,7 +631,7 @@ async fn test_non_success_http_status_is_typed_error() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let err = client.docs_system().await.expect_err("expected forbidden");
 
     match err {
@@ -660,7 +654,7 @@ async fn test_invalid_json_is_decode_error() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let err = client
         .docs_system()
         .await
@@ -698,7 +692,7 @@ async fn test_docs_system_sends_bearer_auth_when_present() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config).expect("client");
+    let client = Aggregator::new(config).expect("client");
     let doc = client.docs_system().await.expect("docs_system success");
     assert_eq!(doc.subsystem, "aggregator");
 }

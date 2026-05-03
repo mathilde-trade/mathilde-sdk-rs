@@ -1,6 +1,6 @@
 use crate::core::config::{AggregatorConfig, HttpTransportConfig};
 use crate::core::error::SdkError;
-use crate::systems::aggregator::{AggregatorClient, PairsListRequest, PairsStatusRequest};
+use crate::systems::aggregator::{Aggregator, PairsListRequest, PairsStatusRequest};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -38,7 +38,7 @@ async fn test_docs_summary_forms_correct_path_and_decodes_payload() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client.docs_summary().await.expect("docs_summary success");
 
     assert_eq!(out.subsystem, "aggregator");
@@ -74,7 +74,7 @@ async fn test_docs_themes_forms_correct_path_and_decodes_payload() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client.docs_themes().await.expect("docs_themes success");
 
     assert_eq!(out.subsystem, "aggregator");
@@ -108,7 +108,7 @@ async fn test_docs_endpoints_forms_correct_path_and_decodes_payload() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client
         .docs_endpoints()
         .await
@@ -165,7 +165,7 @@ async fn test_pairs_status_serializes_csv_query_and_decodes_nested_blocks() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client
         .pairs_status(&request)
         .await
@@ -207,7 +207,7 @@ async fn test_pairs_list_serializes_query_and_decodes_response() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client
         .pairs_list(&request)
         .await
@@ -239,7 +239,7 @@ async fn test_openapi_forms_correct_path_and_decodes_raw_json() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client.openapi().await.expect("openapi success");
 
     assert_eq!(out["openapi"], "3.1.0");
@@ -260,7 +260,7 @@ async fn test_openapi_non_success_http_status_is_typed_error() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let err = client
         .openapi()
         .await
@@ -290,7 +290,7 @@ async fn test_pairs_list_invalid_json_is_decode_error() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let err = client
         .pairs_list(&PairsListRequest {
             enabled_only: Some(true),

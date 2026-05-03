@@ -32,13 +32,13 @@ use crate::transport::ws::WsTransport;
 use std::path::Path;
 
 #[derive(Debug, Clone)]
-pub struct AggregatorClient {
+pub struct Aggregator {
     http: HttpTransport,
     grpc: Option<GrpcTransport>,
     ws: Option<WsTransport>,
 }
 
-impl AggregatorClient {
+impl Aggregator {
     pub fn new(config: AggregatorConfig) -> Result<Self, SdkError> {
         let http = config.require_http().clone();
         let grpc = config
@@ -58,7 +58,7 @@ impl AggregatorClient {
         })
     }
 
-    pub fn mathilde_public_default(bearer_token: Option<BearerToken>) -> Result<Self, SdkError> {
+    pub fn client(bearer_token: Option<BearerToken>) -> Result<Self, SdkError> {
         Self::new(AggregatorConfig::mathilde_public_default(bearer_token)?)
     }
 
@@ -82,14 +82,14 @@ impl AggregatorClient {
         docs::openapi(&self.http).await
     }
 
-    pub async fn latest_bars(
+    pub async fn latest(
         &self,
         request: &LatestBarsRequest,
     ) -> Result<LatestBarsResponse, SdkError> {
         bars_http::latest_bars(&self.http, request).await
     }
 
-    pub async fn latest_bars_grpc(
+    pub async fn latest_grpc(
         &self,
         request: &LatestBarsGrpcRequest,
     ) -> Result<LatestBarsResponse, SdkError> {
@@ -100,14 +100,11 @@ impl AggregatorClient {
         bars_grpc::latest_bars_grpc(grpc, request).await
     }
 
-    pub async fn range_bars(
-        &self,
-        request: &RangeBarsRequest,
-    ) -> Result<RangeBarsResponse, SdkError> {
+    pub async fn range(&self, request: &RangeBarsRequest) -> Result<RangeBarsResponse, SdkError> {
         bars_http::range_bars(&self.http, request).await
     }
 
-    pub async fn range_bars_grpc(
+    pub async fn range_grpc(
         &self,
         request: &RangeBarsGrpcRequest,
     ) -> Result<RangeBarsResponse, SdkError> {
@@ -118,22 +115,22 @@ impl AggregatorClient {
         bars_grpc::range_bars_grpc(grpc, request).await
     }
 
-    pub fn range_bars_call(&self, request: RangeBarsRequest) -> RangeBarsCall<'_> {
+    pub fn range_call(&self, request: RangeBarsRequest) -> RangeBarsCall<'_> {
         RangeBarsCall::new(self, request)
     }
 
-    pub fn range_bars_grpc_call(&self, request: RangeBarsGrpcRequest) -> RangeBarsGrpcCall<'_> {
+    pub fn range_grpc_call(&self, request: RangeBarsGrpcRequest) -> RangeBarsGrpcCall<'_> {
         RangeBarsGrpcCall::new(self, request)
     }
 
-    pub async fn search_bars(
+    pub async fn search(
         &self,
         request: &SearchBarsRequest,
     ) -> Result<SearchBarsResponse, SdkError> {
         bars_http::search_bars(&self.http, request).await
     }
 
-    pub async fn search_bars_grpc(
+    pub async fn search_grpc(
         &self,
         request: &SearchBarsGrpcRequest,
     ) -> Result<SearchBarsResponse, SdkError> {
@@ -144,22 +141,22 @@ impl AggregatorClient {
         bars_grpc::search_bars_grpc(grpc, request).await
     }
 
-    pub fn search_bars_call(&self, request: SearchBarsRequest) -> SearchBarsCall<'_> {
+    pub fn search_call(&self, request: SearchBarsRequest) -> SearchBarsCall<'_> {
         SearchBarsCall::new(self, request)
     }
 
-    pub fn search_bars_grpc_call(&self, request: SearchBarsGrpcRequest) -> SearchBarsGrpcCall<'_> {
+    pub fn search_grpc_call(&self, request: SearchBarsGrpcRequest) -> SearchBarsGrpcCall<'_> {
         SearchBarsGrpcCall::new(self, request)
     }
 
-    pub async fn time_machine_bars(
+    pub async fn time_machine(
         &self,
         request: &TimeMachineBarsRequest,
     ) -> Result<TimeMachineBarsResponse, SdkError> {
         bars_http::time_machine_bars(&self.http, request).await
     }
 
-    pub async fn time_machine_bars_grpc(
+    pub async fn time_machine_grpc(
         &self,
         request: &TimeMachineBarsGrpcRequest,
     ) -> Result<TimeMachineBarsResponse, SdkError> {
@@ -170,14 +167,11 @@ impl AggregatorClient {
         bars_grpc::time_machine_bars_grpc(grpc, request).await
     }
 
-    pub fn time_machine_bars_call(
-        &self,
-        request: TimeMachineBarsRequest,
-    ) -> TimeMachineBarsCall<'_> {
+    pub fn time_machine_call(&self, request: TimeMachineBarsRequest) -> TimeMachineBarsCall<'_> {
         TimeMachineBarsCall::new(self, request)
     }
 
-    pub fn time_machine_bars_grpc_call(
+    pub fn time_machine_grpc_call(
         &self,
         request: TimeMachineBarsGrpcRequest,
     ) -> TimeMachineBarsGrpcCall<'_> {

@@ -1,7 +1,7 @@
 use crate::core::config::{AggregatorConfig, HttpTransportConfig};
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
-use crate::systems::aggregator::{AggregatorClient, RangeBarsRequest, RangeBarsResponse};
+use crate::systems::aggregator::{Aggregator, RangeBarsRequest, RangeBarsResponse};
 use crate::systems::types::{AlignMode, HttpFormat, Timeframe};
 use prost::Message;
 use wiremock::matchers::{body_json, method, path};
@@ -164,8 +164,8 @@ async fn test_range_bars_uses_post_and_normalizes_time_inputs_and_decodes_min_js
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
-    let out = client.range_bars(&request).await.expect("range success");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
+    let out = client.range(&request).await.expect("range success");
 
     match out {
         RangeBarsResponse::Min(out) => {
@@ -278,8 +278,8 @@ async fn test_range_bars_omitted_close_end_serializes_as_absent_and_decodes_full
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
-    let out = client.range_bars(&request).await.expect("range success");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
+    let out = client.range(&request).await.expect("range success");
 
     match out {
         RangeBarsResponse::Full(out) => {
@@ -319,9 +319,9 @@ async fn test_range_bars_protobuf_decodes_min_response() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client
-        .range_bars(&request)
+        .range(&request)
         .await
         .expect("protobuf range success");
 
@@ -363,9 +363,9 @@ async fn test_range_bars_protobuf_decodes_full_response() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client
-        .range_bars(&request)
+        .range(&request)
         .await
         .expect("protobuf full range success");
 
@@ -405,9 +405,9 @@ async fn test_range_bars_non_success_http_status_returns_typed_error() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let err = client
-        .range_bars(&request)
+        .range(&request)
         .await
         .expect_err("expected http status error");
 
@@ -445,9 +445,9 @@ async fn test_range_bars_invalid_json_returns_decode_error() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let err = client
-        .range_bars(&request)
+        .range(&request)
         .await
         .expect_err("expected decode error");
 
@@ -482,9 +482,9 @@ async fn test_range_bars_invalid_protobuf_returns_contract_drift() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let err = client
-        .range_bars(&request)
+        .range(&request)
         .await
         .expect_err("expected contract drift error");
 
@@ -558,14 +558,14 @@ async fn test_range_bars_call_send_matches_one_page_method() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
 
     let one_page = client
-        .range_bars(&request)
+        .range(&request)
         .await
         .expect("one-page range success");
     let via_call = client
-        .range_bars_call(request.clone())
+        .range_call(request.clone())
         .send()
         .await
         .expect("wrapper send success");
@@ -682,9 +682,9 @@ async fn test_range_bars_call_traverse_freezes_omitted_close_end_from_first_page
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client
-        .range_bars_call(request)
+        .range_call(request)
         .traverse()
         .await
         .expect("range traverse success");
@@ -771,11 +771,8 @@ async fn test_range_bars_pager_next_returns_none_after_terminal_page() {
         .mount(&server)
         .await;
 
-    let client = AggregatorClient::new(config_for_http(&server.uri())).expect("client");
-    let mut pager = client
-        .range_bars_call(request)
-        .pager()
-        .expect("range pager");
+    let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
+    let mut pager = client.range_call(request).pager().expect("range pager");
 
     let first = pager.next().await.expect("first page");
     assert!(first.is_some());

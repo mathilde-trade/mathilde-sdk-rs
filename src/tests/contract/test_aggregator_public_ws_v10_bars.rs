@@ -6,7 +6,7 @@ use crate::streaming::make_before_break::MakeBeforeBreakConfig;
 use crate::streaming::subscription::ExponentialBackoffConfig;
 use crate::systems::aggregator::bars_ws::BarsWsMakeBeforeBreak;
 use crate::systems::aggregator::{
-    AggregatorClient, BarsWsInboundFrame, BarsWsMetaFrame, BarsWsPhase, BarsWsSubscribeRequest,
+    Aggregator, BarsWsInboundFrame, BarsWsMetaFrame, BarsWsPhase, BarsWsSubscribeRequest,
 };
 use crate::systems::types::Timeframe;
 use futures_util::{SinkExt, StreamExt};
@@ -301,7 +301,7 @@ async fn spawn_recovering_bars_ws_server() -> String {
 #[tokio::test]
 async fn test_connect_bars_ws_sends_auth_and_subscribe_and_decodes_json_min() {
     let (base_url, captured_rx) = spawn_capture_ws_server().await;
-    let client = AggregatorClient::new(config_for_ws(
+    let client = Aggregator::new(config_for_ws(
         &base_url,
         Some(BearerToken::new("feed_public_token").expect("valid token")),
     ))
@@ -370,7 +370,7 @@ async fn test_connect_bars_ws_sends_auth_and_subscribe_and_decodes_json_min() {
 #[tokio::test]
 async fn test_connect_bars_ws_decodes_protobuf_full_rows() {
     let base_url = spawn_protobuf_ws_server().await;
-    let client = AggregatorClient::new(config_for_ws(&base_url, None)).expect("aggregator client");
+    let client = Aggregator::new(config_for_ws(&base_url, None)).expect("aggregator client");
 
     let request = BarsWsSubscribeRequest {
         pairs: vec!["BTCUSDT".to_string()],
@@ -470,7 +470,7 @@ async fn test_bars_ws_make_before_break_keeps_old_until_new_is_stable_then_swaps
 #[tokio::test]
 async fn test_connect_bars_ws_recovering_reconnects_with_same_request_after_close() {
     let base_url = spawn_recovering_bars_ws_server().await;
-    let client = AggregatorClient::new(config_for_ws(&base_url, None)).expect("aggregator client");
+    let client = Aggregator::new(config_for_ws(&base_url, None)).expect("aggregator client");
 
     let request = BarsWsSubscribeRequest {
         pairs: vec!["BTCUSDT".to_string()],

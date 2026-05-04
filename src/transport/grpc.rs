@@ -17,7 +17,7 @@ impl GrpcTransport {
         bearer_token: Option<BearerToken>,
     ) -> Result<Self, SdkError> {
         let endpoint_uri = Self::endpoint_uri(config);
-        let channel = Endpoint::from_shared(endpoint_uri.clone())
+        let channel = Endpoint::new(endpoint_uri.clone())
             .map_err(SdkError::grpc_transport)?
             .connect_lazy();
 

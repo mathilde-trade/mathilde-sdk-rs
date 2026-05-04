@@ -15,23 +15,6 @@ fn config_for_http(base_url: &str) -> RegimeConfig {
     }
 }
 
-fn projected_output_json(pair: &str) -> serde_json::Value {
-    serde_json::json!({
-        "pair": pair,
-        "tf": "1h",
-        "open_ms": 1770000000000_i64,
-        "close_ms": 1770003600000_i64,
-        "open_utc": "2026-02-02T00:00:00Z",
-        "close_utc": "2026-02-02T01:00:00Z",
-        "o": 100.0,
-        "h": 101.0,
-        "l": 99.5,
-        "c": 100.5,
-        "v": 12.34,
-        "tr_klts_score": 0.75
-    })
-}
-
 #[test]
 fn test_regime_config_mathilde_public_default_uses_manifest_hosts() {
     let token = BearerToken::new("feed_public_token").expect("valid token");
@@ -136,7 +119,18 @@ async fn test_regime_latest_uses_post_and_decodes_projected_min_response() {
         "latest_mode": "exact_watermark",
         "view": "min",
         "rows": [{
-            "output": projected_output_json("BTCUSDT"),
+            "pair": "BTCUSDT",
+            "tf": "1h",
+            "open_ms": 1770000000000_i64,
+            "close_ms": 1770003600000_i64,
+            "open_utc": "2026-02-02T00:00:00Z",
+            "close_utc": "2026-02-02T01:00:00Z",
+            "o": 100.0,
+            "h": 101.0,
+            "l": 99.5,
+            "c": 100.5,
+            "v": 12.34,
+            "tr_klts_score": 0.75,
             "age_ms": 101
         }],
         "missing_pairs": ["ETHUSDT"]

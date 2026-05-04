@@ -889,18 +889,27 @@ pub struct TimeMachineOutputsTraverseResult {
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
-pub(crate) struct LatestOutputsPresentRowWire<T> {
+pub(crate) struct LatestOutputsHttpPresentRowWire<T> {
+    #[serde(flatten)]
     output: T,
     age_ms: i64,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
-pub(crate) struct LatestOutputsResponseWire<T> {
+pub(crate) struct LatestOutputsWsPresentRowWire<T> {
+    #[serde(flatten)]
+    output: T,
+    #[serde(default)]
+    age_ms: i64,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct LatestOutputsHttpResponseWire<T> {
     watermark_end_ms: i64,
     close_end_ms: i64,
     latest_mode: LatestMode,
     view: OutputView,
-    rows: Vec<LatestOutputsPresentRowWire<T>>,
+    rows: Vec<LatestOutputsHttpPresentRowWire<T>>,
     missing_pairs: Vec<String>,
 }
 
@@ -1017,7 +1026,7 @@ impl LatestOutputsPresentRow {
 
 impl LatestOutputsResponse {
     pub(crate) fn from_http_min(
-        wire: LatestOutputsResponseWire<ProcessorOutputMin>,
+        wire: LatestOutputsHttpResponseWire<ProcessorOutputMin>,
         diagnostics_enabled: bool,
     ) -> Result<Self, SdkError> {
         Self::from_http_typed(
@@ -1029,7 +1038,7 @@ impl LatestOutputsResponse {
     }
 
     pub(crate) fn from_http_with_meta(
-        wire: LatestOutputsResponseWire<ProcessorOutputWithMeta>,
+        wire: LatestOutputsHttpResponseWire<ProcessorOutputWithMeta>,
         diagnostics_enabled: bool,
     ) -> Result<Self, SdkError> {
         Self::from_http_typed(
@@ -1041,7 +1050,7 @@ impl LatestOutputsResponse {
     }
 
     pub(crate) fn from_http_projected_min(
-        wire: LatestOutputsResponseWire<ProcessorProjectedOutputMin>,
+        wire: LatestOutputsHttpResponseWire<ProcessorProjectedOutputMin>,
         diagnostics_enabled: bool,
     ) -> Result<Self, SdkError> {
         Self::from_http_typed(
@@ -1053,7 +1062,7 @@ impl LatestOutputsResponse {
     }
 
     pub(crate) fn from_http_projected_with_meta(
-        wire: LatestOutputsResponseWire<ProcessorProjectedOutputWithMeta>,
+        wire: LatestOutputsHttpResponseWire<ProcessorProjectedOutputWithMeta>,
         diagnostics_enabled: bool,
     ) -> Result<Self, SdkError> {
         Self::from_http_typed(
@@ -1065,7 +1074,7 @@ impl LatestOutputsResponse {
     }
 
     fn from_http_typed<T>(
-        wire: LatestOutputsResponseWire<T>,
+        wire: LatestOutputsHttpResponseWire<T>,
         mode: PrimitiveOutputMode,
         diagnostics_enabled: bool,
         wrap: fn(T, bool) -> PrimitiveOutput,
@@ -1406,7 +1415,7 @@ pub(crate) fn decode_latest_outputs_ws_json(
 ) -> Result<Vec<LatestOutputsPresentRow>, SdkError> {
     match mode {
         PrimitiveOutputMode::Min => serde_json::from_str::<
-            Vec<LatestOutputsPresentRowWire<ProcessorOutputMin>>,
+            Vec<LatestOutputsWsPresentRowWire<ProcessorOutputMin>>,
         >(text)
         .map_err(|source| {
             SdkError::contract_drift(format!("outputs ws min JSON rows decode failed: {source}"))
@@ -1420,7 +1429,7 @@ pub(crate) fn decode_latest_outputs_ws_json(
                 .collect()
         }),
         PrimitiveOutputMode::WithMeta => serde_json::from_str::<
-            Vec<LatestOutputsPresentRowWire<ProcessorOutputWithMeta>>,
+            Vec<LatestOutputsWsPresentRowWire<ProcessorOutputWithMeta>>,
         >(text)
         .map_err(|source| {
             SdkError::contract_drift(format!("outputs ws full JSON rows decode failed: {source}"))
@@ -1434,7 +1443,7 @@ pub(crate) fn decode_latest_outputs_ws_json(
                 .collect()
         }),
         PrimitiveOutputMode::ProjectedMin => serde_json::from_str::<
-            Vec<LatestOutputsPresentRowWire<ProcessorProjectedOutputMin>>,
+            Vec<LatestOutputsWsPresentRowWire<ProcessorProjectedOutputMin>>,
         >(text)
         .map_err(|source| {
             SdkError::contract_drift(format!(
@@ -1450,7 +1459,7 @@ pub(crate) fn decode_latest_outputs_ws_json(
                 .collect()
         }),
         PrimitiveOutputMode::ProjectedWithMeta => serde_json::from_str::<
-            Vec<LatestOutputsPresentRowWire<ProcessorProjectedOutputWithMeta>>,
+            Vec<LatestOutputsWsPresentRowWire<ProcessorProjectedOutputWithMeta>>,
         >(text)
         .map_err(|source| {
             SdkError::contract_drift(format!(

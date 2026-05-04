@@ -9,7 +9,8 @@ use chrono::{SecondsFormat, Utc};
 use futures_util::{SinkExt, StreamExt};
 use mathilde_sdk_rs::core::auth::BearerToken;
 use mathilde_sdk_rs::core::config::{
-    AggregatorConfig, GrpcTransportConfig, HttpTransportConfig, WsTransportConfig,
+    AggregatorConfig, GrpcTransportConfig, HttpTransportConfig, MathildePublicHosts,
+    WsTransportConfig,
 };
 use mathilde_sdk_rs::core::error::SdkError;
 use mathilde_sdk_rs::core::time::TimeInput;
@@ -35,7 +36,6 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, accept_async, connect_async};
 
 const BIN_NAME: &str = "sdk_live_public_surface_check";
-const HTTP_ENV: &str = "AGGREGATOR_FEED_HTTP_BASE_URL";
 const GRPC_ENV: &str = "AGGREGATOR_FEED_GRPC_BASE_URL";
 const WS_ENV: &str = "AGGREGATOR_FEED_WS_BASE_URL";
 const BEARER_ENV: &str = "AGGREGATOR_FEED_BEARER_TOKEN";
@@ -162,16 +162,6 @@ fn load_dotenv_if_present(path: &Path) -> Result<(), String> {
     }
 
     Ok(())
-}
-
-fn required_env(name: &'static str) -> Result<String, SdkError> {
-    env::var(name)
-        .map(|value| value.trim().to_string())
-        .ok()
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            SdkError::request_build(format!("missing required environment variable `{name}`"))
-        })
 }
 
 fn optional_env(name: &'static str) -> Option<String> {
@@ -941,34 +931,19 @@ fn record_fail(report: &mut Report, surface: &'static str, error: impl Into<Stri
 }
 
 fn build_runtime_config() -> Result<RuntimeConfig, SdkError> {
-    let http_base_url = required_env(HTTP_ENV)?;
-    let grpc_base_url = optional_env(GRPC_ENV);
-    let ws_base_url = optional_env(WS_ENV);
     let bearer_token = optional_env(BEARER_ENV).map(BearerToken::new).transpose()?;
     let bearer_token_present = bearer_token.is_some();
-
-    let config = AggregatorConfig {
-        http: HttpTransportConfig::new(&http_base_url)?,
-        grpc: grpc_base_url
-            .as_ref()
-            .map(GrpcTransportConfig::new)
-            .transpose()?,
-        ws: ws_base_url
-            .as_ref()
-            .map(WsTransportConfig::new)
-            .transpose()?,
-        bearer_token: bearer_token.clone(),
-    };
-
-    let client = Aggregator::new(config)?;
+    let client = Aggregator::client(bearer_token.clone())?;
     let intro_client = Intro::client(bearer_token.clone())?;
     let primitives_client = Primitives::client(bearer_token.clone())?;
     let regime_client = Regime::client(bearer_token.clone())?;
     Ok(RuntimeConfig {
         summary: RuntimeConfigSummary {
-            http_base_url,
-            grpc_base_url,
-            ws_base_url,
+            http_base_url: MathildePublicHosts::AGGREGATOR_HTTP.to_string(),
+            grpc_base_url: Some(MathildePublicHosts::AGGREGATOR_GRPC.to_string()),
+            ws_base_url: Some(
+                MathildePublicHosts::AGGREGATOR_HTTP.replacen("https://", "wss://", 1),
+            ),
             bearer_token_present,
         },
         client,
@@ -1885,10 +1860,9 @@ async fn run() -> Result<Report, String> {
     };
 
     report.config = Some(runtime.summary.clone());
-    report.proved_observations.push(format!(
-        "loaded `{}` and constructed `Aggregator` successfully",
-        HTTP_ENV
-    ));
+    report.proved_observations.push(
+        "constructed `Aggregator` from checked-in public defaults without introducing new environment variables".to_string(),
+    );
     report.proved_observations.push(
         "constructed `Primitives` from checked-in public defaults without introducing new environment variables".to_string(),
     );

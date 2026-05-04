@@ -48,6 +48,44 @@ fn meta_frame(close_ms: i64, phase: BarsWsPhase) -> String {
     .expect("meta frame json")
 }
 
+fn replay_done_frame(close_ms: i64) -> String {
+    serde_json::to_string(&BarsWsMetaFrame {
+        tf: Some("1m".to_string()),
+        close_ms: Some(close_ms),
+        watermark_end_ms: close_ms,
+        phase: BarsWsPhase::Replay,
+        missing_pairs: Vec::new(),
+        event: Some("replay_done".to_string()),
+    })
+    .expect("replay_done frame json")
+}
+
+fn json_min_rows_frame(pair: &str, close_ms: i64) -> String {
+    serde_json::json!([{
+        "pair": pair,
+        "tf": "1m",
+        "open_ms": close_ms - 60_000,
+        "close_ms": close_ms,
+        "open_utc": "2026-02-02T00:00:00Z",
+        "close_utc": "2026-02-02T00:01:00Z",
+        "o": 100.0,
+        "h": 101.0,
+        "l": 99.0,
+        "c": 100.5,
+        "v": 12.0,
+        "quote_v": null,
+        "taker_known_v": null,
+        "taker_signed_v": null,
+        "taker_known_quote_v": null,
+        "taker_signed_quote_v": null,
+        "taker_known_n": null,
+        "taker_signed_n": null,
+        "vw": null,
+        "n": 1
+    }])
+    .to_string()
+}
+
 fn proto_full_payload(pair: &str) -> Vec<u8> {
     proto::BarsRowsPayloadV1 {
         view: proto::BarsViewV1::Full as i32,
@@ -215,6 +253,39 @@ async fn spawn_protobuf_ws_server() -> String {
     format!("http://{addr}")
 }
 
+async fn spawn_replay_bars_ws_server() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind replay bars ws test server");
+    let addr = listener.local_addr().expect("replay bars ws test addr");
+
+    tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.expect("accept replay bars ws conn");
+        let mut ws = accept_hdr_async(stream, |_request: &Request, response: Response| {
+            Ok(response)
+        })
+        .await
+        .expect("accept replay bars handshake");
+
+        let _ = ws.next().await;
+        ws.send(Message::Text(
+            meta_frame(1770000060000, BarsWsPhase::Replay).into(),
+        ))
+        .await
+        .expect("send replay meta");
+        ws.send(Message::Text(
+            json_min_rows_frame("BTCUSDT", 1770000060000).into(),
+        ))
+        .await
+        .expect("send replay rows");
+        ws.send(Message::Text(replay_done_frame(1770000060000).into()))
+            .await
+            .expect("send replay_done");
+    });
+
+    format!("http://{addr}")
+}
+
 async fn spawn_make_before_break_ws_server() -> String {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
@@ -245,18 +316,14 @@ async fn spawn_make_before_break_ws_server() -> String {
 
                 if pair == "BTCUSDT" {
                     sleep(Duration::from_millis(5)).await;
-                    ws.send(Message::Text(meta_frame(1, BarsWsPhase::Live).into()))
+                    ws.send(Message::Text(json_min_rows_frame("BTCUSDT", 1).into()))
                         .await
-                        .expect("send old meta");
-                    sleep(Duration::from_millis(40)).await;
-                    let _ = ws
-                        .send(Message::Text(meta_frame(999, BarsWsPhase::Live).into()))
-                        .await;
+                        .expect("send old rows");
                 } else {
                     sleep(Duration::from_millis(35)).await;
-                    ws.send(Message::Text(meta_frame(2, BarsWsPhase::Live).into()))
+                    ws.send(Message::Text(json_min_rows_frame("ETHUSDT", 2).into()))
                         .await
-                        .expect("send new meta");
+                        .expect("send new rows");
                 }
             });
         }
@@ -286,10 +353,10 @@ async fn spawn_recovering_bars_ws_server() -> String {
 
                 let _ = ws.next().await;
                 ws.send(Message::Text(
-                    meta_frame(close_ms, BarsWsPhase::Live).into(),
+                    json_min_rows_frame("BTCUSDT", close_ms).into(),
                 ))
                 .await
-                .expect("send recovering bars meta");
+                .expect("send recovering bars rows");
                 let _ = ws.close(None).await;
             });
         }
@@ -406,6 +473,63 @@ async fn test_connect_bars_ws_decodes_protobuf_full_rows() {
 }
 
 #[tokio::test]
+async fn test_connect_bars_ws_replay_last_n_bars_yields_rows_then_replay_done() {
+    let base_url = spawn_replay_bars_ws_server().await;
+    let client = Aggregator::new(config_for_ws(&base_url, None)).expect("aggregator client");
+
+    let request = BarsWsSubscribeRequest {
+        pairs: vec!["BTCUSDT".to_string()],
+        tfs: vec![Timeframe::M1],
+        metadata: Some(false),
+        from_close: None,
+        last_n_bars: Some(1),
+        format: None,
+    };
+
+    let mut connection = client
+        .connect_bars_ws(&request)
+        .await
+        .expect("connect replay bars ws");
+
+    match connection
+        .next_frame(&request)
+        .await
+        .expect("replay meta")
+        .expect("some frame")
+    {
+        BarsWsInboundFrame::Meta(frame) => {
+            assert_eq!(frame.phase, BarsWsPhase::Replay);
+            assert_eq!(frame.close_ms, Some(1770000060000));
+        }
+        other => panic!("expected replay meta frame, got {other:?}"),
+    }
+
+    match connection
+        .next_frame(&request)
+        .await
+        .expect("replay rows")
+        .expect("some frame")
+    {
+        BarsWsInboundFrame::JsonRowsMin(rows) => {
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].pair, "BTCUSDT");
+            assert_eq!(rows[0].close_ms, 1770000060000);
+        }
+        other => panic!("expected replay rows frame, got {other:?}"),
+    }
+
+    match connection
+        .next_frame(&request)
+        .await
+        .expect("replay_done")
+        .expect("some frame")
+    {
+        BarsWsInboundFrame::Meta(frame) => assert!(frame.is_replay_done()),
+        other => panic!("expected replay_done frame, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn test_bars_ws_make_before_break_keeps_old_until_new_is_stable_then_swaps() {
     let base_url = spawn_make_before_break_ws_server().await;
     let config = config_for_ws(&base_url, None);
@@ -448,8 +572,12 @@ async fn test_bars_ws_make_before_break_keeps_old_until_new_is_stable_then_swaps
         .expect("old frame during validation")
         .expect("some frame");
     match first {
-        BarsWsInboundFrame::Meta(frame) => assert_eq!(frame.close_ms, Some(1)),
-        other => panic!("expected old meta frame, got {other:?}"),
+        BarsWsInboundFrame::JsonRowsMin(rows) => {
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].pair, "BTCUSDT");
+            assert_eq!(rows[0].close_ms, 1);
+        }
+        other => panic!("expected old rows frame, got {other:?}"),
     }
     assert_eq!(mbb.active_request().pairs, vec!["BTCUSDT".to_string()]);
 
@@ -461,8 +589,12 @@ async fn test_bars_ws_make_before_break_keeps_old_until_new_is_stable_then_swaps
         .expect("new frame after promotion")
         .expect("some frame");
     match second {
-        BarsWsInboundFrame::Meta(frame) => assert_eq!(frame.close_ms, Some(2)),
-        other => panic!("expected new meta frame, got {other:?}"),
+        BarsWsInboundFrame::JsonRowsMin(rows) => {
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].pair, "ETHUSDT");
+            assert_eq!(rows[0].close_ms, 2);
+        }
+        other => panic!("expected new rows frame, got {other:?}"),
     }
     assert_eq!(mbb.active_request().pairs, vec!["ETHUSDT".to_string()]);
 }
@@ -501,8 +633,12 @@ async fn test_connect_bars_ws_recovering_reconnects_with_same_request_after_clos
         .expect("first recovering bars frame")
         .expect("some frame")
     {
-        BarsWsInboundFrame::Meta(frame) => assert_eq!(frame.close_ms, Some(10)),
-        other => panic!("expected first meta frame, got {other:?}"),
+        BarsWsInboundFrame::JsonRowsMin(rows) => {
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].pair, "BTCUSDT");
+            assert_eq!(rows[0].close_ms, 10);
+        }
+        other => panic!("expected first rows frame, got {other:?}"),
     }
 
     match connection
@@ -511,8 +647,12 @@ async fn test_connect_bars_ws_recovering_reconnects_with_same_request_after_clos
         .expect("second recovering bars frame")
         .expect("some frame")
     {
-        BarsWsInboundFrame::Meta(frame) => assert_eq!(frame.close_ms, Some(20)),
-        other => panic!("expected second meta frame, got {other:?}"),
+        BarsWsInboundFrame::JsonRowsMin(rows) => {
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].pair, "BTCUSDT");
+            assert_eq!(rows[0].close_ms, 20);
+        }
+        other => panic!("expected second rows frame, got {other:?}"),
     }
 
     assert_eq!(connection.active_request(), &request);

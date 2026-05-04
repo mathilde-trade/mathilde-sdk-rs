@@ -8,9 +8,12 @@ use mathilde_sdk_rs::core::auth::BearerToken;
 use mathilde_sdk_rs::core::config::{IntroConfig, MathildePublicHosts};
 use mathilde_sdk_rs::core::error::SdkError;
 use mathilde_sdk_rs::core::time::TimeInput;
+use mathilde_sdk_rs::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as aggregator_proto;
 use mathilde_sdk_rs::generated::primitives::{
     ProcessorFamily as PrimitiveProcessorFamily, ProcessorGroup as PrimitiveProcessorGroup,
+    outputs_proto::mathilde::feed::outputs::v1 as primitives_proto,
 };
+use mathilde_sdk_rs::generated::regime::outputs_proto::mathilde::feed::outputs::v1 as regime_proto;
 use mathilde_sdk_rs::streaming::subscription::ExponentialBackoffConfig;
 use mathilde_sdk_rs::systems::aggregator::{
     Aggregator, BarsWsInboundFrame, BarsWsSubscribeRequest, FilesDownloadsRequest,
@@ -38,10 +41,26 @@ use mathilde_sdk_rs::systems::regime::{
     OutputsWsSubscribeRequest as RegimeOutputsWsSubscribeRequest, Regime, RegimeOutput,
 };
 use mathilde_sdk_rs::systems::types::{AlignMode, HttpFormat, LatestMode, Timeframe};
-use tokio::time::timeout;
+use serde_json::{Value, json};
+use tokio::time::{sleep, timeout};
+use tonic::client::Grpc;
+use tonic::codec::ProstCodec;
+use tonic::codegen::http::uri::PathAndQuery;
+use tonic::metadata::MetadataValue;
+use tonic::transport::Endpoint;
 
 const BIN_NAME: &str = "endpoint_test";
 const BEARER_ENV: &str = "AGGREGATOR_FEED_BEARER_TOKEN";
+const AGGREGATOR_LATEST_GPRC_PATH: &str = "/mathilde.feed.bars.v1.BarsServiceV1/LatestBars";
+const AGGREGATOR_RANGE_GPRC_PATH: &str = "/mathilde.feed.bars.v1.BarsServiceV1/RangeBars";
+const AGGREGATOR_SEARCH_GPRC_PATH: &str = "/mathilde.feed.bars.v1.BarsServiceV1/SearchBars";
+const AGGREGATOR_TIME_MACHINE_GPRC_PATH: &str =
+    "/mathilde.feed.bars.v1.BarsServiceV1/TimeMachineBars";
+const OUTPUTS_LATEST_GPRC_PATH: &str = "/mathilde.feed.outputs.v1.OutputsServiceV1/LatestOutputs";
+const OUTPUTS_RANGE_GPRC_PATH: &str = "/mathilde.feed.outputs.v1.OutputsServiceV1/RangeOutputs";
+const OUTPUTS_SEARCH_GPRC_PATH: &str = "/mathilde.feed.outputs.v1.OutputsServiceV1/SearchOutputs";
+const OUTPUTS_TIME_MACHINE_GPRC_PATH: &str =
+    "/mathilde.feed.outputs.v1.OutputsServiceV1/TimeMachineOutputs";
 
 #[derive(Debug, Clone)]
 struct Settings {
@@ -100,6 +119,7 @@ struct Report {
 #[derive(Debug)]
 struct RuntimeConfig {
     summary: RuntimeConfigSummary,
+    bearer_token: Option<BearerToken>,
     aggregator: Aggregator,
     intro: Intro,
     primitives: Primitives,
@@ -536,6 +556,7 @@ fn build_runtime_config() -> Result<RuntimeConfig, SdkError> {
             regime_http_base_url: MathildePublicHosts::REGIME_HTTP.to_string(),
             bearer_token_present,
         },
+        bearer_token,
         aggregator,
         intro,
         primitives,
@@ -608,6 +629,1311 @@ fn ws_timeout() -> Duration {
     Duration::from_secs(15)
 }
 
+fn ws_replay_timeout() -> Duration {
+    Duration::from_secs(60)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LocalOutputMode {
+    Min,
+    WithMeta,
+    ProjectedMin,
+    ProjectedWithMeta,
+}
+
+impl LocalOutputMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Min => "min",
+            Self::WithMeta => "with_meta",
+            Self::ProjectedMin => "projected_min",
+            Self::ProjectedWithMeta => "projected_with_meta",
+        }
+    }
+
+    fn view(self) -> &'static str {
+        match self {
+            Self::Min | Self::ProjectedMin => "min",
+            Self::WithMeta | Self::ProjectedWithMeta => "full",
+        }
+    }
+}
+
+fn json_value<T: serde::Serialize>(value: &T, context: &str) -> Result<Value, String> {
+    serde_json::to_value(value).map_err(|error| format!("{context} serialization failed: {error}"))
+}
+
+fn json_string<T: serde::Serialize>(value: &T, context: &str) -> Result<String, String> {
+    match json_value(value, context)? {
+        Value::String(value) => Ok(value),
+        other => Err(format!(
+            "{context} serialized to non-string JSON value: {}",
+            other
+        )),
+    }
+}
+
+fn json_string_list<T: serde::Serialize>(
+    values: &[T],
+    context: &str,
+) -> Result<Vec<String>, String> {
+    values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| json_string(value, &format!("{context}[{index}]")))
+        .collect()
+}
+
+fn normalize_required_pairs(values: &[String], context: &str) -> Result<Vec<String>, String> {
+    let normalized = values
+        .iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    if normalized.is_empty() {
+        return Err(format!("{context} requires at least one pair"));
+    }
+    Ok(normalized)
+}
+
+fn normalize_optional_pairs(values: Option<&[String]>) -> Option<Vec<String>> {
+    let normalized = values
+        .unwrap_or(&[])
+        .iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+fn normalize_optional_string(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn normalize_required_string(value: &str, context: &str) -> Result<String, String> {
+    let normalized = value.trim();
+    if normalized.is_empty() {
+        return Err(format!("{context} must not be empty"));
+    }
+    Ok(normalized.to_string())
+}
+
+fn primitive_mode_from_selectors_and_metadata(
+    family: Option<&[PrimitiveProcessorFamily]>,
+    group: Option<&[PrimitiveProcessorGroup]>,
+    metadata: Option<bool>,
+) -> LocalOutputMode {
+    let projected = family.is_some_and(|values| !values.is_empty())
+        || group.is_some_and(|values| !values.is_empty());
+    match (projected, metadata.unwrap_or(false)) {
+        (false, false) => LocalOutputMode::Min,
+        (false, true) => LocalOutputMode::WithMeta,
+        (true, false) => LocalOutputMode::ProjectedMin,
+        (true, true) => LocalOutputMode::ProjectedWithMeta,
+    }
+}
+
+fn regime_mode_from_selectors_secondary_and_metadata(
+    family: Option<&[regime_system::ProcessorFamily]>,
+    group: Option<&[regime_system::ProcessorGroup]>,
+    secondary: Option<bool>,
+    metadata: Option<bool>,
+) -> LocalOutputMode {
+    let projected = family.is_some_and(|values| !values.is_empty())
+        || group.is_some_and(|values| !values.is_empty())
+        || !secondary.unwrap_or(false);
+    match (projected, metadata.unwrap_or(false)) {
+        (false, false) => LocalOutputMode::Min,
+        (false, true) => LocalOutputMode::WithMeta,
+        (true, false) => LocalOutputMode::ProjectedMin,
+        (true, true) => LocalOutputMode::ProjectedWithMeta,
+    }
+}
+
+fn compare_semantic_values(
+    surface: &'static str,
+    sdk: &Value,
+    direct: &Value,
+) -> Result<(), String> {
+    let mut sdk = sdk.clone();
+    let mut direct = direct.clone();
+    normalize_semantic_value(&mut sdk);
+    normalize_semantic_value(&mut direct);
+
+    if sdk == direct {
+        return Ok(());
+    }
+
+    let sdk_pretty = serde_json::to_string_pretty(&sdk)
+        .unwrap_or_else(|_| sdk.to_string())
+        .chars()
+        .take(2_000)
+        .collect::<String>();
+    let direct_pretty = serde_json::to_string_pretty(&direct)
+        .unwrap_or_else(|_| direct.to_string())
+        .chars()
+        .take(2_000)
+        .collect::<String>();
+    Err(format!(
+        "{surface} semantic mismatch\nsdk={sdk_pretty}\ndirect={direct_pretty}"
+    ))
+}
+
+async fn raw_http_post_json(
+    base_url: &str,
+    path: &str,
+    bearer_token: Option<&BearerToken>,
+    body: &Value,
+) -> Result<Value, String> {
+    let client = reqwest::Client::new();
+    let mut request = client.post(format!("{base_url}{path}")).json(body);
+    if let Some(token) = bearer_token {
+        request = request.bearer_auth(token.as_str());
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|error| format!("raw HTTP request failed for {base_url}{path}: {error}"))?;
+    let status = response.status();
+    let text = response
+        .text()
+        .await
+        .map_err(|error| format!("raw HTTP response read failed for {base_url}{path}: {error}"))?;
+    if !status.is_success() {
+        return Err(format!(
+            "raw HTTP request failed for {base_url}{path}: status={} body={text}",
+            status.as_u16()
+        ));
+    }
+
+    serde_json::from_str(&text).map_err(|error| {
+        format!("raw HTTP JSON decode failed for {base_url}{path}: {error}; body={text}")
+    })
+}
+
+async fn raw_grpc_unary<Req, Resp>(
+    endpoint_uri: &str,
+    path: &'static str,
+    bearer_token: Option<&BearerToken>,
+    request_body: Req,
+) -> Result<Resp, String>
+where
+    Req: prost::Message + Default + 'static,
+    Resp: prost::Message + Default + 'static,
+{
+    let endpoint = Endpoint::new(endpoint_uri.to_string())
+        .map_err(|error| format!("raw gRPC endpoint parse failed for {endpoint_uri}: {error}"))?;
+    let channel = endpoint
+        .connect()
+        .await
+        .map_err(|error| format!("raw gRPC connect failed for {endpoint_uri}: {error}"))?;
+    let mut grpc = Grpc::new(channel);
+    grpc.ready()
+        .await
+        .map_err(|error| format!("raw gRPC readiness failed for {endpoint_uri}: {error}"))?;
+
+    let mut request = tonic::Request::new(request_body);
+    if let Some(token) = bearer_token {
+        let metadata = MetadataValue::try_from(format!("Bearer {}", token.as_str()))
+            .map_err(|error| format!("raw gRPC authorization metadata build failed: {error}"))?;
+        request.metadata_mut().insert("authorization", metadata);
+    }
+
+    let path_display = path.to_string();
+    let path = PathAndQuery::from_static(path);
+    grpc.unary(request, path, ProstCodec::default())
+        .await
+        .map(|response| response.into_inner())
+        .map_err(|error| format!("raw gRPC unary failed for {endpoint_uri}{path_display}: {error}"))
+}
+
+fn canonical_output_wrapper(payload: Value, mode: LocalOutputMode) -> Value {
+    json!({
+        "mode": mode.label(),
+        "payload": payload,
+    })
+}
+
+fn strip_volatile_fields(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            object.remove("age_ms");
+            for nested in object.values_mut() {
+                strip_volatile_fields(nested);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                strip_volatile_fields(item);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
+}
+
+fn strip_null_fields(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            object.retain(|_, nested| {
+                strip_null_fields(nested);
+                !nested.is_null()
+            });
+        }
+        Value::Array(items) => {
+            for item in items {
+                strip_null_fields(item);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
+}
+
+fn strip_empty_diagnostics_arrays(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            object.retain(|key, nested| {
+                strip_empty_diagnostics_arrays(nested);
+                !(key == "diagnostics" && matches!(nested, Value::Array(items) if items.is_empty()))
+            });
+        }
+        Value::Array(items) => {
+            for item in items {
+                strip_empty_diagnostics_arrays(item);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
+}
+
+fn normalize_semantic_value(value: &mut Value) {
+    strip_volatile_fields(value);
+    strip_null_fields(value);
+    strip_empty_diagnostics_arrays(value);
+}
+
+fn canonical_compute_view(raw_view: &Value, mode: LocalOutputMode) -> Result<Value, String> {
+    match raw_view {
+        Value::String(value) => Ok(Value::String(value.clone())),
+        Value::Number(value) if value.as_i64() == Some(1) => Ok(Value::String("min".to_string())),
+        Value::Number(value) if value.as_i64() == Some(2) => Ok(Value::String("full".to_string())),
+        Value::Null => Ok(Value::String(mode.view().to_string())),
+        other => Err(format!("unsupported compute view value: {other}")),
+    }
+}
+
+fn canonical_compute_latest_raw(mut value: Value, mode: LocalOutputMode) -> Result<Value, String> {
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "compute latest raw payload was not a JSON object".to_string())?;
+    let raw_view = object.get("view").cloned().unwrap_or(Value::Null);
+    let rows = object
+        .remove("rows")
+        .ok_or_else(|| "compute latest raw payload missing rows".to_string())?;
+    let rows = rows
+        .as_array()
+        .ok_or_else(|| "compute latest raw rows were not an array".to_string())?;
+
+    let normalized_rows = rows
+        .iter()
+        .map(|row| {
+            let row = row
+                .as_object()
+                .ok_or_else(|| "compute latest raw row was not an object".to_string())?;
+            let payload = row.get("output").cloned().unwrap_or_else(|| {
+                let mut payload = row.clone();
+                payload.remove("age_ms");
+                Value::Object(payload)
+            });
+            Ok(json!({
+                "output": canonical_output_wrapper(payload, mode),
+            }))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    Ok(json!({
+        "watermark_end_ms": object.get("watermark_end_ms").cloned().ok_or_else(|| "compute latest raw payload missing watermark_end_ms".to_string())?,
+        "close_end_ms": object.get("close_end_ms").cloned().ok_or_else(|| "compute latest raw payload missing close_end_ms".to_string())?,
+        "latest_mode": object.get("latest_mode").cloned().ok_or_else(|| "compute latest raw payload missing latest_mode".to_string())?,
+        "view": canonical_compute_view(&raw_view, mode)?,
+        "rows": normalized_rows,
+        "missing_pairs": object.get("missing_pairs").cloned().unwrap_or_else(|| json!([])),
+    }))
+}
+
+fn canonical_compute_rows_raw(rows: &[Value], mode: LocalOutputMode) -> Value {
+    Value::Array(
+        rows.iter()
+            .cloned()
+            .map(|row| canonical_output_wrapper(row, mode))
+            .collect(),
+    )
+}
+
+fn canonical_compute_range_raw(mut value: Value, mode: LocalOutputMode) -> Result<Value, String> {
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "compute range raw payload was not a JSON object".to_string())?;
+    let rows = object
+        .remove("rows")
+        .ok_or_else(|| "compute range raw payload missing rows".to_string())?;
+    let rows = rows
+        .as_array()
+        .ok_or_else(|| "compute range raw rows were not an array".to_string())?;
+    Ok(json!({
+        "rows": canonical_compute_rows_raw(rows, mode),
+        "close_end_ms": object.get("close_end_ms").cloned().ok_or_else(|| "compute range raw payload missing close_end_ms".to_string())?,
+        "next_cursor": object.get("next_cursor").cloned().unwrap_or(Value::Null),
+    }))
+}
+
+fn canonical_compute_search_raw(mut value: Value, mode: LocalOutputMode) -> Result<Value, String> {
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "compute search raw payload was not a JSON object".to_string())?;
+    let evaluated_rows = object.remove("evaluated_rows").unwrap_or(Value::Null);
+    let evaluated_rows = match evaluated_rows {
+        Value::Null => Value::Null,
+        Value::Array(rows) => canonical_compute_rows_raw(&rows, mode),
+        other => {
+            return Err(format!(
+                "compute search raw evaluated_rows had unsupported shape: {other}"
+            ));
+        }
+    };
+
+    Ok(json!({
+        "hits": object.get("hits").cloned().unwrap_or_else(|| json!([])),
+        "evaluated_rows": evaluated_rows,
+        "next_cursor": object.get("next_cursor").cloned().unwrap_or(Value::Null),
+        "done": object.get("done").cloned().unwrap_or(Value::Bool(false)),
+        "returned_hits": object.get("returned_hits").cloned().unwrap_or(Value::Null),
+        "effective_hits_limit": object.get("effective_hits_limit").cloned().unwrap_or(Value::Null),
+        "truncated": object.get("truncated").cloned().unwrap_or(Value::Bool(false)),
+        "predicate_pairs": object.get("predicate_pairs").cloned().unwrap_or_else(|| json!([])),
+        "predicate_normalized": object.get("predicate_normalized").cloned().unwrap_or(Value::Null),
+    }))
+}
+
+fn canonical_compute_time_machine_raw(
+    mut value: Value,
+    mode: LocalOutputMode,
+) -> Result<Value, String> {
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "compute time-machine raw payload was not a JSON object".to_string())?;
+    let rows = object
+        .remove("rows")
+        .ok_or_else(|| "compute time-machine raw payload missing rows".to_string())?;
+    let rows = rows
+        .as_array()
+        .ok_or_else(|| "compute time-machine raw rows were not an array".to_string())?;
+    let rows = rows
+        .iter()
+        .map(|row| {
+            let row = row
+                .as_object()
+                .ok_or_else(|| "compute time-machine raw row was not an object".to_string())?;
+            let output = row
+                .get("output")
+                .cloned()
+                .ok_or_else(|| "compute time-machine raw row missing output".to_string())?;
+            Ok(json!({
+                "hit_close_ms": row.get("hit_close_ms").cloned().ok_or_else(|| "compute time-machine raw row missing hit_close_ms".to_string())?,
+                "offset": row.get("offset").cloned().ok_or_else(|| "compute time-machine raw row missing offset".to_string())?,
+                "output": canonical_output_wrapper(output, mode),
+            }))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    Ok(json!({
+        "rows": rows,
+        "next_cursor": object.get("next_cursor").cloned().unwrap_or(Value::Null),
+        "done": object.get("done").cloned().unwrap_or(Value::Bool(false)),
+        "returned_hits": object.get("returned_hits").cloned().unwrap_or(Value::Null),
+        "effective_hits_limit": object.get("effective_hits_limit").cloned().unwrap_or(Value::Null),
+        "truncated": object.get("truncated").cloned().unwrap_or(Value::Bool(false)),
+        "predicate_pairs": object.get("predicate_pairs").cloned().unwrap_or_else(|| json!([])),
+        "predicate_normalized": object.get("predicate_normalized").cloned().unwrap_or(Value::Null),
+    }))
+}
+
+fn canonical_primitive_output_sdk(output: &PrimitiveOutput) -> Result<Value, String> {
+    Ok(match output {
+        PrimitiveOutput::Min(output) => canonical_output_wrapper(
+            json_value(output, "primitive min output")?,
+            LocalOutputMode::Min,
+        ),
+        PrimitiveOutput::WithMeta(output) => canonical_output_wrapper(
+            json_value(output, "primitive output with metadata")?,
+            LocalOutputMode::WithMeta,
+        ),
+        PrimitiveOutput::ProjectedMin(output) => canonical_output_wrapper(
+            json_value(output, "primitive projected min output")?,
+            LocalOutputMode::ProjectedMin,
+        ),
+        PrimitiveOutput::ProjectedWithMeta(output) => canonical_output_wrapper(
+            json_value(output, "primitive projected output with metadata")?,
+            LocalOutputMode::ProjectedWithMeta,
+        ),
+    })
+}
+
+fn canonical_regime_output_sdk(output: &RegimeOutput) -> Result<Value, String> {
+    Ok(match output {
+        RegimeOutput::Min(output) => canonical_output_wrapper(
+            json_value(output, "regime min output")?,
+            LocalOutputMode::Min,
+        ),
+        RegimeOutput::WithMeta(output) => canonical_output_wrapper(
+            json_value(output, "regime output with metadata")?,
+            LocalOutputMode::WithMeta,
+        ),
+        RegimeOutput::ProjectedMin(output) => canonical_output_wrapper(
+            json_value(output, "regime projected min output")?,
+            LocalOutputMode::ProjectedMin,
+        ),
+        RegimeOutput::ProjectedWithMeta(output) => canonical_output_wrapper(
+            json_value(output, "regime projected output with metadata")?,
+            LocalOutputMode::ProjectedWithMeta,
+        ),
+    })
+}
+
+fn canonical_primitive_latest_sdk(
+    value: &primitives_system::LatestOutputsResponse,
+) -> Result<Value, String> {
+    Ok(json!({
+        "watermark_end_ms": value.watermark_end_ms,
+        "close_end_ms": value.close_end_ms,
+        "latest_mode": json_value(&value.latest_mode, "primitive latest_mode")?,
+        "view": json_value(&value.view, "primitive output view")?,
+        "rows": value.rows.iter().map(|row| {
+            Ok(json!({
+                "output": canonical_primitive_output_sdk(&row.output)?,
+            }))
+        }).collect::<Result<Vec<_>, String>>()?,
+        "missing_pairs": value.missing_pairs,
+    }))
+}
+
+fn canonical_regime_latest_sdk(
+    value: &regime_system::LatestOutputsResponse,
+) -> Result<Value, String> {
+    Ok(json!({
+        "watermark_end_ms": value.watermark_end_ms,
+        "close_end_ms": value.close_end_ms,
+        "latest_mode": json_value(&value.latest_mode, "regime latest_mode")?,
+        "view": json_value(&value.view, "regime output view")?,
+        "rows": value.rows.iter().map(|row| {
+            Ok(json!({
+                "output": canonical_regime_output_sdk(&row.output)?,
+            }))
+        }).collect::<Result<Vec<_>, String>>()?,
+        "missing_pairs": value.missing_pairs,
+    }))
+}
+
+fn canonical_primitive_range_sdk(
+    value: &primitives_system::RangeOutputsResponse,
+) -> Result<Value, String> {
+    Ok(json!({
+        "rows": value.rows.iter().map(canonical_primitive_output_sdk).collect::<Result<Vec<_>, String>>()?,
+        "close_end_ms": value.close_end_ms,
+        "next_cursor": value.next_cursor,
+    }))
+}
+
+fn canonical_regime_range_sdk(
+    value: &regime_system::RangeOutputsResponse,
+) -> Result<Value, String> {
+    Ok(json!({
+        "rows": value.rows.iter().map(canonical_regime_output_sdk).collect::<Result<Vec<_>, String>>()?,
+        "close_end_ms": value.close_end_ms,
+        "next_cursor": value.next_cursor,
+    }))
+}
+
+fn canonical_primitive_search_sdk(
+    value: &primitives_system::SearchOutputsResponse,
+) -> Result<Value, String> {
+    Ok(json!({
+        "hits": value.hits,
+        "evaluated_rows": value.evaluated_rows.as_ref().map(|rows| rows.iter().map(canonical_primitive_output_sdk).collect::<Result<Vec<_>, String>>()).transpose()?,
+        "next_cursor": value.next_cursor,
+        "done": value.done,
+        "returned_hits": value.returned_hits,
+        "effective_hits_limit": value.effective_hits_limit,
+        "truncated": value.truncated,
+        "predicate_pairs": value.predicate_pairs,
+        "predicate_normalized": value.predicate_normalized,
+    }))
+}
+
+fn canonical_regime_search_sdk(
+    value: &regime_system::SearchOutputsResponse,
+) -> Result<Value, String> {
+    Ok(json!({
+        "hits": value.hits,
+        "evaluated_rows": value.evaluated_rows.as_ref().map(|rows| rows.iter().map(canonical_regime_output_sdk).collect::<Result<Vec<_>, String>>()).transpose()?,
+        "next_cursor": value.next_cursor,
+        "done": value.done,
+        "returned_hits": value.returned_hits,
+        "effective_hits_limit": value.effective_hits_limit,
+        "truncated": value.truncated,
+        "predicate_pairs": value.predicate_pairs,
+        "predicate_normalized": value.predicate_normalized,
+    }))
+}
+
+fn canonical_primitive_time_machine_sdk(
+    value: &primitives_system::TimeMachineOutputsResponse,
+) -> Result<Value, String> {
+    Ok(json!({
+        "rows": value.rows.iter().map(|row| {
+            Ok(json!({
+                "hit_close_ms": row.hit_close_ms,
+                "offset": row.offset,
+                "output": canonical_primitive_output_sdk(&row.output)?,
+            }))
+        }).collect::<Result<Vec<_>, String>>()?,
+        "next_cursor": value.next_cursor,
+        "done": value.done,
+        "returned_hits": value.returned_hits,
+        "effective_hits_limit": value.effective_hits_limit,
+        "truncated": value.truncated,
+        "predicate_pairs": value.predicate_pairs,
+        "predicate_normalized": value.predicate_normalized,
+    }))
+}
+
+fn canonical_regime_time_machine_sdk(
+    value: &regime_system::TimeMachineOutputsResponse,
+) -> Result<Value, String> {
+    Ok(json!({
+        "rows": value.rows.iter().map(|row| {
+            Ok(json!({
+                "hit_close_ms": row.hit_close_ms,
+                "offset": row.offset,
+                "output": canonical_regime_output_sdk(&row.output)?,
+            }))
+        }).collect::<Result<Vec<_>, String>>()?,
+        "next_cursor": value.next_cursor,
+        "done": value.done,
+        "returned_hits": value.returned_hits,
+        "effective_hits_limit": value.effective_hits_limit,
+        "truncated": value.truncated,
+        "predicate_pairs": value.predicate_pairs,
+        "predicate_normalized": value.predicate_normalized,
+    }))
+}
+
+fn canonical_aggregator_latest_grpc_raw(
+    value: &aggregator_proto::BarsLatestResponseV1,
+) -> Result<Value, String> {
+    let value = LatestBarsResponse::from_proto(value.clone()).map_err(|error| error.to_string())?;
+    canonical_aggregator_latest_sdk(&value)
+}
+
+fn canonical_aggregator_range_grpc_raw(
+    value: &aggregator_proto::BarsRangeResponseV1,
+    metadata: bool,
+) -> Result<Value, String> {
+    let value = RangeBarsResponse::from_proto(value.clone(), metadata)
+        .map_err(|error| error.to_string())?;
+    canonical_aggregator_range_sdk(&value)
+}
+
+fn canonical_aggregator_search_grpc_raw(
+    value: &aggregator_proto::BarsSearchResponseV1,
+    metadata: bool,
+) -> Result<Value, String> {
+    let value = SearchBarsResponse::from_proto(value.clone(), metadata)
+        .map_err(|error| error.to_string())?;
+    canonical_aggregator_search_sdk(&value)
+}
+
+fn canonical_aggregator_time_machine_grpc_raw(
+    value: &aggregator_proto::BarsTimeMachineResponseV1,
+    metadata: bool,
+) -> Result<Value, String> {
+    let value = TimeMachineBarsResponse::from_proto(value.clone(), metadata)
+        .map_err(|error| error.to_string())?;
+    canonical_aggregator_time_machine_sdk(&value)
+}
+
+fn canonical_aggregator_latest_sdk(value: &LatestBarsResponse) -> Result<Value, String> {
+    let mut value = match value {
+        LatestBarsResponse::Min(value) => json_value(value, "aggregator latest min sdk"),
+        LatestBarsResponse::Full(value) => json_value(value, "aggregator latest full sdk"),
+    }?;
+    strip_volatile_fields(&mut value);
+    Ok(value)
+}
+
+fn canonical_aggregator_latest_http_raw(mut value: Value) -> Value {
+    strip_volatile_fields(&mut value);
+    value
+}
+
+fn canonical_aggregator_range_sdk(value: &RangeBarsResponse) -> Result<Value, String> {
+    match value {
+        RangeBarsResponse::Min(value) => json_value(value, "aggregator range min sdk"),
+        RangeBarsResponse::Full(value) => json_value(value, "aggregator range full sdk"),
+    }
+}
+
+fn canonical_aggregator_search_sdk(value: &SearchBarsResponse) -> Result<Value, String> {
+    match value {
+        SearchBarsResponse::Min(value) => json_value(value, "aggregator search min sdk"),
+        SearchBarsResponse::Full(value) => json_value(value, "aggregator search full sdk"),
+    }
+}
+
+fn canonical_aggregator_time_machine_sdk(value: &TimeMachineBarsResponse) -> Result<Value, String> {
+    match value {
+        TimeMachineBarsResponse::Min(value) => json_value(value, "aggregator time-machine min sdk"),
+        TimeMachineBarsResponse::Full(value) => {
+            json_value(value, "aggregator time-machine full sdk")
+        }
+    }
+}
+
+fn aggregator_latest_http_body(request: &LatestBarsRequest) -> Result<Value, String> {
+    Ok(json!({
+        "pairs": normalize_required_pairs(&request.pairs, "aggregator latest bars")?,
+        "tf": request.tf,
+        "latest_mode": request.latest_mode,
+        "metadata": request.metadata,
+        "format": request.format,
+    }))
+}
+
+fn aggregator_latest_grpc_proto(
+    request: &LatestBarsGrpcRequest,
+) -> Result<aggregator_proto::LatestBarsRequestV1, String> {
+    Ok(aggregator_proto::LatestBarsRequestV1 {
+        pairs: normalize_required_pairs(&request.pairs, "aggregator latest bars gRPC")?,
+        tf: json_string(&request.tf, "aggregator latest gRPC tf")?,
+        latest_mode: json_string(&request.latest_mode, "aggregator latest gRPC latest_mode")?,
+        metadata: request.metadata.unwrap_or(false),
+    })
+}
+
+fn aggregator_range_http_body(request: &RangeBarsRequest) -> Result<Value, String> {
+    Ok(json!({
+        "pairs": normalize_required_pairs(&request.pairs, "aggregator range bars")?,
+        "tf": request.tf,
+        "align_mode": request.align_mode,
+        "close_start_ms": request.close_start.as_ref().map(TimeInput::to_utc_ms).transpose().map_err(|error| error.to_string())?,
+        "cursor": request.cursor,
+        "close_end_ms": request.close_end.as_ref().map(TimeInput::to_utc_ms).transpose().map_err(|error| error.to_string())?,
+        "limit": request.limit,
+        "metadata": request.metadata,
+        "format": request.format,
+    }))
+}
+
+fn aggregator_range_grpc_proto(
+    request: &RangeBarsGrpcRequest,
+) -> Result<aggregator_proto::RangeBarsRequestV1, String> {
+    Ok(aggregator_proto::RangeBarsRequestV1 {
+        pairs: normalize_required_pairs(&request.pairs, "aggregator range bars gRPC")?,
+        tf: json_string(&request.tf, "aggregator range gRPC tf")?,
+        close_end_ms: request
+            .close_end
+            .as_ref()
+            .map(TimeInput::to_utc_ms)
+            .transpose()
+            .map_err(|error| error.to_string())?
+            .unwrap_or(0),
+        cursor: request.cursor.clone(),
+        limit: request.limit,
+        metadata: request.metadata.unwrap_or(false),
+        close_start_ms: request
+            .close_start
+            .as_ref()
+            .map(TimeInput::to_utc_ms)
+            .transpose()
+            .map_err(|error| error.to_string())?
+            .unwrap_or(0),
+        align_mode: request
+            .align_mode
+            .as_ref()
+            .map(|value| json_string(value, "aggregator range gRPC align_mode"))
+            .transpose()?,
+    })
+}
+
+fn aggregator_search_http_body(request: &SearchBarsRequest) -> Result<Value, String> {
+    Ok(json!({
+        "tf": request.tf,
+        "close_start_ms": request.close_start.to_utc_ms().map_err(|error| error.to_string())?,
+        "close_end_ms": request.close_end.as_ref().map(TimeInput::to_utc_ms).transpose().map_err(|error| error.to_string())?,
+        "cursor": request.cursor,
+        "predicate": normalize_required_string(&request.predicate, "aggregator search predicate")?,
+        "evaluate_pair": normalize_optional_string(request.evaluate_pair.as_deref()),
+        "metadata": request.metadata,
+        "max_hits": request.max_hits,
+        "format": request.format,
+    }))
+}
+
+fn aggregator_search_grpc_proto(
+    request: &SearchBarsGrpcRequest,
+) -> Result<aggregator_proto::SearchBarsRequestV1, String> {
+    Ok(aggregator_proto::SearchBarsRequestV1 {
+        tf: json_string(&request.tf, "aggregator search gRPC tf")?,
+        close_start_ms: request
+            .close_start
+            .to_utc_ms()
+            .map_err(|error| error.to_string())?,
+        close_end_ms: request
+            .close_end
+            .as_ref()
+            .map(TimeInput::to_utc_ms)
+            .transpose()
+            .map_err(|error| error.to_string())?
+            .unwrap_or(0),
+        cursor: request.cursor.clone(),
+        predicate: normalize_required_string(
+            &request.predicate,
+            "aggregator search gRPC predicate",
+        )?,
+        evaluate_pair: normalize_optional_string(request.evaluate_pair.as_deref()),
+        metadata: request.metadata.unwrap_or(false),
+        max_hits: request.max_hits,
+    })
+}
+
+fn aggregator_time_machine_http_body(request: &TimeMachineBarsRequest) -> Result<Value, String> {
+    Ok(json!({
+        "tf": request.tf,
+        "close_start_ms": request.close_start.to_utc_ms().map_err(|error| error.to_string())?,
+        "close_end_ms": request.close_end.as_ref().map(TimeInput::to_utc_ms).transpose().map_err(|error| error.to_string())?,
+        "cursor": request.cursor,
+        "predicate": request.predicate.as_deref().map(|value| normalize_required_string(value, "aggregator time-machine predicate")).transpose()?,
+        "hits": request.hits,
+        "output_pairs": normalize_optional_pairs(request.output_pairs.as_deref()),
+        "metadata": request.metadata,
+        "before_bars": request.before_bars,
+        "after_bars": request.after_bars,
+        "max_hits": request.max_hits,
+        "overlap_mode": normalize_optional_string(request.overlap_mode.as_deref()),
+        "format": request.format,
+    }))
+}
+
+fn aggregator_time_machine_grpc_proto(
+    request: &TimeMachineBarsGrpcRequest,
+) -> Result<aggregator_proto::TimeMachineBarsRequestV1, String> {
+    Ok(aggregator_proto::TimeMachineBarsRequestV1 {
+        tf: json_string(&request.tf, "aggregator time-machine gRPC tf")?,
+        close_start_ms: request
+            .close_start
+            .to_utc_ms()
+            .map_err(|error| error.to_string())?,
+        close_end_ms: request
+            .close_end
+            .as_ref()
+            .map(TimeInput::to_utc_ms)
+            .transpose()
+            .map_err(|error| error.to_string())?
+            .unwrap_or(0),
+        cursor: request.cursor.clone(),
+        predicate: request
+            .predicate
+            .as_deref()
+            .map(|value| normalize_required_string(value, "aggregator time-machine gRPC predicate"))
+            .transpose()?,
+        hits: request.hits.clone().unwrap_or_default(),
+        output_pairs: normalize_optional_pairs(request.output_pairs.as_deref()).unwrap_or_default(),
+        metadata: request.metadata.unwrap_or(false),
+        before_bars: request.before_bars,
+        after_bars: request.after_bars,
+        max_hits: request.max_hits,
+        overlap_mode: normalize_optional_string(request.overlap_mode.as_deref()),
+    })
+}
+
+fn primitives_latest_http_body(
+    request: &primitives_system::LatestOutputsRequest,
+) -> Result<Value, String> {
+    Ok(json!({
+        "pairs": normalize_required_pairs(&request.pairs, "primitives latest outputs")?,
+        "tf": request.tf,
+        "latest_mode": request.latest_mode,
+        "family": request.family,
+        "group": request.group,
+        "metadata": request.metadata,
+        "diagnostics": request.diagnostics,
+        "format": request.format,
+    }))
+}
+
+fn primitives_latest_grpc_proto(
+    request: &primitives_system::LatestOutputsGrpcRequest,
+) -> Result<primitives_proto::LatestOutputsRequestV1, String> {
+    Ok(primitives_proto::LatestOutputsRequestV1 {
+        pairs: normalize_required_pairs(&request.pairs, "primitives latest outputs gRPC")?,
+        tf: json_string(&request.tf, "primitives latest gRPC tf")?,
+        latest_mode: json_string(
+            &request.latest_mode.unwrap_or(LatestMode::ExactWatermark),
+            "primitives latest gRPC latest_mode",
+        )?,
+        exclude_sources: Vec::new(),
+        metadata: request.metadata.unwrap_or(false),
+        family: request
+            .family
+            .as_deref()
+            .map(|values| json_string_list(values, "primitives latest gRPC family"))
+            .transpose()?
+            .unwrap_or_default(),
+        group: request
+            .group
+            .as_deref()
+            .map(|values| json_string_list(values, "primitives latest gRPC group"))
+            .transpose()?
+            .unwrap_or_default(),
+        diagnostics: request.diagnostics,
+    })
+}
+
+fn primitives_range_http_body(
+    request: &primitives_system::RangeOutputsRequest,
+) -> Result<Value, String> {
+    Ok(json!({
+        "pairs": normalize_required_pairs(&request.pairs, "primitives range outputs")?,
+        "tf": request.tf,
+        "align_mode": request.align_mode,
+        "close_start_ms": request.close_start.as_ref().map(TimeInput::to_utc_ms).transpose().map_err(|error| error.to_string())?,
+        "cursor": normalize_optional_string(request.cursor.as_deref()),
+        "close_end_ms": request.close_end.as_ref().map(TimeInput::to_utc_ms).transpose().map_err(|error| error.to_string())?,
+        "limit": request.limit,
+        "family": request.family,
+        "group": request.group,
+        "metadata": request.metadata,
+        "diagnostics": request.diagnostics,
+        "format": request.format,
+    }))
+}
+
+fn primitives_range_grpc_proto(
+    request: &primitives_system::RangeOutputsGrpcRequest,
+) -> Result<primitives_proto::RangeOutputsRequestV1, String> {
+    Ok(primitives_proto::RangeOutputsRequestV1 {
+        pairs: normalize_required_pairs(&request.pairs, "primitives range outputs gRPC")?,
+        tf: json_string(&request.tf, "primitives range gRPC tf")?,
+        close_end_ms: request
+            .close_end
+            .as_ref()
+            .map(TimeInput::to_utc_ms)
+            .transpose()
+            .map_err(|error| error.to_string())?
+            .unwrap_or(0),
+        cursor: normalize_optional_string(request.cursor.as_deref()),
+        limit: request.limit,
+        exclude_sources: Vec::new(),
+        metadata: request.metadata.unwrap_or(false),
+        close_start_ms: request
+            .close_start
+            .as_ref()
+            .map(TimeInput::to_utc_ms)
+            .transpose()
+            .map_err(|error| error.to_string())?
+            .unwrap_or(0),
+        align_mode: request
+            .align_mode
+            .as_ref()
+            .map(|value| json_string(value, "primitives range gRPC align_mode"))
+            .transpose()?,
+        family: request
+            .family
+            .as_deref()
+            .map(|values| json_string_list(values, "primitives range gRPC family"))
+            .transpose()?
+            .unwrap_or_default(),
+        group: request
+            .group
+            .as_deref()
+            .map(|values| json_string_list(values, "primitives range gRPC group"))
+            .transpose()?
+            .unwrap_or_default(),
+        diagnostics: request.diagnostics,
+    })
+}
+
+fn primitives_search_http_body(
+    request: &primitives_system::SearchOutputsRequest,
+) -> Result<Value, String> {
+    Ok(json!({
+        "tf": request.tf,
+        "close_start_ms": request.close_start.to_utc_ms().map_err(|error| error.to_string())?,
+        "close_end_ms": request.close_end.as_ref().map(TimeInput::to_utc_ms).transpose().map_err(|error| error.to_string())?,
+        "cursor": normalize_optional_string(request.cursor.as_deref()),
+        "predicate": normalize_required_string(&request.predicate, "primitives search predicate")?,
+        "evaluate_pair": normalize_optional_string(request.evaluate_pair.as_deref()),
+        "family": request.family,
+        "group": request.group,
+        "metadata": request.metadata,
+        "diagnostics": request.diagnostics,
+        "max_hits": request.max_hits,
+        "format": request.format,
+    }))
+}
+
+fn primitives_search_grpc_proto(
+    request: &primitives_system::SearchOutputsGrpcRequest,
+) -> Result<primitives_proto::SearchOutputsRequestV1, String> {
+    Ok(primitives_proto::SearchOutputsRequestV1 {
+        tf: json_string(&request.tf, "primitives search gRPC tf")?,
+        close_start_ms: request
+            .close_start
+            .to_utc_ms()
+            .map_err(|error| error.to_string())?,
+        close_end_ms: request
+            .close_end
+            .as_ref()
+            .map(TimeInput::to_utc_ms)
+            .transpose()
+            .map_err(|error| error.to_string())?
+            .unwrap_or(0),
+        cursor: normalize_optional_string(request.cursor.as_deref()),
+        predicate: normalize_required_string(
+            &request.predicate,
+            "primitives search gRPC predicate",
+        )?,
+        evaluate_pair: normalize_optional_string(request.evaluate_pair.as_deref()),
+        exclude_sources: Vec::new(),
+        metadata: request.metadata.unwrap_or(false),
+        max_hits: request.max_hits,
+        family: request
+            .family
+            .as_deref()
+            .map(|values| json_string_list(values, "primitives search gRPC family"))
+            .transpose()?
+            .unwrap_or_default(),
+        group: request
+            .group
+            .as_deref()
+            .map(|values| json_string_list(values, "primitives search gRPC group"))
+            .transpose()?
+            .unwrap_or_default(),
+        diagnostics: request.diagnostics,
+    })
+}
+
+fn primitives_time_machine_http_body(
+    request: &primitives_system::TimeMachineOutputsRequest,
+) -> Result<Value, String> {
+    Ok(json!({
+        "tf": request.tf,
+        "close_start_ms": request.close_start.to_utc_ms().map_err(|error| error.to_string())?,
+        "close_end_ms": request.close_end.as_ref().map(TimeInput::to_utc_ms).transpose().map_err(|error| error.to_string())?,
+        "cursor": normalize_optional_string(request.cursor.as_deref()),
+        "predicate": request.predicate.as_deref().map(|value| normalize_required_string(value, "primitives time-machine predicate")).transpose()?,
+        "hits": request.hits,
+        "output_pairs": normalize_optional_pairs(request.output_pairs.as_deref()),
+        "family": request.family,
+        "group": request.group,
+        "metadata": request.metadata,
+        "diagnostics": request.diagnostics,
+        "before_bars": request.before_bars,
+        "after_bars": request.after_bars,
+        "max_hits": request.max_hits,
+        "overlap_mode": normalize_optional_string(request.overlap_mode.as_deref()),
+        "format": request.format,
+    }))
+}
+
+fn primitives_time_machine_grpc_proto(
+    request: &primitives_system::TimeMachineOutputsGrpcRequest,
+) -> Result<primitives_proto::TimeMachineOutputsRequestV1, String> {
+    Ok(primitives_proto::TimeMachineOutputsRequestV1 {
+        tf: json_string(&request.tf, "primitives time-machine gRPC tf")?,
+        close_start_ms: request
+            .close_start
+            .to_utc_ms()
+            .map_err(|error| error.to_string())?,
+        close_end_ms: request
+            .close_end
+            .as_ref()
+            .map(TimeInput::to_utc_ms)
+            .transpose()
+            .map_err(|error| error.to_string())?
+            .unwrap_or(0),
+        cursor: normalize_optional_string(request.cursor.as_deref()),
+        predicate: request
+            .predicate
+            .as_deref()
+            .map(|value| normalize_required_string(value, "primitives time-machine gRPC predicate"))
+            .transpose()?,
+        hits: request.hits.clone().unwrap_or_default(),
+        output_pairs: normalize_optional_pairs(request.output_pairs.as_deref()).unwrap_or_default(),
+        exclude_sources: Vec::new(),
+        metadata: request.metadata.unwrap_or(false),
+        before_bars: request.before_bars,
+        after_bars: request.after_bars,
+        max_hits: request.max_hits,
+        overlap_mode: normalize_optional_string(request.overlap_mode.as_deref()),
+        family: request
+            .family
+            .as_deref()
+            .map(|values| json_string_list(values, "primitives time-machine gRPC family"))
+            .transpose()?
+            .unwrap_or_default(),
+        group: request
+            .group
+            .as_deref()
+            .map(|values| json_string_list(values, "primitives time-machine gRPC group"))
+            .transpose()?
+            .unwrap_or_default(),
+        diagnostics: request.diagnostics,
+    })
+}
+
+fn regime_latest_http_body(request: &regime_system::LatestOutputsRequest) -> Result<Value, String> {
+    Ok(json!({
+        "pairs": normalize_required_pairs(&request.pairs, "regime latest outputs")?,
+        "tf": request.tf,
+        "latest_mode": request.latest_mode,
+        "family": request.family,
+        "group": request.group,
+        "secondary": request.secondary,
+        "metadata": request.metadata,
+        "diagnostics": request.diagnostics,
+        "format": request.format,
+    }))
+}
+
+fn regime_latest_grpc_proto(
+    request: &regime_system::LatestOutputsGrpcRequest,
+) -> Result<regime_proto::LatestOutputsRequestV1, String> {
+    Ok(regime_proto::LatestOutputsRequestV1 {
+        pairs: normalize_required_pairs(&request.pairs, "regime latest outputs gRPC")?,
+        tf: json_string(&request.tf, "regime latest gRPC tf")?,
+        latest_mode: json_string(
+            &request.latest_mode.unwrap_or(LatestMode::ExactWatermark),
+            "regime latest gRPC latest_mode",
+        )?,
+        exclude_sources: Vec::new(),
+        metadata: request.metadata.unwrap_or(false),
+        family: request
+            .family
+            .as_deref()
+            .map(|values| json_string_list(values, "regime latest gRPC family"))
+            .transpose()?
+            .unwrap_or_default(),
+        group: request
+            .group
+            .as_deref()
+            .map(|values| json_string_list(values, "regime latest gRPC group"))
+            .transpose()?
+            .unwrap_or_default(),
+        diagnostics: request.diagnostics,
+        secondary: request.secondary.unwrap_or(false),
+    })
+}
+
+fn regime_range_http_body(request: &regime_system::RangeOutputsRequest) -> Result<Value, String> {
+    Ok(json!({
+        "pairs": normalize_required_pairs(&request.pairs, "regime range outputs")?,
+        "tf": request.tf,
+        "align_mode": request.align_mode,
+        "close_start_ms": request.close_start.as_ref().map(TimeInput::to_utc_ms).transpose().map_err(|error| error.to_string())?,
+        "cursor": normalize_optional_string(request.cursor.as_deref()),
+        "close_end_ms": request.close_end.as_ref().map(TimeInput::to_utc_ms).transpose().map_err(|error| error.to_string())?,
+        "limit": request.limit,
+        "family": request.family,
+        "group": request.group,
+        "secondary": request.secondary,
+        "metadata": request.metadata,
+        "diagnostics": request.diagnostics,
+        "format": request.format,
+    }))
+}
+
+fn regime_range_grpc_proto(
+    request: &regime_system::RangeOutputsGrpcRequest,
+) -> Result<regime_proto::RangeOutputsRequestV1, String> {
+    Ok(regime_proto::RangeOutputsRequestV1 {
+        pairs: normalize_required_pairs(&request.pairs, "regime range outputs gRPC")?,
+        tf: json_string(&request.tf, "regime range gRPC tf")?,
+        close_end_ms: request
+            .close_end
+            .as_ref()
+            .map(TimeInput::to_utc_ms)
+            .transpose()
+            .map_err(|error| error.to_string())?
+            .unwrap_or(0),
+        cursor: normalize_optional_string(request.cursor.as_deref()),
+        limit: request.limit,
+        exclude_sources: Vec::new(),
+        metadata: request.metadata.unwrap_or(false),
+        close_start_ms: request
+            .close_start
+            .as_ref()
+            .map(TimeInput::to_utc_ms)
+            .transpose()
+            .map_err(|error| error.to_string())?
+            .unwrap_or(0),
+        align_mode: request
+            .align_mode
+            .as_ref()
+            .map(|value| json_string(value, "regime range gRPC align_mode"))
+            .transpose()?,
+        family: request
+            .family
+            .as_deref()
+            .map(|values| json_string_list(values, "regime range gRPC family"))
+            .transpose()?
+            .unwrap_or_default(),
+        group: request
+            .group
+            .as_deref()
+            .map(|values| json_string_list(values, "regime range gRPC group"))
+            .transpose()?
+            .unwrap_or_default(),
+        diagnostics: request.diagnostics,
+        secondary: request.secondary.unwrap_or(false),
+    })
+}
+
+fn regime_search_http_body(request: &regime_system::SearchOutputsRequest) -> Result<Value, String> {
+    Ok(json!({
+        "tf": request.tf,
+        "close_start_ms": request.close_start.to_utc_ms().map_err(|error| error.to_string())?,
+        "close_end_ms": request.close_end.as_ref().map(TimeInput::to_utc_ms).transpose().map_err(|error| error.to_string())?,
+        "cursor": normalize_optional_string(request.cursor.as_deref()),
+        "predicate": normalize_required_string(&request.predicate, "regime search predicate")?,
+        "evaluate_pair": normalize_optional_string(request.evaluate_pair.as_deref()),
+        "family": request.family,
+        "group": request.group,
+        "secondary": request.secondary,
+        "metadata": request.metadata,
+        "diagnostics": request.diagnostics,
+        "max_hits": request.max_hits,
+        "format": request.format,
+    }))
+}
+
+fn regime_search_grpc_proto(
+    request: &regime_system::SearchOutputsGrpcRequest,
+) -> Result<regime_proto::SearchOutputsRequestV1, String> {
+    Ok(regime_proto::SearchOutputsRequestV1 {
+        tf: json_string(&request.tf, "regime search gRPC tf")?,
+        close_start_ms: request
+            .close_start
+            .to_utc_ms()
+            .map_err(|error| error.to_string())?,
+        close_end_ms: request
+            .close_end
+            .as_ref()
+            .map(TimeInput::to_utc_ms)
+            .transpose()
+            .map_err(|error| error.to_string())?
+            .unwrap_or(0),
+        cursor: normalize_optional_string(request.cursor.as_deref()),
+        predicate: normalize_required_string(&request.predicate, "regime search gRPC predicate")?,
+        evaluate_pair: normalize_optional_string(request.evaluate_pair.as_deref()),
+        exclude_sources: Vec::new(),
+        metadata: request.metadata.unwrap_or(false),
+        max_hits: request.max_hits,
+        family: request
+            .family
+            .as_deref()
+            .map(|values| json_string_list(values, "regime search gRPC family"))
+            .transpose()?
+            .unwrap_or_default(),
+        group: request
+            .group
+            .as_deref()
+            .map(|values| json_string_list(values, "regime search gRPC group"))
+            .transpose()?
+            .unwrap_or_default(),
+        diagnostics: request.diagnostics,
+        secondary: request.secondary.unwrap_or(false),
+    })
+}
+
+fn regime_time_machine_http_body(
+    request: &regime_system::TimeMachineOutputsRequest,
+) -> Result<Value, String> {
+    Ok(json!({
+        "tf": request.tf,
+        "close_start_ms": request.close_start.to_utc_ms().map_err(|error| error.to_string())?,
+        "close_end_ms": request.close_end.as_ref().map(TimeInput::to_utc_ms).transpose().map_err(|error| error.to_string())?,
+        "cursor": normalize_optional_string(request.cursor.as_deref()),
+        "predicate": request.predicate.as_deref().map(|value| normalize_required_string(value, "regime time-machine predicate")).transpose()?,
+        "hits": request.hits,
+        "output_pairs": normalize_optional_pairs(request.output_pairs.as_deref()),
+        "family": request.family,
+        "group": request.group,
+        "secondary": request.secondary,
+        "metadata": request.metadata,
+        "diagnostics": request.diagnostics,
+        "before_bars": request.before_bars,
+        "after_bars": request.after_bars,
+        "max_hits": request.max_hits,
+        "overlap_mode": normalize_optional_string(request.overlap_mode.as_deref()),
+        "format": request.format,
+    }))
+}
+
+fn regime_time_machine_grpc_proto(
+    request: &regime_system::TimeMachineOutputsGrpcRequest,
+) -> Result<regime_proto::TimeMachineOutputsRequestV1, String> {
+    Ok(regime_proto::TimeMachineOutputsRequestV1 {
+        tf: json_string(&request.tf, "regime time-machine gRPC tf")?,
+        close_start_ms: request
+            .close_start
+            .to_utc_ms()
+            .map_err(|error| error.to_string())?,
+        close_end_ms: request
+            .close_end
+            .as_ref()
+            .map(TimeInput::to_utc_ms)
+            .transpose()
+            .map_err(|error| error.to_string())?
+            .unwrap_or(0),
+        cursor: normalize_optional_string(request.cursor.as_deref()),
+        predicate: request
+            .predicate
+            .as_deref()
+            .map(|value| normalize_required_string(value, "regime time-machine gRPC predicate"))
+            .transpose()?,
+        hits: request.hits.clone().unwrap_or_default(),
+        output_pairs: normalize_optional_pairs(request.output_pairs.as_deref()).unwrap_or_default(),
+        exclude_sources: Vec::new(),
+        metadata: request.metadata.unwrap_or(false),
+        before_bars: request.before_bars,
+        after_bars: request.after_bars,
+        max_hits: request.max_hits,
+        overlap_mode: normalize_optional_string(request.overlap_mode.as_deref()),
+        family: request
+            .family
+            .as_deref()
+            .map(|values| json_string_list(values, "regime time-machine gRPC family"))
+            .transpose()?
+            .unwrap_or_default(),
+        group: request
+            .group
+            .as_deref()
+            .map(|values| json_string_list(values, "regime time-machine gRPC group"))
+            .transpose()?
+            .unwrap_or_default(),
+        diagnostics: request.diagnostics,
+        secondary: request.secondary.unwrap_or(false),
+    })
+}
+
 fn download_root_for(system: &str) -> PathBuf {
     repo_root()
         .join("target")
@@ -626,6 +1952,16 @@ fn aggregator_bars_ws_frame_kind(frame: &BarsWsInboundFrame) -> &'static str {
     }
 }
 
+fn aggregator_bars_ws_is_payload(frame: &BarsWsInboundFrame) -> bool {
+    matches!(
+        frame,
+        BarsWsInboundFrame::JsonRowsMin(_)
+            | BarsWsInboundFrame::JsonRowsFull(_)
+            | BarsWsInboundFrame::ProtobufRowsMin(_)
+            | BarsWsInboundFrame::ProtobufRowsFull(_)
+    )
+}
+
 fn aggregator_messages_ws_frame_kind(frame: &AggregatorMessagesWsServerFrame) -> &'static str {
     match frame {
         AggregatorMessagesWsServerFrame::Subscribed(_) => "subscribed",
@@ -642,6 +1978,14 @@ fn primitive_outputs_ws_frame_kind(frame: &PrimitiveOutputsWsInboundFrame) -> &'
         PrimitiveOutputsWsInboundFrame::ProtobufRows(_) => "protobuf_rows",
         PrimitiveOutputsWsInboundFrame::Error(_) => "error",
     }
+}
+
+fn primitive_outputs_ws_is_payload(frame: &PrimitiveOutputsWsInboundFrame) -> bool {
+    matches!(
+        frame,
+        PrimitiveOutputsWsInboundFrame::JsonRows(_)
+            | PrimitiveOutputsWsInboundFrame::ProtobufRows(_)
+    )
 }
 
 fn primitive_messages_ws_frame_kind(frame: &PrimitiveMessagesWsServerFrame) -> &'static str {
@@ -900,39 +2244,92 @@ async fn run_phase_4_intro_and_aggregator(runtime: &RuntimeConfig, report: &mut 
         ..latest_http_min_request.clone()
     };
 
-    let latest_http_min = client.latest(&latest_http_min_request).await;
-    let latest_http_full = client.latest(&latest_http_full_request).await;
-    let anchor_close_ms = match (&latest_http_min, &latest_http_full) {
-        (Ok(min), Ok(full))
-            if pair_from_latest_response(min).is_some()
-                && pair_from_latest_response(min) == pair_from_latest_response(full) =>
-        {
-            let close_end_ms = close_end_from_latest_response(min);
+    let anchor_close_ms = match async {
+        let mut last_error = None;
+        for _attempt in 0..4 {
+            let min = client
+                .latest(&latest_http_min_request)
+                .await
+                .map_err(|error| error.to_string())?;
+            let full = client
+                .latest(&latest_http_full_request)
+                .await
+                .map_err(|error| error.to_string())?;
+
+            if pair_from_latest_response(&min).is_none()
+                || pair_from_latest_response(&min) != pair_from_latest_response(&full)
+                || close_end_from_latest_response(&min) != close_end_from_latest_response(&full)
+            {
+                last_error = Some("min/full latest parity mismatch".to_string());
+                sleep(Duration::from_millis(250)).await;
+                continue;
+            }
+
+            let expected_close_end_ms = close_end_from_latest_response(&min);
+            let min_direct = canonical_aggregator_latest_http_raw(
+                raw_http_post_json(
+                    &runtime.summary.aggregator_http_base_url,
+                    "/v1/bars/latest",
+                    runtime.bearer_token.as_ref(),
+                    &aggregator_latest_http_body(&latest_http_min_request)?,
+                )
+                .await?,
+            );
+            let full_direct = canonical_aggregator_latest_http_raw(
+                raw_http_post_json(
+                    &runtime.summary.aggregator_http_base_url,
+                    "/v1/bars/latest",
+                    runtime.bearer_token.as_ref(),
+                    &aggregator_latest_http_body(&latest_http_full_request)?,
+                )
+                .await?,
+            );
+            let min_direct_close_end_ms = min_direct
+                .get("close_end_ms")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| "aggregator latest min direct payload missing close_end_ms".to_string())?;
+            let full_direct_close_end_ms = full_direct
+                .get("close_end_ms")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| "aggregator latest full direct payload missing close_end_ms".to_string())?;
+
+            if min_direct_close_end_ms != expected_close_end_ms
+                || full_direct_close_end_ms != expected_close_end_ms
+            {
+                last_error = Some(format!(
+                    "latest alignment drift sdk_close_end_ms={expected_close_end_ms} direct_min_close_end_ms={min_direct_close_end_ms} direct_full_close_end_ms={full_direct_close_end_ms}"
+                ));
+                sleep(Duration::from_millis(250)).await;
+                continue;
+            }
+
+            let min_sdk = canonical_aggregator_latest_sdk(&min)?;
+            let full_sdk = canonical_aggregator_latest_sdk(&full)?;
+            compare_semantic_values("aggregator.latest[min]", &min_sdk, &min_direct)?;
+            compare_semantic_values("aggregator.latest[full]", &full_sdk, &full_direct)?;
+            return Ok::<(String, i64), String>((
+                pair_from_latest_response(&min).unwrap_or("unknown").to_string(),
+                expected_close_end_ms,
+            ));
+        }
+
+        Err(last_error.unwrap_or_else(|| "aggregator latest alignment retries exhausted".to_string()))
+    }
+    .await
+    {
+        Ok((pair, close_end_ms)) => {
             record_pass(
                 report,
                 "aggregator.latest",
                 format!(
-                    "pair={} close_end_ms={}",
-                    pair_from_latest_response(min).unwrap_or("unknown"),
-                    close_end_ms
+                    "pair={} close_end_ms={} direct_http_semantic_match=true",
+                    pair, close_end_ms
                 ),
             );
             close_end_ms
         }
-        (Ok(_), Ok(_)) => {
-            record_fail(
-                report,
-                "aggregator.latest",
-                "min/full latest parity mismatch",
-            );
-            0
-        }
-        (Err(error), _) => {
-            record_fail(report, "aggregator.latest", error.to_string());
-            0
-        }
-        (_, Err(error)) => {
-            record_fail(report, "aggregator.latest", error.to_string());
+        Err(error) => {
+            record_fail(report, "aggregator.latest", error);
             0
         }
     };
@@ -949,15 +2346,60 @@ async fn run_phase_4_intro_and_aggregator(runtime: &RuntimeConfig, report: &mut 
                 if pair_from_latest_response(&min).is_some()
                     && pair_from_latest_response(&min) == pair_from_latest_response(&full) =>
             {
-                record_pass(
-                    report,
-                    "aggregator.latest_grpc",
-                    format!(
-                        "pair={} close_end_ms={}",
-                        pair_from_latest_response(&min).unwrap_or("unknown"),
-                        close_end_from_latest_response(&min)
+                match async {
+                    let direct_min = raw_grpc_unary::<
+                        aggregator_proto::LatestBarsRequestV1,
+                        aggregator_proto::BarsLatestResponseV1,
+                    >(
+                        runtime
+                            .summary
+                            .aggregator_grpc_base_url
+                            .as_deref()
+                            .unwrap_or(""),
+                        AGGREGATOR_LATEST_GPRC_PATH,
+                        runtime.bearer_token.as_ref(),
+                        aggregator_latest_grpc_proto(&latest_grpc_min_request)?,
+                    )
+                    .await?;
+                    let direct_full = raw_grpc_unary::<
+                        aggregator_proto::LatestBarsRequestV1,
+                        aggregator_proto::BarsLatestResponseV1,
+                    >(
+                        runtime
+                            .summary
+                            .aggregator_grpc_base_url
+                            .as_deref()
+                            .unwrap_or(""),
+                        AGGREGATOR_LATEST_GPRC_PATH,
+                        runtime.bearer_token.as_ref(),
+                        aggregator_latest_grpc_proto(&latest_grpc_full_request)?,
+                    )
+                    .await?;
+                    compare_semantic_values(
+                        "aggregator.latest_grpc[min]",
+                        &canonical_aggregator_latest_sdk(&min)?,
+                        &canonical_aggregator_latest_grpc_raw(&direct_min)?,
+                    )?;
+                    compare_semantic_values(
+                        "aggregator.latest_grpc[full]",
+                        &canonical_aggregator_latest_sdk(&full)?,
+                        &canonical_aggregator_latest_grpc_raw(&direct_full)?,
+                    )?;
+                    Ok::<(), String>(())
+                }
+                .await
+                {
+                    Ok(()) => record_pass(
+                        report,
+                        "aggregator.latest_grpc",
+                        format!(
+                            "pair={} close_end_ms={} direct_grpc_semantic_match=true",
+                            pair_from_latest_response(&min).unwrap_or("unknown"),
+                            close_end_from_latest_response(&min)
+                        ),
                     ),
-                );
+                    Err(error) => record_fail(report, "aggregator.latest_grpc", error),
+                }
             }
             (Ok(_), Ok(_)) => record_fail(
                 report,
@@ -1034,14 +2476,50 @@ async fn run_phase_4_intro_and_aggregator(runtime: &RuntimeConfig, report: &mut 
         (Ok(min), Ok(full))
             if range_rows_len(&min) > 0 && range_rows_len(&min) == range_rows_len(&full) =>
         {
-            record_pass(
-                report,
-                "aggregator.range",
-                format!(
-                    "rows={} close_end_ms={anchor_close_ms}",
-                    range_rows_len(&min)
+            match async {
+                let min_body = aggregator_range_http_body(&range_min_request)?;
+                let full_body = aggregator_range_http_body(&range_full_request)?;
+                let min_direct = raw_http_post_json(
+                    &runtime.summary.aggregator_http_base_url,
+                    "/v1/bars/range",
+                    runtime.bearer_token.as_ref(),
+                    &min_body,
+                );
+                let full_direct = raw_http_post_json(
+                    &runtime.summary.aggregator_http_base_url,
+                    "/v1/bars/range",
+                    runtime.bearer_token.as_ref(),
+                    &full_body,
+                );
+                let (min_direct, full_direct) =
+                    futures_util::future::try_join(min_direct, full_direct)
+                        .await
+                        .map_err(|error| error.to_string())?;
+                compare_semantic_values(
+                    "aggregator.range[min]",
+                    &canonical_aggregator_range_sdk(&min)?,
+                    &min_direct,
+                )?;
+                compare_semantic_values(
+                    "aggregator.range[full]",
+                    &canonical_aggregator_range_sdk(&full)?,
+                    &full_direct,
+                )?;
+                Ok::<(), String>(())
+            }
+            .await
+            {
+                Ok(()) => record_pass(
+                    report,
+                    "aggregator.range",
+                    format!(
+                        "rows={} close_end_ms={} direct_http_semantic_match=true",
+                        range_rows_len(&min),
+                        anchor_close_ms
+                    ),
                 ),
-            );
+                Err(error) => record_fail(report, "aggregator.range", error),
+            }
         }
         (Ok(min), Ok(full)) => record_fail(
             report,
@@ -1080,11 +2558,50 @@ async fn run_phase_4_intro_and_aggregator(runtime: &RuntimeConfig, report: &mut 
         (Ok(min), Ok(full))
             if search_hits_len(&min) > 0 && search_hits_len(&min) == search_hits_len(&full) =>
         {
-            record_pass(
-                report,
-                "aggregator.search",
-                format!("hits={} predicate={predicate}", search_hits_len(&min)),
-            );
+            match async {
+                let min_body = aggregator_search_http_body(&search_min_request)?;
+                let full_body = aggregator_search_http_body(&search_full_request)?;
+                let min_direct = raw_http_post_json(
+                    &runtime.summary.aggregator_http_base_url,
+                    "/v1/bars/search",
+                    runtime.bearer_token.as_ref(),
+                    &min_body,
+                );
+                let full_direct = raw_http_post_json(
+                    &runtime.summary.aggregator_http_base_url,
+                    "/v1/bars/search",
+                    runtime.bearer_token.as_ref(),
+                    &full_body,
+                );
+                let (min_direct, full_direct) =
+                    futures_util::future::try_join(min_direct, full_direct)
+                        .await
+                        .map_err(|error| error.to_string())?;
+                compare_semantic_values(
+                    "aggregator.search[min]",
+                    &canonical_aggregator_search_sdk(&min)?,
+                    &min_direct,
+                )?;
+                compare_semantic_values(
+                    "aggregator.search[full]",
+                    &canonical_aggregator_search_sdk(&full)?,
+                    &full_direct,
+                )?;
+                Ok::<(), String>(())
+            }
+            .await
+            {
+                Ok(()) => record_pass(
+                    report,
+                    "aggregator.search",
+                    format!(
+                        "hits={} predicate={} direct_http_semantic_match=true",
+                        search_hits_len(&min),
+                        predicate
+                    ),
+                ),
+                Err(error) => record_fail(report, "aggregator.search", error),
+            }
         }
         (Ok(min), Ok(full)) => record_fail(
             report,
@@ -1127,11 +2644,49 @@ async fn run_phase_4_intro_and_aggregator(runtime: &RuntimeConfig, report: &mut 
             if time_machine_rows_len(&min) > 0
                 && time_machine_rows_len(&min) == time_machine_rows_len(&full) =>
         {
-            record_pass(
-                report,
-                "aggregator.time_machine",
-                format!("rows={}", time_machine_rows_len(&min)),
-            );
+            match async {
+                let min_body = aggregator_time_machine_http_body(&time_machine_min_request)?;
+                let full_body = aggregator_time_machine_http_body(&time_machine_full_request)?;
+                let min_direct = raw_http_post_json(
+                    &runtime.summary.aggregator_http_base_url,
+                    "/v1/bars/time-machine",
+                    runtime.bearer_token.as_ref(),
+                    &min_body,
+                );
+                let full_direct = raw_http_post_json(
+                    &runtime.summary.aggregator_http_base_url,
+                    "/v1/bars/time-machine",
+                    runtime.bearer_token.as_ref(),
+                    &full_body,
+                );
+                let (min_direct, full_direct) =
+                    futures_util::future::try_join(min_direct, full_direct)
+                        .await
+                        .map_err(|error| error.to_string())?;
+                compare_semantic_values(
+                    "aggregator.time_machine[min]",
+                    &canonical_aggregator_time_machine_sdk(&min)?,
+                    &min_direct,
+                )?;
+                compare_semantic_values(
+                    "aggregator.time_machine[full]",
+                    &canonical_aggregator_time_machine_sdk(&full)?,
+                    &full_direct,
+                )?;
+                Ok::<(), String>(())
+            }
+            .await
+            {
+                Ok(()) => record_pass(
+                    report,
+                    "aggregator.time_machine",
+                    format!(
+                        "rows={} direct_http_semantic_match=true",
+                        time_machine_rows_len(&min)
+                    ),
+                ),
+                Err(error) => record_fail(report, "aggregator.time_machine", error),
+            }
         }
         (Ok(min), Ok(full)) => record_fail(
             report,
@@ -1159,11 +2714,67 @@ async fn run_phase_4_intro_and_aggregator(runtime: &RuntimeConfig, report: &mut 
             (Ok(min), Ok(full))
                 if range_rows_len(&min) > 0 && range_rows_len(&min) == range_rows_len(&full) =>
             {
-                record_pass(
-                    report,
-                    "aggregator.range_grpc",
-                    format!("rows={}", range_rows_len(&min)),
-                );
+                match async {
+                    let min_direct = raw_grpc_unary::<
+                        aggregator_proto::RangeBarsRequestV1,
+                        aggregator_proto::BarsRangeResponseV1,
+                    >(
+                        runtime
+                            .summary
+                            .aggregator_grpc_base_url
+                            .as_deref()
+                            .unwrap_or(""),
+                        AGGREGATOR_RANGE_GPRC_PATH,
+                        runtime.bearer_token.as_ref(),
+                        aggregator_range_grpc_proto(&range_grpc_min_request)?,
+                    );
+                    let full_direct = raw_grpc_unary::<
+                        aggregator_proto::RangeBarsRequestV1,
+                        aggregator_proto::BarsRangeResponseV1,
+                    >(
+                        runtime
+                            .summary
+                            .aggregator_grpc_base_url
+                            .as_deref()
+                            .unwrap_or(""),
+                        AGGREGATOR_RANGE_GPRC_PATH,
+                        runtime.bearer_token.as_ref(),
+                        aggregator_range_grpc_proto(&range_grpc_full_request)?,
+                    );
+                    let (min_direct, full_direct) =
+                        futures_util::future::try_join(min_direct, full_direct)
+                            .await
+                            .map_err(|error| error.to_string())?;
+                    compare_semantic_values(
+                        "aggregator.range_grpc[min]",
+                        &canonical_aggregator_range_sdk(&min)?,
+                        &canonical_aggregator_range_grpc_raw(
+                            &min_direct,
+                            range_grpc_min_request.metadata.unwrap_or(false),
+                        )?,
+                    )?;
+                    compare_semantic_values(
+                        "aggregator.range_grpc[full]",
+                        &canonical_aggregator_range_sdk(&full)?,
+                        &canonical_aggregator_range_grpc_raw(
+                            &full_direct,
+                            range_grpc_full_request.metadata.unwrap_or(false),
+                        )?,
+                    )?;
+                    Ok::<(), String>(())
+                }
+                .await
+                {
+                    Ok(()) => record_pass(
+                        report,
+                        "aggregator.range_grpc",
+                        format!(
+                            "rows={} direct_grpc_semantic_match=true",
+                            range_rows_len(&min)
+                        ),
+                    ),
+                    Err(error) => record_fail(report, "aggregator.range_grpc", error),
+                }
             }
             (Ok(min), Ok(full)) => record_fail(
                 report,
@@ -1186,11 +2797,67 @@ async fn run_phase_4_intro_and_aggregator(runtime: &RuntimeConfig, report: &mut 
             (Ok(min), Ok(full))
                 if search_hits_len(&min) > 0 && search_hits_len(&min) == search_hits_len(&full) =>
             {
-                record_pass(
-                    report,
-                    "aggregator.search_grpc",
-                    format!("hits={}", search_hits_len(&min)),
-                );
+                match async {
+                    let min_direct = raw_grpc_unary::<
+                        aggregator_proto::SearchBarsRequestV1,
+                        aggregator_proto::BarsSearchResponseV1,
+                    >(
+                        runtime
+                            .summary
+                            .aggregator_grpc_base_url
+                            .as_deref()
+                            .unwrap_or(""),
+                        AGGREGATOR_SEARCH_GPRC_PATH,
+                        runtime.bearer_token.as_ref(),
+                        aggregator_search_grpc_proto(&search_grpc_min_request)?,
+                    );
+                    let full_direct = raw_grpc_unary::<
+                        aggregator_proto::SearchBarsRequestV1,
+                        aggregator_proto::BarsSearchResponseV1,
+                    >(
+                        runtime
+                            .summary
+                            .aggregator_grpc_base_url
+                            .as_deref()
+                            .unwrap_or(""),
+                        AGGREGATOR_SEARCH_GPRC_PATH,
+                        runtime.bearer_token.as_ref(),
+                        aggregator_search_grpc_proto(&search_grpc_full_request)?,
+                    );
+                    let (min_direct, full_direct) =
+                        futures_util::future::try_join(min_direct, full_direct)
+                            .await
+                            .map_err(|error| error.to_string())?;
+                    compare_semantic_values(
+                        "aggregator.search_grpc[min]",
+                        &canonical_aggregator_search_sdk(&min)?,
+                        &canonical_aggregator_search_grpc_raw(
+                            &min_direct,
+                            search_grpc_min_request.metadata.unwrap_or(false),
+                        )?,
+                    )?;
+                    compare_semantic_values(
+                        "aggregator.search_grpc[full]",
+                        &canonical_aggregator_search_sdk(&full)?,
+                        &canonical_aggregator_search_grpc_raw(
+                            &full_direct,
+                            search_grpc_full_request.metadata.unwrap_or(false),
+                        )?,
+                    )?;
+                    Ok::<(), String>(())
+                }
+                .await
+                {
+                    Ok(()) => record_pass(
+                        report,
+                        "aggregator.search_grpc",
+                        format!(
+                            "hits={} direct_grpc_semantic_match=true",
+                            search_hits_len(&min)
+                        ),
+                    ),
+                    Err(error) => record_fail(report, "aggregator.search_grpc", error),
+                }
             }
             (Ok(min), Ok(full)) => record_fail(
                 report,
@@ -1219,11 +2886,67 @@ async fn run_phase_4_intro_and_aggregator(runtime: &RuntimeConfig, report: &mut 
                 if time_machine_rows_len(&min) > 0
                     && time_machine_rows_len(&min) == time_machine_rows_len(&full) =>
             {
-                record_pass(
-                    report,
-                    "aggregator.time_machine_grpc",
-                    format!("rows={}", time_machine_rows_len(&min)),
-                );
+                match async {
+                    let min_direct = raw_grpc_unary::<
+                        aggregator_proto::TimeMachineBarsRequestV1,
+                        aggregator_proto::BarsTimeMachineResponseV1,
+                    >(
+                        runtime
+                            .summary
+                            .aggregator_grpc_base_url
+                            .as_deref()
+                            .unwrap_or(""),
+                        AGGREGATOR_TIME_MACHINE_GPRC_PATH,
+                        runtime.bearer_token.as_ref(),
+                        aggregator_time_machine_grpc_proto(&time_machine_grpc_min_request)?,
+                    );
+                    let full_direct = raw_grpc_unary::<
+                        aggregator_proto::TimeMachineBarsRequestV1,
+                        aggregator_proto::BarsTimeMachineResponseV1,
+                    >(
+                        runtime
+                            .summary
+                            .aggregator_grpc_base_url
+                            .as_deref()
+                            .unwrap_or(""),
+                        AGGREGATOR_TIME_MACHINE_GPRC_PATH,
+                        runtime.bearer_token.as_ref(),
+                        aggregator_time_machine_grpc_proto(&time_machine_grpc_full_request)?,
+                    );
+                    let (min_direct, full_direct) =
+                        futures_util::future::try_join(min_direct, full_direct)
+                            .await
+                            .map_err(|error| error.to_string())?;
+                    compare_semantic_values(
+                        "aggregator.time_machine_grpc[min]",
+                        &canonical_aggregator_time_machine_sdk(&min)?,
+                        &canonical_aggregator_time_machine_grpc_raw(
+                            &min_direct,
+                            time_machine_grpc_min_request.metadata.unwrap_or(false),
+                        )?,
+                    )?;
+                    compare_semantic_values(
+                        "aggregator.time_machine_grpc[full]",
+                        &canonical_aggregator_time_machine_sdk(&full)?,
+                        &canonical_aggregator_time_machine_grpc_raw(
+                            &full_direct,
+                            time_machine_grpc_full_request.metadata.unwrap_or(false),
+                        )?,
+                    )?;
+                    Ok::<(), String>(())
+                }
+                .await
+                {
+                    Ok(()) => record_pass(
+                        report,
+                        "aggregator.time_machine_grpc",
+                        format!(
+                            "rows={} direct_grpc_semantic_match=true",
+                            time_machine_rows_len(&min)
+                        ),
+                    ),
+                    Err(error) => record_fail(report, "aggregator.time_machine_grpc", error),
+                }
             }
             (Ok(min), Ok(full)) => record_fail(
                 report,
@@ -1630,18 +3353,47 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
     let primitives_anchor_close_ms = match primitives.latest(&primitives_latest_request).await {
         Ok(out) if !out.rows.is_empty() => {
             let first = &out.rows[0].output;
-            record_pass(
-                report,
-                "primitives.latest",
-                format!(
-                    "rows={} missing_pairs={} kind={} close_end_ms={}",
-                    out.rows.len(),
-                    out.missing_pairs.len(),
-                    primitive_output_kind(first),
-                    out.close_end_ms
-                ),
+            let mode = primitive_mode_from_selectors_and_metadata(
+                primitives_latest_request.family.as_deref(),
+                primitives_latest_request.group.as_deref(),
+                primitives_latest_request.metadata,
             );
-            out.close_end_ms
+            match async {
+                let direct = raw_http_post_json(
+                    &runtime.summary.primitives_http_base_url,
+                    "/v1/outputs/latest",
+                    runtime.bearer_token.as_ref(),
+                    &primitives_latest_http_body(&primitives_latest_request)?,
+                )
+                .await?;
+                compare_semantic_values(
+                    "primitives.latest",
+                    &canonical_primitive_latest_sdk(&out)?,
+                    &canonical_compute_latest_raw(direct, mode)?,
+                )?;
+                Ok::<i64, String>(out.close_end_ms)
+            }
+            .await
+            {
+                Ok(close_end_ms) => {
+                    record_pass(
+                        report,
+                        "primitives.latest",
+                        format!(
+                            "rows={} missing_pairs={} kind={} close_end_ms={} direct_http_semantic_match=true",
+                            out.rows.len(),
+                            out.missing_pairs.len(),
+                            primitive_output_kind(first),
+                            close_end_ms
+                        ),
+                    );
+                    close_end_ms
+                }
+                Err(error) => {
+                    record_fail(report, "primitives.latest", error);
+                    0
+                }
+            }
         }
         Ok(out) => {
             record_fail(
@@ -1725,17 +3477,47 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
         .await
     {
         Ok(out) if !out.rows.is_empty() => {
-            record_pass(
-                report,
-                "primitives.latest_grpc",
-                format!(
-                    "rows={} missing_pairs={} kind={} close_end_ms={}",
-                    out.rows.len(),
-                    out.missing_pairs.len(),
-                    primitive_output_kind(&out.rows[0].output),
-                    out.close_end_ms
-                ),
+            let mode = primitive_mode_from_selectors_and_metadata(
+                primitives_latest_grpc_request.family.as_deref(),
+                primitives_latest_grpc_request.group.as_deref(),
+                primitives_latest_grpc_request.metadata,
             );
+            match async {
+                let direct = raw_grpc_unary::<
+                    primitives_proto::LatestOutputsRequestV1,
+                    primitives_proto::OutputsLatestResponseV1,
+                >(
+                    MathildePublicHosts::PRIMITIVES_GRPC,
+                    OUTPUTS_LATEST_GPRC_PATH,
+                    runtime.bearer_token.as_ref(),
+                    primitives_latest_grpc_proto(&primitives_latest_grpc_request)?,
+                )
+                .await?;
+                compare_semantic_values(
+                    "primitives.latest_grpc",
+                    &canonical_primitive_latest_sdk(&out)?,
+                    &canonical_compute_latest_raw(
+                        json_value(&direct, "primitives latest gRPC direct response")?,
+                        mode,
+                    )?,
+                )?;
+                Ok::<(), String>(())
+            }
+            .await
+            {
+                Ok(()) => record_pass(
+                    report,
+                    "primitives.latest_grpc",
+                    format!(
+                        "rows={} missing_pairs={} kind={} close_end_ms={} direct_grpc_semantic_match=true",
+                        out.rows.len(),
+                        out.missing_pairs.len(),
+                        primitive_output_kind(&out.rows[0].output),
+                        out.close_end_ms
+                    ),
+                ),
+                Err(error) => record_fail(report, "primitives.latest_grpc", error),
+            }
         }
         Ok(out) => record_fail(
             report,
@@ -1762,16 +3544,40 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
         };
         match primitives.range(&primitives_range_request).await {
             Ok(out) if !out.rows.is_empty() => {
-                record_pass(
-                    report,
-                    "primitives.range",
-                    format!(
-                        "rows={} kind={} next_cursor={}",
-                        out.rows.len(),
-                        primitive_output_kind(&out.rows[0]),
-                        out.next_cursor().unwrap_or("")
-                    ),
+                let mode = primitive_mode_from_selectors_and_metadata(
+                    primitives_range_request.family.as_deref(),
+                    primitives_range_request.group.as_deref(),
+                    primitives_range_request.metadata,
                 );
+                match async {
+                    let direct = raw_http_post_json(
+                        &runtime.summary.primitives_http_base_url,
+                        "/v1/outputs/range",
+                        runtime.bearer_token.as_ref(),
+                        &primitives_range_http_body(&primitives_range_request)?,
+                    )
+                    .await?;
+                    compare_semantic_values(
+                        "primitives.range",
+                        &canonical_primitive_range_sdk(&out)?,
+                        &canonical_compute_range_raw(direct, mode)?,
+                    )?;
+                    Ok::<(), String>(())
+                }
+                .await
+                {
+                    Ok(()) => record_pass(
+                        report,
+                        "primitives.range",
+                        format!(
+                            "rows={} kind={} next_cursor={} direct_http_semantic_match=true",
+                            out.rows.len(),
+                            primitive_output_kind(&out.rows[0]),
+                            out.next_cursor().unwrap_or("")
+                        ),
+                    ),
+                    Err(error) => record_fail(report, "primitives.range", error),
+                }
             }
             Ok(out) => record_fail(
                 report,
@@ -1796,16 +3602,46 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
         };
         match primitives.range_grpc(&primitives_range_grpc_request).await {
             Ok(out) if !out.rows.is_empty() => {
-                record_pass(
-                    report,
-                    "primitives.range_grpc",
-                    format!(
-                        "rows={} kind={} next_cursor={}",
-                        out.rows.len(),
-                        primitive_output_kind(&out.rows[0]),
-                        out.next_cursor().unwrap_or("")
-                    ),
+                let mode = primitive_mode_from_selectors_and_metadata(
+                    primitives_range_grpc_request.family.as_deref(),
+                    primitives_range_grpc_request.group.as_deref(),
+                    primitives_range_grpc_request.metadata,
                 );
+                match async {
+                    let direct = raw_grpc_unary::<
+                        primitives_proto::RangeOutputsRequestV1,
+                        primitives_proto::OutputsRangeResponseV1,
+                    >(
+                        MathildePublicHosts::PRIMITIVES_GRPC,
+                        OUTPUTS_RANGE_GPRC_PATH,
+                        runtime.bearer_token.as_ref(),
+                        primitives_range_grpc_proto(&primitives_range_grpc_request)?,
+                    )
+                    .await?;
+                    compare_semantic_values(
+                        "primitives.range_grpc",
+                        &canonical_primitive_range_sdk(&out)?,
+                        &canonical_compute_range_raw(
+                            json_value(&direct, "primitives range gRPC direct response")?,
+                            mode,
+                        )?,
+                    )?;
+                    Ok::<(), String>(())
+                }
+                .await
+                {
+                    Ok(()) => record_pass(
+                        report,
+                        "primitives.range_grpc",
+                        format!(
+                            "rows={} kind={} next_cursor={} direct_grpc_semantic_match=true",
+                            out.rows.len(),
+                            primitive_output_kind(&out.rows[0]),
+                            out.next_cursor().unwrap_or("")
+                        ),
+                    ),
+                    Err(error) => record_fail(report, "primitives.range_grpc", error),
+                }
             }
             Ok(out) => record_fail(
                 report,
@@ -1839,19 +3675,43 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                         .is_some_and(|rows| !rows.is_empty()) =>
             {
                 let first = &out.evaluated_rows.as_ref().expect("evaluated rows")[0];
-                record_pass(
-                    report,
-                    "primitives.search",
-                    format!(
-                        "hits={} evaluated_rows={} kind={}",
-                        out.hits.len(),
-                        out.evaluated_rows
-                            .as_ref()
-                            .map(|rows| rows.len())
-                            .unwrap_or(0),
-                        primitive_output_kind(first)
-                    ),
+                let mode = primitive_mode_from_selectors_and_metadata(
+                    primitives_search_request.family.as_deref(),
+                    primitives_search_request.group.as_deref(),
+                    primitives_search_request.metadata,
                 );
+                match async {
+                    let direct = raw_http_post_json(
+                        &runtime.summary.primitives_http_base_url,
+                        "/v1/outputs/search",
+                        runtime.bearer_token.as_ref(),
+                        &primitives_search_http_body(&primitives_search_request)?,
+                    )
+                    .await?;
+                    compare_semantic_values(
+                        "primitives.search",
+                        &canonical_primitive_search_sdk(&out)?,
+                        &canonical_compute_search_raw(direct, mode)?,
+                    )?;
+                    Ok::<(), String>(())
+                }
+                .await
+                {
+                    Ok(()) => record_pass(
+                        report,
+                        "primitives.search",
+                        format!(
+                            "hits={} evaluated_rows={} kind={} direct_http_semantic_match=true",
+                            out.hits.len(),
+                            out.evaluated_rows
+                                .as_ref()
+                                .map(|rows| rows.len())
+                                .unwrap_or(0),
+                            primitive_output_kind(first)
+                        ),
+                    ),
+                    Err(error) => record_fail(report, "primitives.search", error),
+                }
             }
             Ok(out) => record_fail(
                 report,
@@ -1893,19 +3753,49 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                         .is_some_and(|rows| !rows.is_empty()) =>
             {
                 let first = &out.evaluated_rows.as_ref().expect("evaluated rows")[0];
-                record_pass(
-                    report,
-                    "primitives.search_grpc",
-                    format!(
-                        "hits={} evaluated_rows={} kind={}",
-                        out.hits.len(),
-                        out.evaluated_rows
-                            .as_ref()
-                            .map(|rows| rows.len())
-                            .unwrap_or(0),
-                        primitive_output_kind(first)
-                    ),
+                let mode = primitive_mode_from_selectors_and_metadata(
+                    primitives_search_grpc_request.family.as_deref(),
+                    primitives_search_grpc_request.group.as_deref(),
+                    primitives_search_grpc_request.metadata,
                 );
+                match async {
+                    let direct = raw_grpc_unary::<
+                        primitives_proto::SearchOutputsRequestV1,
+                        primitives_proto::OutputsSearchResponseV1,
+                    >(
+                        MathildePublicHosts::PRIMITIVES_GRPC,
+                        OUTPUTS_SEARCH_GPRC_PATH,
+                        runtime.bearer_token.as_ref(),
+                        primitives_search_grpc_proto(&primitives_search_grpc_request)?,
+                    )
+                    .await?;
+                    compare_semantic_values(
+                        "primitives.search_grpc",
+                        &canonical_primitive_search_sdk(&out)?,
+                        &canonical_compute_search_raw(
+                            json_value(&direct, "primitives search gRPC direct response")?,
+                            mode,
+                        )?,
+                    )?;
+                    Ok::<(), String>(())
+                }
+                .await
+                {
+                    Ok(()) => record_pass(
+                        report,
+                        "primitives.search_grpc",
+                        format!(
+                            "hits={} evaluated_rows={} kind={} direct_grpc_semantic_match=true",
+                            out.hits.len(),
+                            out.evaluated_rows
+                                .as_ref()
+                                .map(|rows| rows.len())
+                                .unwrap_or(0),
+                            primitive_output_kind(first)
+                        ),
+                    ),
+                    Err(error) => record_fail(report, "primitives.search_grpc", error),
+                }
             }
             Ok(out) => record_fail(
                 report,
@@ -1945,16 +3835,40 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
             .await
         {
             Ok(out) if !out.rows.is_empty() => {
-                record_pass(
-                    report,
-                    "primitives.time_machine",
-                    format!(
-                        "rows={} kind={} done={}",
-                        out.rows.len(),
-                        primitive_output_kind(&out.rows[0].output),
-                        out.done()
-                    ),
+                let mode = primitive_mode_from_selectors_and_metadata(
+                    primitives_time_machine_request.family.as_deref(),
+                    primitives_time_machine_request.group.as_deref(),
+                    primitives_time_machine_request.metadata,
                 );
+                match async {
+                    let direct = raw_http_post_json(
+                        &runtime.summary.primitives_http_base_url,
+                        "/v1/outputs/time-machine",
+                        runtime.bearer_token.as_ref(),
+                        &primitives_time_machine_http_body(&primitives_time_machine_request)?,
+                    )
+                    .await?;
+                    compare_semantic_values(
+                        "primitives.time_machine",
+                        &canonical_primitive_time_machine_sdk(&out)?,
+                        &canonical_compute_time_machine_raw(direct, mode)?,
+                    )?;
+                    Ok::<(), String>(())
+                }
+                .await
+                {
+                    Ok(()) => record_pass(
+                        report,
+                        "primitives.time_machine",
+                        format!(
+                            "rows={} kind={} done={} direct_http_semantic_match=true",
+                            out.rows.len(),
+                            primitive_output_kind(&out.rows[0].output),
+                            out.done()
+                        ),
+                    ),
+                    Err(error) => record_fail(report, "primitives.time_machine", error),
+                }
             }
             Ok(out) => record_fail(
                 report,
@@ -1987,16 +3901,46 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
             .await
         {
             Ok(out) if !out.rows.is_empty() => {
-                record_pass(
-                    report,
-                    "primitives.time_machine_grpc",
-                    format!(
-                        "rows={} kind={} done={}",
-                        out.rows.len(),
-                        primitive_output_kind(&out.rows[0].output),
-                        out.done()
-                    ),
+                let mode = primitive_mode_from_selectors_and_metadata(
+                    primitives_time_machine_grpc_request.family.as_deref(),
+                    primitives_time_machine_grpc_request.group.as_deref(),
+                    primitives_time_machine_grpc_request.metadata,
                 );
+                match async {
+                    let direct = raw_grpc_unary::<
+                        primitives_proto::TimeMachineOutputsRequestV1,
+                        primitives_proto::OutputsTimeMachineResponseV1,
+                    >(
+                        MathildePublicHosts::PRIMITIVES_GRPC,
+                        OUTPUTS_TIME_MACHINE_GPRC_PATH,
+                        runtime.bearer_token.as_ref(),
+                        primitives_time_machine_grpc_proto(&primitives_time_machine_grpc_request)?,
+                    )
+                    .await?;
+                    compare_semantic_values(
+                        "primitives.time_machine_grpc",
+                        &canonical_primitive_time_machine_sdk(&out)?,
+                        &canonical_compute_time_machine_raw(
+                            json_value(&direct, "primitives time-machine gRPC direct response")?,
+                            mode,
+                        )?,
+                    )?;
+                    Ok::<(), String>(())
+                }
+                .await
+                {
+                    Ok(()) => record_pass(
+                        report,
+                        "primitives.time_machine_grpc",
+                        format!(
+                            "rows={} kind={} done={} direct_grpc_semantic_match=true",
+                            out.rows.len(),
+                            primitive_output_kind(&out.rows[0].output),
+                            out.done()
+                        ),
+                    ),
+                    Err(error) => record_fail(report, "primitives.time_machine_grpc", error),
+                }
             }
             Ok(out) => record_fail(
                 report,
@@ -2245,18 +4189,48 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
     };
     let regime_anchor_close_ms = match regime.latest(&regime_latest_request).await {
         Ok(out) if !out.rows.is_empty() => {
-            record_pass(
-                report,
-                "regime.latest",
-                format!(
-                    "rows={} missing_pairs={} kind={} close_end_ms={}",
-                    out.rows.len(),
-                    out.missing_pairs.len(),
-                    regime_output_kind(&out.rows[0].output),
-                    out.close_end_ms
-                ),
+            let mode = regime_mode_from_selectors_secondary_and_metadata(
+                regime_latest_request.family.as_deref(),
+                regime_latest_request.group.as_deref(),
+                regime_latest_request.secondary,
+                regime_latest_request.metadata,
             );
-            out.close_end_ms
+            match async {
+                let direct = raw_http_post_json(
+                    &runtime.summary.regime_http_base_url,
+                    "/v1/outputs/latest",
+                    runtime.bearer_token.as_ref(),
+                    &regime_latest_http_body(&regime_latest_request)?,
+                )
+                .await?;
+                compare_semantic_values(
+                    "regime.latest",
+                    &canonical_regime_latest_sdk(&out)?,
+                    &canonical_compute_latest_raw(direct, mode)?,
+                )?;
+                Ok::<i64, String>(out.close_end_ms)
+            }
+            .await
+            {
+                Ok(close_end_ms) => {
+                    record_pass(
+                        report,
+                        "regime.latest",
+                        format!(
+                            "rows={} missing_pairs={} kind={} close_end_ms={} direct_http_semantic_match=true",
+                            out.rows.len(),
+                            out.missing_pairs.len(),
+                            regime_output_kind(&out.rows[0].output),
+                            close_end_ms
+                        ),
+                    );
+                    close_end_ms
+                }
+                Err(error) => {
+                    record_fail(report, "regime.latest", error);
+                    0
+                }
+            }
         }
         Ok(out) => {
             record_fail(
@@ -2390,17 +4364,48 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
     };
     match regime.latest_grpc(&regime_latest_grpc_request).await {
         Ok(out) if !out.rows.is_empty() => {
-            record_pass(
-                report,
-                "regime.latest_grpc",
-                format!(
-                    "rows={} missing_pairs={} kind={} close_end_ms={}",
-                    out.rows.len(),
-                    out.missing_pairs.len(),
-                    regime_output_kind(&out.rows[0].output),
-                    out.close_end_ms
-                ),
+            let mode = regime_mode_from_selectors_secondary_and_metadata(
+                regime_latest_grpc_request.family.as_deref(),
+                regime_latest_grpc_request.group.as_deref(),
+                regime_latest_grpc_request.secondary,
+                regime_latest_grpc_request.metadata,
             );
+            match async {
+                let direct = raw_grpc_unary::<
+                    regime_proto::LatestOutputsRequestV1,
+                    regime_proto::OutputsLatestResponseV1,
+                >(
+                    MathildePublicHosts::REGIME_GRPC,
+                    OUTPUTS_LATEST_GPRC_PATH,
+                    runtime.bearer_token.as_ref(),
+                    regime_latest_grpc_proto(&regime_latest_grpc_request)?,
+                )
+                .await?;
+                compare_semantic_values(
+                    "regime.latest_grpc",
+                    &canonical_regime_latest_sdk(&out)?,
+                    &canonical_compute_latest_raw(
+                        json_value(&direct, "regime latest gRPC direct response")?,
+                        mode,
+                    )?,
+                )?;
+                Ok::<(), String>(())
+            }
+            .await
+            {
+                Ok(()) => record_pass(
+                    report,
+                    "regime.latest_grpc",
+                    format!(
+                        "rows={} missing_pairs={} kind={} close_end_ms={} direct_grpc_semantic_match=true",
+                        out.rows.len(),
+                        out.missing_pairs.len(),
+                        regime_output_kind(&out.rows[0].output),
+                        out.close_end_ms
+                    ),
+                ),
+                Err(error) => record_fail(report, "regime.latest_grpc", error),
+            }
         }
         Ok(out) => record_fail(
             report,
@@ -2428,16 +4433,41 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
         };
         match regime.range(&regime_range_request).await {
             Ok(out) if !out.rows.is_empty() => {
-                record_pass(
-                    report,
-                    "regime.range",
-                    format!(
-                        "rows={} kind={} next_cursor={}",
-                        out.rows.len(),
-                        regime_output_kind(&out.rows[0]),
-                        out.next_cursor().unwrap_or("")
-                    ),
+                let mode = regime_mode_from_selectors_secondary_and_metadata(
+                    regime_range_request.family.as_deref(),
+                    regime_range_request.group.as_deref(),
+                    regime_range_request.secondary,
+                    regime_range_request.metadata,
                 );
+                match async {
+                    let direct = raw_http_post_json(
+                        &runtime.summary.regime_http_base_url,
+                        "/v1/outputs/range",
+                        runtime.bearer_token.as_ref(),
+                        &regime_range_http_body(&regime_range_request)?,
+                    )
+                    .await?;
+                    compare_semantic_values(
+                        "regime.range",
+                        &canonical_regime_range_sdk(&out)?,
+                        &canonical_compute_range_raw(direct, mode)?,
+                    )?;
+                    Ok::<(), String>(())
+                }
+                .await
+                {
+                    Ok(()) => record_pass(
+                        report,
+                        "regime.range",
+                        format!(
+                            "rows={} kind={} next_cursor={} direct_http_semantic_match=true",
+                            out.rows.len(),
+                            regime_output_kind(&out.rows[0]),
+                            out.next_cursor().unwrap_or("")
+                        ),
+                    ),
+                    Err(error) => record_fail(report, "regime.range", error),
+                }
             }
             Ok(out) => record_fail(
                 report,
@@ -2463,16 +4493,47 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
         };
         match regime.range_grpc(&regime_range_grpc_request).await {
             Ok(out) if !out.rows.is_empty() => {
-                record_pass(
-                    report,
-                    "regime.range_grpc",
-                    format!(
-                        "rows={} kind={} next_cursor={}",
-                        out.rows.len(),
-                        regime_output_kind(&out.rows[0]),
-                        out.next_cursor().unwrap_or("")
-                    ),
+                let mode = regime_mode_from_selectors_secondary_and_metadata(
+                    regime_range_grpc_request.family.as_deref(),
+                    regime_range_grpc_request.group.as_deref(),
+                    regime_range_grpc_request.secondary,
+                    regime_range_grpc_request.metadata,
                 );
+                match async {
+                    let direct = raw_grpc_unary::<
+                        regime_proto::RangeOutputsRequestV1,
+                        regime_proto::OutputsRangeResponseV1,
+                    >(
+                        MathildePublicHosts::REGIME_GRPC,
+                        OUTPUTS_RANGE_GPRC_PATH,
+                        runtime.bearer_token.as_ref(),
+                        regime_range_grpc_proto(&regime_range_grpc_request)?,
+                    )
+                    .await?;
+                    compare_semantic_values(
+                        "regime.range_grpc",
+                        &canonical_regime_range_sdk(&out)?,
+                        &canonical_compute_range_raw(
+                            json_value(&direct, "regime range gRPC direct response")?,
+                            mode,
+                        )?,
+                    )?;
+                    Ok::<(), String>(())
+                }
+                .await
+                {
+                    Ok(()) => record_pass(
+                        report,
+                        "regime.range_grpc",
+                        format!(
+                            "rows={} kind={} next_cursor={} direct_grpc_semantic_match=true",
+                            out.rows.len(),
+                            regime_output_kind(&out.rows[0]),
+                            out.next_cursor().unwrap_or("")
+                        ),
+                    ),
+                    Err(error) => record_fail(report, "regime.range_grpc", error),
+                }
             }
             Ok(out) => record_fail(
                 report,
@@ -2507,19 +4568,44 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                         .is_some_and(|rows| !rows.is_empty()) =>
             {
                 let first = &out.evaluated_rows.as_ref().expect("evaluated rows")[0];
-                record_pass(
-                    report,
-                    "regime.search",
-                    format!(
-                        "hits={} evaluated_rows={} kind={}",
-                        out.hits.len(),
-                        out.evaluated_rows
-                            .as_ref()
-                            .map(|rows| rows.len())
-                            .unwrap_or(0),
-                        regime_output_kind(first)
-                    ),
+                let mode = regime_mode_from_selectors_secondary_and_metadata(
+                    regime_search_request.family.as_deref(),
+                    regime_search_request.group.as_deref(),
+                    regime_search_request.secondary,
+                    regime_search_request.metadata,
                 );
+                match async {
+                    let direct = raw_http_post_json(
+                        &runtime.summary.regime_http_base_url,
+                        "/v1/outputs/search",
+                        runtime.bearer_token.as_ref(),
+                        &regime_search_http_body(&regime_search_request)?,
+                    )
+                    .await?;
+                    compare_semantic_values(
+                        "regime.search",
+                        &canonical_regime_search_sdk(&out)?,
+                        &canonical_compute_search_raw(direct, mode)?,
+                    )?;
+                    Ok::<(), String>(())
+                }
+                .await
+                {
+                    Ok(()) => record_pass(
+                        report,
+                        "regime.search",
+                        format!(
+                            "hits={} evaluated_rows={} kind={} direct_http_semantic_match=true",
+                            out.hits.len(),
+                            out.evaluated_rows
+                                .as_ref()
+                                .map(|rows| rows.len())
+                                .unwrap_or(0),
+                            regime_output_kind(first)
+                        ),
+                    ),
+                    Err(error) => record_fail(report, "regime.search", error),
+                }
             }
             Ok(out) => record_fail(
                 report,
@@ -2559,19 +4645,50 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                         .is_some_and(|rows| !rows.is_empty()) =>
             {
                 let first = &out.evaluated_rows.as_ref().expect("evaluated rows")[0];
-                record_pass(
-                    report,
-                    "regime.search_grpc",
-                    format!(
-                        "hits={} evaluated_rows={} kind={}",
-                        out.hits.len(),
-                        out.evaluated_rows
-                            .as_ref()
-                            .map(|rows| rows.len())
-                            .unwrap_or(0),
-                        regime_output_kind(first)
-                    ),
+                let mode = regime_mode_from_selectors_secondary_and_metadata(
+                    regime_search_grpc_request.family.as_deref(),
+                    regime_search_grpc_request.group.as_deref(),
+                    regime_search_grpc_request.secondary,
+                    regime_search_grpc_request.metadata,
                 );
+                match async {
+                    let direct = raw_grpc_unary::<
+                        regime_proto::SearchOutputsRequestV1,
+                        regime_proto::OutputsSearchResponseV1,
+                    >(
+                        MathildePublicHosts::REGIME_GRPC,
+                        OUTPUTS_SEARCH_GPRC_PATH,
+                        runtime.bearer_token.as_ref(),
+                        regime_search_grpc_proto(&regime_search_grpc_request)?,
+                    )
+                    .await?;
+                    compare_semantic_values(
+                        "regime.search_grpc",
+                        &canonical_regime_search_sdk(&out)?,
+                        &canonical_compute_search_raw(
+                            json_value(&direct, "regime search gRPC direct response")?,
+                            mode,
+                        )?,
+                    )?;
+                    Ok::<(), String>(())
+                }
+                .await
+                {
+                    Ok(()) => record_pass(
+                        report,
+                        "regime.search_grpc",
+                        format!(
+                            "hits={} evaluated_rows={} kind={} direct_grpc_semantic_match=true",
+                            out.hits.len(),
+                            out.evaluated_rows
+                                .as_ref()
+                                .map(|rows| rows.len())
+                                .unwrap_or(0),
+                            regime_output_kind(first)
+                        ),
+                    ),
+                    Err(error) => record_fail(report, "regime.search_grpc", error),
+                }
             }
             Ok(out) => record_fail(
                 report,
@@ -2609,16 +4726,41 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
         };
         match regime.time_machine(&regime_time_machine_request).await {
             Ok(out) if !out.rows.is_empty() => {
-                record_pass(
-                    report,
-                    "regime.time_machine",
-                    format!(
-                        "rows={} kind={} done={}",
-                        out.rows.len(),
-                        regime_output_kind(&out.rows[0].output),
-                        out.done()
-                    ),
+                let mode = regime_mode_from_selectors_secondary_and_metadata(
+                    regime_time_machine_request.family.as_deref(),
+                    regime_time_machine_request.group.as_deref(),
+                    regime_time_machine_request.secondary,
+                    regime_time_machine_request.metadata,
                 );
+                match async {
+                    let direct = raw_http_post_json(
+                        &runtime.summary.regime_http_base_url,
+                        "/v1/outputs/time-machine",
+                        runtime.bearer_token.as_ref(),
+                        &regime_time_machine_http_body(&regime_time_machine_request)?,
+                    )
+                    .await?;
+                    compare_semantic_values(
+                        "regime.time_machine",
+                        &canonical_regime_time_machine_sdk(&out)?,
+                        &canonical_compute_time_machine_raw(direct, mode)?,
+                    )?;
+                    Ok::<(), String>(())
+                }
+                .await
+                {
+                    Ok(()) => record_pass(
+                        report,
+                        "regime.time_machine",
+                        format!(
+                            "rows={} kind={} done={} direct_http_semantic_match=true",
+                            out.rows.len(),
+                            regime_output_kind(&out.rows[0].output),
+                            out.done()
+                        ),
+                    ),
+                    Err(error) => record_fail(report, "regime.time_machine", error),
+                }
             }
             Ok(out) => record_fail(
                 report,
@@ -2651,16 +4793,47 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
             .await
         {
             Ok(out) if !out.rows.is_empty() => {
-                record_pass(
-                    report,
-                    "regime.time_machine_grpc",
-                    format!(
-                        "rows={} kind={} done={}",
-                        out.rows.len(),
-                        regime_output_kind(&out.rows[0].output),
-                        out.done()
-                    ),
+                let mode = regime_mode_from_selectors_secondary_and_metadata(
+                    regime_time_machine_grpc_request.family.as_deref(),
+                    regime_time_machine_grpc_request.group.as_deref(),
+                    regime_time_machine_grpc_request.secondary,
+                    regime_time_machine_grpc_request.metadata,
                 );
+                match async {
+                    let direct = raw_grpc_unary::<
+                        regime_proto::TimeMachineOutputsRequestV1,
+                        regime_proto::OutputsTimeMachineResponseV1,
+                    >(
+                        MathildePublicHosts::REGIME_GRPC,
+                        OUTPUTS_TIME_MACHINE_GPRC_PATH,
+                        runtime.bearer_token.as_ref(),
+                        regime_time_machine_grpc_proto(&regime_time_machine_grpc_request)?,
+                    )
+                    .await?;
+                    compare_semantic_values(
+                        "regime.time_machine_grpc",
+                        &canonical_regime_time_machine_sdk(&out)?,
+                        &canonical_compute_time_machine_raw(
+                            json_value(&direct, "regime time-machine gRPC direct response")?,
+                            mode,
+                        )?,
+                    )?;
+                    Ok::<(), String>(())
+                }
+                .await
+                {
+                    Ok(()) => record_pass(
+                        report,
+                        "regime.time_machine_grpc",
+                        format!(
+                            "rows={} kind={} done={} direct_grpc_semantic_match=true",
+                            out.rows.len(),
+                            regime_output_kind(&out.rows[0].output),
+                            out.done()
+                        ),
+                    ),
+                    Err(error) => record_fail(report, "regime.time_machine_grpc", error),
+                }
             }
             Ok(out) => record_fail(
                 report,
@@ -2771,25 +4944,73 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
 
         match aggregator.connect_bars_ws(&aggregator_ws_request).await {
             Ok(mut connection) => {
-                match timeout(ws_timeout(), connection.next_frame(&aggregator_ws_request)).await {
-                    Ok(Ok(Some(frame))) => record_pass(
-                        report,
-                        "aggregator.connect_bars_ws",
-                        format!("frame_kind={}", aggregator_bars_ws_frame_kind(&frame)),
-                    ),
-                    Ok(Ok(None)) => record_fail(
-                        report,
-                        "aggregator.connect_bars_ws",
-                        "ws stream closed before first frame",
-                    ),
-                    Ok(Err(error)) => {
-                        record_fail(report, "aggregator.connect_bars_ws", error.to_string())
+                let started = tokio::time::Instant::now();
+                let mut saw_payload = false;
+                let mut saw_replay_done = false;
+                let mut frame_kinds = Vec::new();
+                loop {
+                    let elapsed = started.elapsed();
+                    if elapsed >= ws_replay_timeout() {
+                        record_fail(
+                            report,
+                            "aggregator.connect_bars_ws",
+                            format!(
+                                "timed out waiting for replay rows + replay_done; observed={}",
+                                frame_kinds.join(",")
+                            ),
+                        );
+                        break;
                     }
-                    Err(_) => record_fail(
-                        report,
-                        "aggregator.connect_bars_ws",
-                        "timed out waiting for first frame",
-                    ),
+
+                    match timeout(
+                        ws_replay_timeout() - elapsed,
+                        connection.next_frame(&aggregator_ws_request),
+                    )
+                    .await
+                    {
+                        Ok(Ok(Some(frame))) => {
+                            frame_kinds.push(aggregator_bars_ws_frame_kind(&frame).to_string());
+                            if aggregator_bars_ws_is_payload(&frame) {
+                                saw_payload = true;
+                            }
+                            if let BarsWsInboundFrame::Meta(meta) = &frame {
+                                if meta.is_replay_done() {
+                                    saw_replay_done = true;
+                                }
+                            }
+                            if saw_payload && saw_replay_done {
+                                record_pass(
+                                    report,
+                                    "aggregator.connect_bars_ws",
+                                    format!(
+                                        "replay rows + replay_done observed within 60s; frames={}",
+                                        frame_kinds.join(",")
+                                    ),
+                                );
+                                break;
+                            }
+                        }
+                        Ok(Ok(None)) => {
+                            record_fail(
+                                report,
+                                "aggregator.connect_bars_ws",
+                                "ws stream closed before replay rows + replay_done were observed",
+                            );
+                            break;
+                        }
+                        Ok(Err(error)) => {
+                            record_fail(report, "aggregator.connect_bars_ws", error.to_string());
+                            break;
+                        }
+                        Err(_) => {
+                            record_fail(
+                                report,
+                                "aggregator.connect_bars_ws",
+                                "timed out waiting for replay rows + replay_done",
+                            );
+                            break;
+                        }
+                    }
                 }
             }
             Err(error) => record_fail(report, "aggregator.connect_bars_ws", error.to_string()),
@@ -3032,7 +5253,9 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
                     "aggregator.latest_http_grpc_parity",
                     format!(
                         "pair={} close_end_ms={}",
-                        pair_from_latest_response(&http).unwrap_or("unknown"),
+                        pair_from_latest_response(&http)
+                            .or_else(|| pair_from_latest_response(&grpc))
+                            .unwrap_or("unknown"),
                         close_end_from_latest_response(&http)
                     ),
                 );
@@ -3185,25 +5408,73 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
     };
     match primitives.connect_outputs_ws(&primitives_ws_request).await {
         Ok(mut connection) => {
-            match timeout(ws_timeout(), connection.next_frame(&primitives_ws_request)).await {
-                Ok(Ok(Some(frame))) => record_pass(
-                    report,
-                    "primitives.connect_outputs_ws",
-                    format!("frame_kind={}", primitive_outputs_ws_frame_kind(&frame)),
-                ),
-                Ok(Ok(None)) => record_fail(
-                    report,
-                    "primitives.connect_outputs_ws",
-                    "ws stream closed before first frame",
-                ),
-                Ok(Err(error)) => {
-                    record_fail(report, "primitives.connect_outputs_ws", error.to_string())
+            let started = tokio::time::Instant::now();
+            let mut saw_payload = false;
+            let mut saw_replay_done = false;
+            let mut frame_kinds = Vec::new();
+            loop {
+                let elapsed = started.elapsed();
+                if elapsed >= ws_replay_timeout() {
+                    record_fail(
+                        report,
+                        "primitives.connect_outputs_ws",
+                        format!(
+                            "timed out waiting for replay rows + replay_done; observed={}",
+                            frame_kinds.join(",")
+                        ),
+                    );
+                    break;
                 }
-                Err(_) => record_fail(
-                    report,
-                    "primitives.connect_outputs_ws",
-                    "timed out waiting for first frame",
-                ),
+
+                match timeout(
+                    ws_replay_timeout() - elapsed,
+                    connection.next_frame(&primitives_ws_request),
+                )
+                .await
+                {
+                    Ok(Ok(Some(frame))) => {
+                        frame_kinds.push(primitive_outputs_ws_frame_kind(&frame).to_string());
+                        if primitive_outputs_ws_is_payload(&frame) {
+                            saw_payload = true;
+                        }
+                        if let PrimitiveOutputsWsInboundFrame::Meta(meta) = &frame {
+                            if meta.is_replay_done() {
+                                saw_replay_done = true;
+                            }
+                        }
+                        if saw_payload && saw_replay_done {
+                            record_pass(
+                                report,
+                                "primitives.connect_outputs_ws",
+                                format!(
+                                    "replay rows + replay_done observed within 60s; frames={}",
+                                    frame_kinds.join(",")
+                                ),
+                            );
+                            break;
+                        }
+                    }
+                    Ok(Ok(None)) => {
+                        record_fail(
+                            report,
+                            "primitives.connect_outputs_ws",
+                            "ws stream closed before replay rows + replay_done were observed",
+                        );
+                        break;
+                    }
+                    Ok(Err(error)) => {
+                        record_fail(report, "primitives.connect_outputs_ws", error.to_string());
+                        break;
+                    }
+                    Err(_) => {
+                        record_fail(
+                            report,
+                            "primitives.connect_outputs_ws",
+                            "timed out waiting for replay rows + replay_done",
+                        );
+                        break;
+                    }
+                }
             }
         }
         Err(error) => record_fail(report, "primitives.connect_outputs_ws", error.to_string()),
@@ -4117,7 +6388,7 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
         latest_mode: Some(LatestMode::ExactWatermark),
         family: None,
         group: None,
-        secondary: Some(false),
+        secondary: Some(true),
         metadata: Some(false),
         diagnostics: Some(false),
         format: Some(HttpFormat::Json),
@@ -4462,7 +6733,7 @@ async fn run(settings: &Settings) -> Result<Report, String> {
         proved_observations: Vec::new(),
         failures: Vec::new(),
         skipped: Vec::new(),
-        final_status: "phase_6_ws_pagination_downloads_failed".to_string(),
+        final_status: "full_public_endpoint_verification_failed".to_string(),
     };
 
     println!("[{BIN_NAME}] starting phase-6 ws, downloads, pagination, and parity verification");
@@ -4497,9 +6768,9 @@ async fn run(settings: &Settings) -> Result<Report, String> {
     run_phase_5_primitives_and_regime(&runtime, &mut report).await;
     run_phase_6_ws_downloads_pagination_and_parity(&runtime, &mut report).await;
     report.final_status = if report.failures.is_empty() {
-        "phase_6_ws_pagination_downloads_ready".to_string()
+        "full_public_endpoint_verification_passed".to_string()
     } else {
-        "phase_6_ws_pagination_downloads_failed".to_string()
+        "full_public_endpoint_verification_failed".to_string()
     };
 
     Ok(report)
@@ -4527,7 +6798,7 @@ async fn main() {
             proved_observations: Vec::new(),
             failures: vec![error],
             skipped: Vec::new(),
-            final_status: "phase_6_ws_pagination_downloads_failed".to_string(),
+            final_status: "full_public_endpoint_verification_failed".to_string(),
         },
     };
 

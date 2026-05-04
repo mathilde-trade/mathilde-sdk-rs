@@ -14,32 +14,6 @@ fn config_for_http(base_url: &str) -> PrimitivesConfig {
     }
 }
 
-fn min_output_json(pair: &str) -> serde_json::Value {
-    serde_json::json!({
-        "pair": pair,
-        "tf": "1m",
-        "open_ms": 1770000000000_i64,
-        "close_ms": 1770000060000_i64,
-        "open_utc": "2026-02-02T00:00:00Z",
-        "close_utc": "2026-02-02T00:01:00Z",
-        "o": 100.0,
-        "h": 101.0,
-        "l": 99.5,
-        "c": 100.5,
-        "v": 12.34,
-        "quote_v": 1234.56,
-        "taker_known_v": 6.17,
-        "taker_signed_v": 1.23,
-        "taker_known_quote_v": 617.28,
-        "taker_signed_quote_v": 123.45,
-        "taker_known_n": 18,
-        "taker_signed_n": 3,
-        "vw": 100.21,
-        "n": null,
-        "bs_close_window_min": 0.75
-    })
-}
-
 #[test]
 fn test_primitives_config_mathilde_public_default_uses_manifest_hosts() {
     let token = BearerToken::new("feed_public_token").expect("valid token");
@@ -145,7 +119,27 @@ async fn test_latest_outputs_uses_post_and_decodes_min_response() {
         "latest_mode": "exact_watermark",
         "view": "min",
         "rows": [{
-            "output": min_output_json("BTCUSDT"),
+            "pair": "BTCUSDT",
+            "tf": "1m",
+            "open_ms": 1770000000000_i64,
+            "close_ms": 1770000060000_i64,
+            "open_utc": "2026-02-02T00:00:00Z",
+            "close_utc": "2026-02-02T00:01:00Z",
+            "o": 100.0,
+            "h": 101.0,
+            "l": 99.5,
+            "c": 100.5,
+            "v": 12.34,
+            "quote_v": 1234.56,
+            "taker_known_v": 6.17,
+            "taker_signed_v": 1.23,
+            "taker_known_quote_v": 617.28,
+            "taker_signed_quote_v": 123.45,
+            "taker_known_n": 18,
+            "taker_signed_n": 3,
+            "vw": 100.21,
+            "n": null,
+            "bs_close_window_min": 0.75,
             "age_ms": 101
         }],
         "missing_pairs": ["ETHUSDT"]

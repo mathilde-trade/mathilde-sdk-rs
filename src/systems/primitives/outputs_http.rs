@@ -4,10 +4,11 @@ use crate::generated::primitives::{
     ProcessorProjectedOutputWithMeta, outputs_proto::mathilde::feed::outputs::v1 as proto,
 };
 use crate::systems::primitives::types::{
-    LatestOutputsRequest, LatestOutputsResponse, LatestOutputsResponseWire, PrimitiveOutputMode,
-    RangeOutputsRequest, RangeOutputsResponse, RangeOutputsResponseWire, SearchOutputsRequest,
-    SearchOutputsResponse, SearchOutputsResponseWire, TimeMachineOutputsRequest,
-    TimeMachineOutputsResponse, TimeMachineOutputsResponseWire, diagnostics_enabled,
+    LatestOutputsHttpResponseWire, LatestOutputsRequest, LatestOutputsResponse,
+    PrimitiveOutputMode, RangeOutputsRequest, RangeOutputsResponse, RangeOutputsResponseWire,
+    SearchOutputsRequest, SearchOutputsResponse, SearchOutputsResponseWire,
+    TimeMachineOutputsRequest, TimeMachineOutputsResponse, TimeMachineOutputsResponseWire,
+    diagnostics_enabled,
 };
 use crate::systems::types::HttpFormat;
 use crate::transport::http::HttpTransport;
@@ -41,24 +42,24 @@ pub async fn latest_outputs(
 
     match output_mode {
         PrimitiveOutputMode::Min => response
-            .json::<LatestOutputsResponseWire<ProcessorOutputMin>>()
+            .json::<LatestOutputsHttpResponseWire<ProcessorOutputMin>>()
             .await
             .map_err(|source| SdkError::Decode { source })
             .and_then(|wire| LatestOutputsResponse::from_http_min(wire, diagnostics_enabled)),
         PrimitiveOutputMode::WithMeta => response
-            .json::<LatestOutputsResponseWire<ProcessorOutputWithMeta>>()
+            .json::<LatestOutputsHttpResponseWire<ProcessorOutputWithMeta>>()
             .await
             .map_err(|source| SdkError::Decode { source })
             .and_then(|wire| LatestOutputsResponse::from_http_with_meta(wire, diagnostics_enabled)),
         PrimitiveOutputMode::ProjectedMin => response
-            .json::<LatestOutputsResponseWire<ProcessorProjectedOutputMin>>()
+            .json::<LatestOutputsHttpResponseWire<ProcessorProjectedOutputMin>>()
             .await
             .map_err(|source| SdkError::Decode { source })
             .and_then(|wire| {
                 LatestOutputsResponse::from_http_projected_min(wire, diagnostics_enabled)
             }),
         PrimitiveOutputMode::ProjectedWithMeta => response
-            .json::<LatestOutputsResponseWire<ProcessorProjectedOutputWithMeta>>()
+            .json::<LatestOutputsHttpResponseWire<ProcessorProjectedOutputWithMeta>>()
             .await
             .map_err(|source| SdkError::Decode { source })
             .and_then(|wire| {

@@ -958,12 +958,19 @@ pub(crate) struct LatestOutputsPresentRowWire<T> {
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
-pub(crate) struct LatestOutputsResponseWire<T> {
+pub(crate) struct LatestOutputsHttpPresentRowWire<T> {
+    #[serde(flatten)]
+    output: T,
+    age_ms: i64,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct LatestOutputsHttpResponseWire<T> {
     watermark_end_ms: i64,
     close_end_ms: i64,
     latest_mode: LatestMode,
     view: OutputView,
-    rows: Vec<LatestOutputsPresentRowWire<T>>,
+    rows: Vec<LatestOutputsHttpPresentRowWire<T>>,
     missing_pairs: Vec<String>,
 }
 
@@ -1080,7 +1087,7 @@ impl LatestOutputsPresentRow {
 
 impl LatestOutputsResponse {
     pub(crate) fn from_http_min(
-        wire: LatestOutputsResponseWire<ProcessorOutputMin>,
+        wire: LatestOutputsHttpResponseWire<ProcessorOutputMin>,
         diagnostics_enabled: bool,
     ) -> Result<Self, SdkError> {
         Self::from_http_typed(
@@ -1092,7 +1099,7 @@ impl LatestOutputsResponse {
     }
 
     pub(crate) fn from_http_with_meta(
-        wire: LatestOutputsResponseWire<ProcessorOutputWithMeta>,
+        wire: LatestOutputsHttpResponseWire<ProcessorOutputWithMeta>,
         diagnostics_enabled: bool,
     ) -> Result<Self, SdkError> {
         Self::from_http_typed(
@@ -1104,7 +1111,7 @@ impl LatestOutputsResponse {
     }
 
     pub(crate) fn from_http_projected_min(
-        wire: LatestOutputsResponseWire<ProcessorProjectedOutputMin>,
+        wire: LatestOutputsHttpResponseWire<ProcessorProjectedOutputMin>,
         diagnostics_enabled: bool,
     ) -> Result<Self, SdkError> {
         Self::from_http_typed(
@@ -1116,7 +1123,7 @@ impl LatestOutputsResponse {
     }
 
     pub(crate) fn from_http_projected_with_meta(
-        wire: LatestOutputsResponseWire<ProcessorProjectedOutputWithMeta>,
+        wire: LatestOutputsHttpResponseWire<ProcessorProjectedOutputWithMeta>,
         diagnostics_enabled: bool,
     ) -> Result<Self, SdkError> {
         Self::from_http_typed(
@@ -1128,7 +1135,7 @@ impl LatestOutputsResponse {
     }
 
     fn from_http_typed<T>(
-        wire: LatestOutputsResponseWire<T>,
+        wire: LatestOutputsHttpResponseWire<T>,
         mode: RegimeOutputMode,
         diagnostics_enabled: bool,
         wrap: fn(T, bool) -> RegimeOutput,

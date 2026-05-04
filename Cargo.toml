@@ -7,6 +7,10 @@ edition = "2024"
 name = "sdk_live_public_surface_check"
 path = "bin/sdk_live_public_surface_check.rs"
 
+[[bin]]
+name = "endpoint_test"
+path = "bin/endpoint_test.rs"
+
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 futures-util = "0.3"

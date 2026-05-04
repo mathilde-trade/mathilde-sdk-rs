@@ -22,9 +22,11 @@ use mathilde_sdk_rs::systems::aggregator::{
     SearchBarsResponse, TimeMachineBarsGrpcRequest, TimeMachineBarsRequest,
     TimeMachineBarsResponse,
 };
+use mathilde_sdk_rs::systems::intro::Intro;
 use mathilde_sdk_rs::systems::primitives::{
     DocsRegistryRequest as PrimitivesDocsRegistryRequest, Primitives,
 };
+use mathilde_sdk_rs::systems::regime::{DocsRegistryRequest as RegimeDocsRegistryRequest, Regime};
 use mathilde_sdk_rs::systems::types::{AlignMode, HttpFormat, LatestMode, Timeframe};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::{Duration, timeout};
@@ -95,7 +97,9 @@ struct Report {
 struct RuntimeConfig {
     summary: RuntimeConfigSummary,
     client: Aggregator,
+    intro_client: Intro,
     primitives_client: Primitives,
+    regime_client: Regime,
 }
 
 #[derive(Debug, Clone)]
@@ -765,6 +769,7 @@ async fn observe_recovering_messages_ws(
 
 fn initial_surface_results() -> Vec<SurfaceResult> {
     [
+        ("intro", "intro.intro"),
         ("docs", "docs_system"),
         ("docs", "docs_themes"),
         ("docs", "docs_endpoints"),
@@ -775,6 +780,12 @@ fn initial_surface_results() -> Vec<SurfaceResult> {
         ("primitives_docs", "primitives.docs_registry"),
         ("primitives_docs", "primitives.docs_endpoints"),
         ("primitives_docs", "primitives.openapi"),
+        ("regime_docs", "regime.docs_system"),
+        ("regime_docs", "regime.docs_summary"),
+        ("regime_docs", "regime.docs_taxonomy"),
+        ("regime_docs", "regime.docs_registry"),
+        ("regime_docs", "regime.docs_endpoints"),
+        ("regime_docs", "regime.openapi"),
         ("discovery", "pairs_status"),
         ("discovery", "pairs_list"),
         ("discovery", "files_downloads"),
@@ -950,7 +961,9 @@ fn build_runtime_config() -> Result<RuntimeConfig, SdkError> {
     };
 
     let client = Aggregator::new(config)?;
+    let intro_client = Intro::client(bearer_token.clone())?;
     let primitives_client = Primitives::client(bearer_token.clone())?;
+    let regime_client = Regime::client(bearer_token.clone())?;
     Ok(RuntimeConfig {
         summary: RuntimeConfigSummary {
             http_base_url,
@@ -959,7 +972,9 @@ fn build_runtime_config() -> Result<RuntimeConfig, SdkError> {
             bearer_token_present,
         },
         client,
+        intro_client,
         primitives_client,
+        regime_client,
     })
 }
 
@@ -1008,7 +1023,25 @@ fn json_array_len(value: &serde_json::Value, key: &str) -> Option<usize> {
 
 async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
     let client = &runtime.client;
+    let intro = &runtime.intro_client;
     let primitives = &runtime.primitives_client;
+    let regime = &runtime.regime_client;
+
+    match intro.intro().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "intro.intro",
+                format!(
+                    "subsystem={} keys={}",
+                    json_str(&out, "subsystem").unwrap_or(""),
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(report, "intro.intro", "intro root was not a JSON object"),
+        Err(error) => record_fail(report, "intro.intro", error.to_string()),
+    }
 
     match client.docs_system().await {
         Ok(out) if json_str(&out, "intro").is_some_and(|intro| !intro.trim().is_empty()) => {
@@ -1156,6 +1189,140 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             "docs_endpoints was not a JSON object",
         ),
         Err(error) => record_fail(report, "primitives.docs_endpoints", error.to_string()),
+    }
+
+    match primitives.openapi().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "primitives.openapi",
+                format!(
+                    "keys={}",
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "primitives.openapi",
+            "openapi was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "primitives.openapi", error.to_string()),
+    }
+
+    match regime.docs_system().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "regime.docs_system",
+                format!(
+                    "subsystem={} keys={}",
+                    json_str(&out, "subsystem").unwrap_or(""),
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "regime.docs_system",
+            "docs_system was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "regime.docs_system", error.to_string()),
+    }
+
+    match regime.docs_summary().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "regime.docs_summary",
+                format!(
+                    "subsystem={} keys={}",
+                    json_str(&out, "subsystem").unwrap_or(""),
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "regime.docs_summary",
+            "docs_summary was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "regime.docs_summary", error.to_string()),
+    }
+
+    match regime.docs_taxonomy().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "regime.docs_taxonomy",
+                format!(
+                    "keys={}",
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "regime.docs_taxonomy",
+            "docs_taxonomy was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "regime.docs_taxonomy", error.to_string()),
+    }
+
+    match regime
+        .docs_registry(&RegimeDocsRegistryRequest::default())
+        .await
+    {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "regime.docs_registry",
+                format!(
+                    "keys={}",
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "regime.docs_registry",
+            "docs_registry was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "regime.docs_registry", error.to_string()),
+    }
+
+    match regime.docs_endpoints().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "regime.docs_endpoints",
+                format!(
+                    "keys={}",
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "regime.docs_endpoints",
+            "docs_endpoints was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "regime.docs_endpoints", error.to_string()),
+    }
+
+    match regime.openapi().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "regime.openapi",
+                format!(
+                    "keys={}",
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(report, "regime.openapi", "openapi was not a JSON object"),
+        Err(error) => record_fail(report, "regime.openapi", error.to_string()),
     }
 
     match primitives.openapi().await {
@@ -1724,6 +1891,12 @@ async fn run() -> Result<Report, String> {
     ));
     report.proved_observations.push(
         "constructed `Primitives` from checked-in public defaults without introducing new environment variables".to_string(),
+    );
+    report.proved_observations.push(
+        "constructed `Regime` from checked-in public defaults without introducing new environment variables".to_string(),
+    );
+    report.proved_observations.push(
+        "constructed `Intro` from checked-in public defaults without introducing new environment variables".to_string(),
     );
     report
         .proved_observations

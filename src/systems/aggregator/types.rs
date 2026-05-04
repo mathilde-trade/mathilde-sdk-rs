@@ -177,7 +177,7 @@ pub struct LatestBarsRequest {
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
 pub struct NormalizedLatestBarsRequest {
-    pub pairs: String,
+    pub pairs: Vec<String>,
     pub tf: Timeframe,
     pub latest_mode: LatestMode,
     pub metadata: Option<bool>,
@@ -195,7 +195,7 @@ pub struct LatestBarsGrpcRequest {
 impl LatestBarsRequest {
     pub fn normalize(&self) -> Result<NormalizedLatestBarsRequest, SdkError> {
         Ok(NormalizedLatestBarsRequest {
-            pairs: join_required_pair_values_csv(&self.pairs, "latest bars")?,
+            pairs: normalize_required_pair_values(&self.pairs, "latest bars")?,
             tf: self.tf,
             latest_mode: self.latest_mode,
             metadata: self.metadata,
@@ -254,7 +254,7 @@ pub struct RangeBarsGrpcRequest {
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
 pub struct NormalizedRangeBarsRequest {
-    pub pairs: String,
+    pub pairs: Vec<String>,
     pub tf: Timeframe,
     pub align_mode: Option<AlignMode>,
     #[serde(rename = "close_start_ms")]
@@ -282,7 +282,7 @@ pub struct NormalizedRangeBarsGrpcRequest {
 impl RangeBarsRequest {
     pub fn normalize(&self) -> Result<NormalizedRangeBarsRequest, SdkError> {
         Ok(NormalizedRangeBarsRequest {
-            pairs: join_required_pair_values_csv(&self.pairs, "range bars")?,
+            pairs: normalize_required_pair_values(&self.pairs, "range bars")?,
             tf: self.tf,
             align_mode: self.align_mode,
             close_start_ms: self
@@ -1132,13 +1132,6 @@ pub(crate) fn normalize_required_pair_values(
         )));
     }
     Ok(normalized)
-}
-
-pub(crate) fn join_required_pair_values_csv(
-    values: &[String],
-    context: &'static str,
-) -> Result<String, SdkError> {
-    Ok(normalize_required_pair_values(values, context)?.join(","))
 }
 
 pub(crate) fn join_optional_pair_values_csv(values: Option<&[String]>) -> Option<String> {

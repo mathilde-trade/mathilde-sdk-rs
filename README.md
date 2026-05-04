@@ -27,15 +27,17 @@ layer, not an opinion or trading layer.
 ## What This Is
 
 This SDK is a thin public-surface binding for MATHILDE systems that have a
-proved public contract. Today that means the public `aggregator` and
-`primitives` feed surfaces.
+proved public contract. Today that means the public `intro`, `aggregator`,
+`primitives`, and `regime` surfaces.
 
 At the current implemented scope, the SDK gives you:
 
+- the top-level intro root document for the public MATHILDE surface
 - public documentation and OpenAPI reads
 - public discovery surfaces for pairs and downloadable files
 - bars reads over HTTP and gRPC for `aggregator`
 - outputs reads over HTTP and gRPC for `primitives`
+- outputs reads over HTTP and gRPC for `regime`
 - live bars, live outputs, and live messages streaming over WebSocket
 - typed request and response surfaces
 - explicit shared conventions for time inputs, request shapes, selector-driven
@@ -64,8 +66,24 @@ does not claim it.
 
 The current implemented public surfaces are:
 
+- `Intro` for the public system-introduction root on `api.mathilde.dev`
 - `Aggregator` for the public bars feed
 - `Primitives` for the public computed outputs feed
+- `Regime` for the public regime outputs feed
+
+### Intro Root
+
+What it is:
+The public intro root document for the overall MATHILDE system surface.
+
+When to use it:
+Use the intro root when you want the top-level system description and the
+public routing overview before moving into `aggregator`, `primitives`, or
+`regime`.
+
+When not to use it:
+Do not use it as the schema authority for subsystem endpoints. Each subsystem
+keeps its own docs and OpenAPI surface.
 
 ### Docs Pages
 
@@ -83,6 +101,12 @@ public docs surfaces are:
   - `docs_themes`
   - `docs_endpoints`
 - `primitives`
+  - `docs_system`
+  - `docs_summary`
+  - `docs_taxonomy`
+  - `docs_registry`
+  - `docs_endpoints`
+- `regime`
   - `docs_system`
   - `docs_summary`
   - `docs_taxonomy`
@@ -400,6 +424,15 @@ use mathilde_sdk_rs::systems::aggregator::Aggregator;
 let client = Aggregator::client(Some(BearerToken::new("feed_public_token")?))?;
 ```
 
+The equivalent public intro-root construction path is:
+
+```rust
+use mathilde_sdk_rs::core::auth::BearerToken;
+use mathilde_sdk_rs::systems::intro::Intro;
+
+let client = Intro::client(Some(BearerToken::new("feed_public_token")?))?;
+```
+
 The equivalent checked-in public-default construction for computed outputs is:
 
 ```rust
@@ -492,6 +525,12 @@ if let PrimitiveOutput::ProjectedMin(row) = &out.rows[0].output {
 
 ## Endpoint And Transport Matrix
 
+### Intro
+
+| Family     | HTTP    | gRPC | WS | Cursor | Managed recovery | Notes |
+| ---------- | ------- | ---- | -- | ------ | ---------------- | ----- |
+| Intro root | `intro` | No   | No | No     | No               | Ordered JSON document returned from the root `api.mathilde.dev` surface |
+
 ### Aggregator
 
 | Family            | HTTP                                                                      | gRPC                     | WS                                  | Cursor                                      | Managed recovery                 | Notes                                  |
@@ -527,6 +566,27 @@ Important primitives-specific failure contract:
 Those paths are intentionally rejected because projected protobuf does not yet
 prove the stronger omitted-vs-selected-null-vs-selected-value contract that the
 public projected JSON surface preserves.
+
+### Regime
+
+| Family            | HTTP                                                                                      | gRPC                     | WS                                     | Cursor                                              | Managed recovery                    | Notes |
+| ----------------- | ----------------------------------------------------------------------------------------- | ------------------------ | -------------------------------------- | --------------------------------------------------- | ----------------------------------- | ----- |
+| Docs              | `docs_system`, `docs_summary`, `docs_taxonomy`, `docs_registry`, `docs_endpoints`, `openapi` | No                    | No                                     | No                                                  | No                                  | Public docs are returned as ordered JSON values |
+| Discovery         | `pairs_status`, `pairs_list`, `files_downloads`                                           | No                       | No                                     | `pairs_status` supports paging-style fields         | No                                  | Public pair and file discovery |
+| Latest outputs    | `latest`                                                                                  | `latest_grpc`            | No                                     | No                                                  | No                                  | Current aligned regime snapshot; `tf` is currently `1h` only |
+| Range outputs     | `range`                                                                                   | `range_grpc`             | `connect_outputs_ws`                   | Yes                                                 | `connect_outputs_ws_recovering`     | Historical outputs and outputs stream |
+| Search outputs    | `search`                                                                                  | `search_grpc`            | No                                     | Yes                                                 | No                                  | Predicate-driven hit discovery |
+| Time-machine out. | `time_machine`                                                                            | `time_machine_grpc`      | No                                     | Yes                                                 | No                                  | Context around hits |
+| Outputs WS helper | No                                                                                        | No                       | `connect_outputs_ws_make_before_break` | N/A                                                 | `connect_outputs_ws_recovering`     | Immutable subscription per connection |
+| Messages WS       | No                                                                                        | No                       | `connect_messages_ws`                  | N/A                                                 | `connect_messages_ws_recovering`    | In-band subscribe and unsubscribe |
+
+Important regime-specific failure contract:
+
+- regime outputs currently support `tf=1h` only
+- projected HTTP requests with `format=protobuf` fail closed
+- projected gRPC requests fail closed
+- projected outputs WS requests with `format=protobuf` fail closed
+- projection inference also depends on `secondary`; `secondary=false` keeps projected mode active
 
 ## Which Endpoint To Use
 
@@ -632,6 +692,7 @@ Current client bindings:
 
 - `aggregator`: `time_machine`, `time_machine_grpc`
 - `primitives`: `time_machine`, `time_machine_grpc`
+- `regime`: `time_machine`, `time_machine_grpc`
 
 What not to infer:
 
@@ -655,6 +716,9 @@ Current client bindings:
 - `aggregator`: `connect_bars_ws`, `connect_bars_ws_make_before_break`,
   `connect_bars_ws_recovering`
 - `primitives`: `connect_outputs_ws`,
+  `connect_outputs_ws_make_before_break`,
+  `connect_outputs_ws_recovering`
+- `regime`: `connect_outputs_ws`,
   `connect_outputs_ws_make_before_break`,
   `connect_outputs_ws_recovering`
 
@@ -682,6 +746,7 @@ Current client bindings:
 
 - `aggregator`: `connect_messages_ws`, `connect_messages_ws_recovering`
 - `primitives`: `connect_messages_ws`, `connect_messages_ws_recovering`
+- `regime`: `connect_messages_ws`, `connect_messages_ws_recovering`
 
 What not to infer:
 
@@ -692,10 +757,10 @@ What not to infer:
 
 ## Examples
 
-The longer examples below are still aggregator-first. `Primitives` mirrors the
-same facade names, but uses `LatestOutputsRequest` / `RangeOutputsRequest` /
-`SearchOutputsRequest` / `TimeMachineOutputsRequest` and returns
-`PrimitiveOutput` payloads chosen from the request shape.
+The longer examples below are still aggregator-first. `Primitives` and `Regime`
+mirror the same facade names, but use output requests and payload enums that
+are chosen from the request shape. `Regime` also carries `secondary` and
+currently supports `tf=1h` only.
 
 ### Latest Bars
 

@@ -169,7 +169,6 @@ fn test_aggregator_config_mathilde_public_default_uses_manifest_hosts() {
         MathildePublicHosts::REGIME_GRPC,
         "https://regime.grpc.mathilde.dev"
     );
-    assert_eq!(MathildePublicHosts::INTRO, "https://api.mathilde.dev");
 }
 
 #[tokio::test]
@@ -272,7 +271,7 @@ async fn test_latest_bars_uses_post_and_serializes_body_and_decodes_response() {
     }));
 
     let expected_body = serde_json::json!({
-        "pairs": "BTCUSDT,ETHUSDT",
+        "pairs": ["BTCUSDT", "ETHUSDT"],
         "tf": "1m",
         "latest_mode": "exact_watermark",
         "metadata": false,
@@ -381,7 +380,7 @@ async fn test_latest_bars_metadata_true_decodes_full_response() {
         );
 
     let expected_body = serde_json::json!({
-        "pairs": "BTCUSDT",
+        "pairs": ["BTCUSDT"],
         "tf": "1m",
         "latest_mode": "exact_watermark",
         "metadata": true,
@@ -445,7 +444,7 @@ async fn test_latest_bars_omitted_format_still_uses_json_branch() {
     }));
 
     let expected_body = serde_json::json!({
-        "pairs": "BTCUSDT",
+        "pairs": ["BTCUSDT"],
         "tf": "1m",
         "latest_mode": "exact_watermark",
         "metadata": false,
@@ -487,7 +486,7 @@ async fn test_latest_bars_format_protobuf_decodes_min_response() {
     let body = proto_latest_response_min().encode_to_vec();
 
     let expected_body = serde_json::json!({
-        "pairs": "BTCUSDT",
+        "pairs": ["BTCUSDT"],
         "tf": "1m",
         "latest_mode": "exact_watermark",
         "metadata": false,
@@ -540,7 +539,7 @@ async fn test_latest_bars_format_protobuf_decodes_full_response() {
     let body = proto_latest_response_full().encode_to_vec();
 
     let expected_body = serde_json::json!({
-        "pairs": "BTCUSDT",
+        "pairs": ["BTCUSDT"],
         "tf": "1m",
         "latest_mode": "exact_watermark",
         "metadata": true,
@@ -591,7 +590,7 @@ async fn test_latest_bars_invalid_protobuf_is_contract_drift() {
     };
 
     let expected_body = serde_json::json!({
-        "pairs": "BTCUSDT",
+        "pairs": ["BTCUSDT"],
         "tf": "1m",
         "latest_mode": "exact_watermark",
         "metadata": false,

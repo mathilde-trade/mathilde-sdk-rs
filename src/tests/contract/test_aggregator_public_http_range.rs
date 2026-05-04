@@ -119,7 +119,7 @@ async fn test_range_bars_uses_post_and_normalizes_time_inputs_and_decodes_min_js
     };
 
     let expected_body = serde_json::json!({
-        "pairs": "BTCUSDT,ETHUSDT",
+        "pairs": ["BTCUSDT", "ETHUSDT"],
         "tf": "1m",
         "align_mode": "floor",
         "close_start_ms": 1769990400000i64,
@@ -197,7 +197,7 @@ async fn test_range_bars_omitted_close_end_serializes_as_absent_and_decodes_full
     };
 
     let expected_body = serde_json::json!({
-        "pairs": "BTCUSDT",
+        "pairs": ["BTCUSDT"],
         "tf": "1m",
         "align_mode": null,
         "close_start_ms": 1769990400000i64,
@@ -512,7 +512,7 @@ async fn test_range_bars_call_send_matches_one_page_method() {
     };
 
     let expected_body = serde_json::json!({
-        "pairs": "BTCUSDT,ETHUSDT",
+        "pairs": ["BTCUSDT", "ETHUSDT"],
         "tf": "1m",
         "align_mode": "floor",
         "close_start_ms": 1769990400000i64,
@@ -589,7 +589,7 @@ async fn test_range_bars_call_traverse_freezes_omitted_close_end_from_first_page
     };
 
     let first_body = serde_json::json!({
-        "pairs": "BTCUSDT",
+        "pairs": ["BTCUSDT"],
         "tf": "1m",
         "align_mode": null,
         "close_start_ms": 1769990400000i64,
@@ -601,7 +601,7 @@ async fn test_range_bars_call_traverse_freezes_omitted_close_end_from_first_page
     });
 
     let second_body = serde_json::json!({
-        "pairs": "BTCUSDT",
+        "pairs": ["BTCUSDT"],
         "tf": "1m",
         "align_mode": null,
         "close_start_ms": 1769990400000i64,
@@ -725,7 +725,7 @@ async fn test_range_bars_pager_next_returns_none_after_terminal_page() {
     };
 
     let expected_body = serde_json::json!({
-        "pairs": "BTCUSDT",
+        "pairs": ["BTCUSDT"],
         "tf": "1m",
         "align_mode": null,
         "close_start_ms": 1769990400000i64,

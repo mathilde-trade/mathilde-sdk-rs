@@ -27,6 +27,7 @@ currently exist for `src/tests`.
 - `src/tests/contract/test_aggregator_public_grpc_time_machine.rs`: contract tests for aggregator gRPC time-machine bars.
 - `src/tests/contract/test_aggregator_public_ws_bars.rs`: contract tests for aggregator WS bars, make-before-break, and managed recovery.
 - `src/tests/contract/test_aggregator_public_ws_messages.rs`: contract tests for aggregator WS messages and managed recovery.
+- `src/tests/contract/test_intro_public_http_intro.rs`: contract tests for the dedicated intro root system on `https://api.mathilde.dev`, including root-path request behavior and ordered JSON preservation.
 - `src/tests/contract/test_primitives_public_http_latest.rs`: contract tests for primitives HTTP latest outputs, docs base behavior, and public-default config construction.
 - `src/tests/contract/test_primitives_public_http_simple_discovery.rs`: contract tests for primitives HTTP docs, registry selector serialization, openapi, and pairs discovery.
 - `src/tests/contract/test_primitives_public_http_files_downloads.rs`: contract tests for primitives HTTP file downloads and authenticated local download behavior.
@@ -45,6 +46,24 @@ currently exist for `src/tests`.
 - `src/tests/contract/test_primitives_outputs_ws.rs`: relocated primitives outputs WS projected protobuf fail-closed contract tests.
 - `src/tests/contract/test_primitives_outputs_pagination.rs`: relocated primitives pagination admission tests for range, search, and time-machine calls.
 - `src/tests/contract/test_primitives_docs.rs`: relocated primitives docs selector serialization tests.
+- `src/tests/contract/test_regime_public_http_latest.rs`: contract tests for regime HTTP latest outputs, docs base behavior, and public-default config construction.
+- `src/tests/contract/test_regime_public_http_simple_discovery.rs`: contract tests for regime HTTP docs, registry selector serialization, openapi, and pairs discovery.
+- `src/tests/contract/test_regime_public_http_files_downloads.rs`: contract tests for regime HTTP file downloads and authenticated local download behavior.
+- `src/tests/contract/test_regime_public_http_range.rs`: contract tests for regime HTTP range outputs, including projected JSON decode and projected protobuf fail-closed behavior.
+- `src/tests/contract/test_regime_public_http_search.rs`: contract tests for regime HTTP search outputs with typed metadata payloads.
+- `src/tests/contract/test_regime_public_http_time_machine.rs`: contract tests for regime HTTP time-machine outputs with projected metadata payloads.
+- `src/tests/contract/test_regime_public_grpc_latest.rs`: contract tests for regime gRPC latest outputs request mapping and min-response decode.
+- `src/tests/contract/test_regime_public_grpc_range.rs`: contract tests for regime gRPC range outputs request mapping and metadata response decode.
+- `src/tests/contract/test_regime_public_grpc_search.rs`: contract tests for regime gRPC search outputs request mapping and evaluated-rows decode.
+- `src/tests/contract/test_regime_public_grpc_time_machine.rs`: contract tests for regime gRPC time-machine outputs request mapping and response decode.
+- `src/tests/contract/test_regime_public_ws_outputs.rs`: contract tests for regime outputs WS subscribe wiring, `secondary`, and JSON row decode.
+- `src/tests/contract/test_regime_public_ws_messages.rs`: contract tests for regime messages WS control frames and recovering subscription replay.
+- `src/tests/contract/test_regime_types.rs`: relocated regime type, selector, timeframe, and proto decode tests.
+- `src/tests/contract/test_regime_outputs_http.rs`: relocated regime HTTP fail-closed projected protobuf and non-`1h` contract tests.
+- `src/tests/contract/test_regime_outputs_grpc.rs`: relocated regime gRPC fail-closed projected selector and non-`1h` contract tests.
+- `src/tests/contract/test_regime_outputs_ws.rs`: relocated regime outputs WS projected protobuf and non-`1h` fail-closed contract tests.
+- `src/tests/contract/test_regime_outputs_pagination.rs`: relocated regime pagination admission tests for range, search, and time-machine calls.
+- `src/tests/contract/test_regime_docs.rs`: relocated regime docs selector serialization tests.
 - `src/tests/contract/test_core_pagination.rs`: contract tests for the shared pagination state machine and explicit traversal-admission guards.
 - `src/tests/contract/test_core_time.rs`: contract tests for shared time parsing and normalization.
 - `src/tests/contract/test_systems_helpers.rs`: contract tests for shared systems helper collectors.

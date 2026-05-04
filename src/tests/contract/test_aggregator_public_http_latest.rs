@@ -223,10 +223,10 @@ async fn test_docs_system_forms_correct_path_and_decodes_payload() {
     let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let doc = client.docs_system().await.expect("docs_system success");
 
-    assert_eq!(doc.subsystem, "aggregator");
-    assert_eq!(doc.anchor, "aggregator");
-    assert_eq!(doc.sections.len(), 1);
-    assert_eq!(doc.sections[0].slug, "what-it-is");
+    assert_eq!(doc["subsystem"].as_str(), Some("aggregator"));
+    assert_eq!(doc["anchor"].as_str(), Some("aggregator"));
+    assert_eq!(doc["sections"].as_array().map(|rows| rows.len()), Some(1));
+    assert_eq!(doc["sections"][0]["slug"].as_str(), Some("what-it-is"));
 }
 
 #[tokio::test]
@@ -694,5 +694,5 @@ async fn test_docs_system_sends_bearer_auth_when_present() {
 
     let client = Aggregator::new(config).expect("client");
     let doc = client.docs_system().await.expect("docs_system success");
-    assert_eq!(doc.subsystem, "aggregator");
+    assert_eq!(doc["subsystem"].as_str(), Some("aggregator"));
 }

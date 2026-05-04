@@ -41,10 +41,10 @@ async fn test_docs_summary_forms_correct_path_and_decodes_payload() {
     let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client.docs_summary().await.expect("docs_summary success");
 
-    assert_eq!(out.subsystem, "aggregator");
-    assert_eq!(out.anchor, "aggregator-summary");
-    assert_eq!(out.sections.len(), 1);
-    assert_eq!(out.sections[0].slug, "start-here");
+    assert_eq!(out["subsystem"].as_str(), Some("aggregator"));
+    assert_eq!(out["anchor"].as_str(), Some("aggregator-summary"));
+    assert_eq!(out["sections"].as_array().map(|rows| rows.len()), Some(1));
+    assert_eq!(out["sections"][0]["slug"].as_str(), Some("start-here"));
 }
 
 #[tokio::test]
@@ -77,10 +77,16 @@ async fn test_docs_themes_forms_correct_path_and_decodes_payload() {
     let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client.docs_themes().await.expect("docs_themes success");
 
-    assert_eq!(out.subsystem, "aggregator");
-    assert_eq!(out.themes.len(), 1);
-    assert_eq!(out.themes[0].anchor, "why-time-bars-are-a-modeling-choice");
-    assert_eq!(out.themes[0].sections[0].slug, "core-idea");
+    assert_eq!(out["subsystem"].as_str(), Some("aggregator"));
+    assert_eq!(out["themes"].as_array().map(|rows| rows.len()), Some(1));
+    assert_eq!(
+        out["themes"][0]["anchor"].as_str(),
+        Some("why-time-bars-are-a-modeling-choice")
+    );
+    assert_eq!(
+        out["themes"][0]["sections"][0]["slug"].as_str(),
+        Some("core-idea")
+    );
 }
 
 #[tokio::test]
@@ -114,9 +120,12 @@ async fn test_docs_endpoints_forms_correct_path_and_decodes_payload() {
         .await
         .expect("docs_endpoints success");
 
-    assert_eq!(out.subsystem, "aggregator_feed_public_endpoint_usage");
-    assert_eq!(out.anchor, "feed-public-endpoint-usage");
-    assert_eq!(out.sections.len(), 1);
+    assert_eq!(
+        out["subsystem"].as_str(),
+        Some("aggregator_feed_public_endpoint_usage")
+    );
+    assert_eq!(out["anchor"].as_str(), Some("feed-public-endpoint-usage"));
+    assert_eq!(out["sections"].as_array().map(|rows| rows.len()), Some(1));
 }
 
 #[tokio::test]

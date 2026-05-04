@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package mathilde.feed.outputs.v1;
+
+import "feed_outputs_v1.proto";
+
+message PairNotReadyDetailV1 {
+  string kind = 1;
+  string error = 2;
+  string blocking_gate = 3;
+  repeated string blocking_pairs = 4;
+}
+
+message ResyncRequiredDetailV1 {
+  string kind = 1;
+  string error = 2;
+}
+
+message LatestOutputsRequestV1 {
+  repeated string pairs = 1;
+  string tf = 2;
+  string latest_mode = 3;
+  repeated string exclude_sources = 4;
+  bool metadata = 5;
+  repeated string family = 6;
+  repeated string group = 7;
+  optional bool diagnostics = 8;
+}
+
+message RangeOutputsRequestV1 {
+  repeated string pairs = 1;
+  string tf = 2;
+  int64 close_end_ms = 3;
+  optional string cursor = 4;
+  optional int64 limit = 5;
+  repeated string exclude_sources = 6;
+  bool metadata = 7;
+  int64 close_start_ms = 8;
+  optional string align_mode = 9;
+  repeated string family = 10;
+  repeated string group = 11;
+  optional bool diagnostics = 12;
+}
+
+message SearchOutputsRequestV1 {
+  string tf = 1;
+  int64 close_start_ms = 2;
+  int64 close_end_ms = 3;
+  optional string cursor = 4;
+  string predicate = 5;
+  optional string evaluate_pair = 6;
+  repeated string exclude_sources = 7;
+  bool metadata = 8;
+  optional int64 max_hits = 9;
+  repeated string family = 10;
+  repeated string group = 11;
+  optional bool diagnostics = 12;
+}
+
+message TimeMachineOutputsRequestV1 {
+  string tf = 1;
+  int64 close_start_ms = 2;
+  int64 close_end_ms = 3;
+  optional string cursor = 4;
+  optional string predicate = 5;
+  repeated int64 hits = 6;
+  repeated string output_pairs = 7;
+  repeated string exclude_sources = 8;
+  bool metadata = 9;
+  optional int64 before_bars = 10;
+  optional int64 after_bars = 11;
+  optional int64 max_hits = 12;
+  optional string overlap_mode = 13;
+  repeated string family = 14;
+  repeated string group = 15;
+  optional bool diagnostics = 16;
+}
+
+service OutputsServiceV1 {
+  rpc LatestOutputs(LatestOutputsRequestV1) returns (OutputsLatestResponseV1);
+  rpc RangeOutputs(RangeOutputsRequestV1) returns (OutputsRangeResponseV1);
+  rpc SearchOutputs(SearchOutputsRequestV1) returns (OutputsSearchResponseV1);
+  rpc TimeMachineOutputs(TimeMachineOutputsRequestV1) returns (OutputsTimeMachineResponseV1);
+}

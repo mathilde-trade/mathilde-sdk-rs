@@ -29,7 +29,6 @@ pub use types::{
     DownloadedFile, FilesDownloadsRequest, FilesDownloadsResponse, FilesDownloadsRow,
     LatestBarsGrpcRequest, LatestBarsRequest, LatestBarsResponse, PairsListRequest,
     PairsListResponse, PairsStatusRequest, PairsStatusResponse, PublicOpenApiDocument,
-    PublicPageDoc, PublicPageSection, PublicThemeDoc, PublicThemeSection, PublicThemesCompiled,
     RangeBarsGrpcRequest, RangeBarsRequest, RangeBarsResponse, RangeBarsTraverseResult,
     SearchBarsGrpcRequest, SearchBarsRequest, SearchBarsResponse, SearchBarsTraverseResult,
     TimeMachineBarsGrpcRequest, TimeMachineBarsRequest, TimeMachineBarsResponse,

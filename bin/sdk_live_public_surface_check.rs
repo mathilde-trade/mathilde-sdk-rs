@@ -22,6 +22,9 @@ use mathilde_sdk_rs::systems::aggregator::{
     SearchBarsResponse, TimeMachineBarsGrpcRequest, TimeMachineBarsRequest,
     TimeMachineBarsResponse,
 };
+use mathilde_sdk_rs::systems::primitives::{
+    DocsRegistryRequest as PrimitivesDocsRegistryRequest, Primitives,
+};
 use mathilde_sdk_rs::systems::types::{AlignMode, HttpFormat, LatestMode, Timeframe};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::{Duration, timeout};
@@ -92,6 +95,7 @@ struct Report {
 struct RuntimeConfig {
     summary: RuntimeConfigSummary,
     client: Aggregator,
+    primitives_client: Primitives,
 }
 
 #[derive(Debug, Clone)]
@@ -765,6 +769,12 @@ fn initial_surface_results() -> Vec<SurfaceResult> {
         ("docs", "docs_themes"),
         ("docs", "docs_endpoints"),
         ("docs", "openapi"),
+        ("primitives_docs", "primitives.docs_system"),
+        ("primitives_docs", "primitives.docs_summary"),
+        ("primitives_docs", "primitives.docs_taxonomy"),
+        ("primitives_docs", "primitives.docs_registry"),
+        ("primitives_docs", "primitives.docs_endpoints"),
+        ("primitives_docs", "primitives.openapi"),
         ("discovery", "pairs_status"),
         ("discovery", "pairs_list"),
         ("discovery", "files_downloads"),
@@ -924,6 +934,7 @@ fn build_runtime_config() -> Result<RuntimeConfig, SdkError> {
     let grpc_base_url = optional_env(GRPC_ENV);
     let ws_base_url = optional_env(WS_ENV);
     let bearer_token = optional_env(BEARER_ENV).map(BearerToken::new).transpose()?;
+    let bearer_token_present = bearer_token.is_some();
 
     let config = AggregatorConfig {
         http: HttpTransportConfig::new(&http_base_url)?,
@@ -939,14 +950,16 @@ fn build_runtime_config() -> Result<RuntimeConfig, SdkError> {
     };
 
     let client = Aggregator::new(config)?;
+    let primitives_client = Primitives::client(bearer_token.clone())?;
     Ok(RuntimeConfig {
         summary: RuntimeConfigSummary {
             http_base_url,
             grpc_base_url,
             ws_base_url,
-            bearer_token_present: bearer_token.is_some(),
+            bearer_token_present,
         },
         client,
+        primitives_client,
     })
 }
 
@@ -985,18 +998,27 @@ fn time_machine_rows_len(out: &TimeMachineBarsResponse) -> usize {
     }
 }
 
+fn json_str<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    value.get(key)?.as_str()
+}
+
+fn json_array_len(value: &serde_json::Value, key: &str) -> Option<usize> {
+    value.get(key)?.as_array().map(|rows| rows.len())
+}
+
 async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
     let client = &runtime.client;
+    let primitives = &runtime.primitives_client;
 
     match client.docs_system().await {
-        Ok(out) if !out.intro.trim().is_empty() => {
+        Ok(out) if json_str(&out, "intro").is_some_and(|intro| !intro.trim().is_empty()) => {
             record_pass(
                 report,
                 "docs_system",
                 format!(
                     "subsystem={} sections={}",
-                    out.subsystem,
-                    out.sections.len()
+                    json_str(&out, "subsystem").unwrap_or(""),
+                    json_array_len(&out, "sections").unwrap_or(0)
                 ),
             );
         }
@@ -1005,14 +1027,14 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
     }
 
     match client.docs_summary().await {
-        Ok(out) if !out.intro.trim().is_empty() => {
+        Ok(out) if json_str(&out, "intro").is_some_and(|intro| !intro.trim().is_empty()) => {
             record_pass(
                 report,
                 "docs_summary",
                 format!(
                     "subsystem={} sections={}",
-                    out.subsystem,
-                    out.sections.len()
+                    json_str(&out, "subsystem").unwrap_or(""),
+                    json_array_len(&out, "sections").unwrap_or(0)
                 ),
             );
         }
@@ -1021,26 +1043,153 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
     }
 
     match client.docs_themes().await {
-        Ok(out) if !out.themes.is_empty() => {
+        Ok(out) if json_array_len(&out, "themes").is_some_and(|count| count > 0) => {
             record_pass(
                 report,
                 "docs_themes",
-                format!("subsystem={} themes={}", out.subsystem, out.themes.len()),
+                format!(
+                    "subsystem={} themes={}",
+                    json_str(&out, "subsystem").unwrap_or(""),
+                    json_array_len(&out, "themes").unwrap_or(0)
+                ),
             );
         }
         Ok(_) => record_fail(report, "docs_themes", "empty themes content"),
         Err(error) => record_fail(report, "docs_themes", error.to_string()),
     }
 
+    match primitives.docs_system().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "primitives.docs_system",
+                format!(
+                    "subsystem={} keys={}",
+                    json_str(&out, "subsystem").unwrap_or(""),
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "primitives.docs_system",
+            "docs_system was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "primitives.docs_system", error.to_string()),
+    }
+
+    match primitives.docs_summary().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "primitives.docs_summary",
+                format!(
+                    "subsystem={} keys={}",
+                    json_str(&out, "subsystem").unwrap_or(""),
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "primitives.docs_summary",
+            "docs_summary was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "primitives.docs_summary", error.to_string()),
+    }
+
+    match primitives.docs_taxonomy().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "primitives.docs_taxonomy",
+                format!(
+                    "keys={}",
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "primitives.docs_taxonomy",
+            "docs_taxonomy was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "primitives.docs_taxonomy", error.to_string()),
+    }
+
+    match primitives
+        .docs_registry(&PrimitivesDocsRegistryRequest::default())
+        .await
+    {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "primitives.docs_registry",
+                format!(
+                    "keys={}",
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "primitives.docs_registry",
+            "docs_registry was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "primitives.docs_registry", error.to_string()),
+    }
+
+    match primitives.docs_endpoints().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "primitives.docs_endpoints",
+                format!(
+                    "keys={}",
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "primitives.docs_endpoints",
+            "docs_endpoints was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "primitives.docs_endpoints", error.to_string()),
+    }
+
+    match primitives.openapi().await {
+        Ok(out) if out.get("openapi").is_some() => {
+            record_pass(
+                report,
+                "primitives.openapi",
+                format!(
+                    "openapi={} paths={}",
+                    json_str(&out, "openapi").unwrap_or(""),
+                    out.get("paths")
+                        .and_then(|value| value.as_object())
+                        .map(|value| value.len())
+                        .unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "primitives.openapi",
+            "openapi document missing `openapi` key",
+        ),
+        Err(error) => record_fail(report, "primitives.openapi", error.to_string()),
+    }
+
     match client.docs_endpoints().await {
-        Ok(out) if !out.intro.trim().is_empty() => {
+        Ok(out) if json_str(&out, "intro").is_some_and(|intro| !intro.trim().is_empty()) => {
             record_pass(
                 report,
                 "docs_endpoints",
                 format!(
                     "subsystem={} sections={}",
-                    out.subsystem,
-                    out.sections.len()
+                    json_str(&out, "subsystem").unwrap_or(""),
+                    json_array_len(&out, "sections").unwrap_or(0)
                 ),
             );
         }
@@ -1552,7 +1701,7 @@ async fn run() -> Result<Report, String> {
         final_status: "foundation_failed".to_string(),
     };
 
-    println!("[{BIN_NAME}] starting docs/discovery/bars/ws live checks");
+    println!("[{BIN_NAME}] starting live public surface checks");
     println!(
         "[{BIN_NAME}] loading environment from {}",
         repo_dotenv.display()
@@ -1573,6 +1722,9 @@ async fn run() -> Result<Report, String> {
         "loaded `{}` and constructed `Aggregator` successfully",
         HTTP_ENV
     ));
+    report.proved_observations.push(
+        "constructed `Primitives` from checked-in public defaults without introducing new environment variables".to_string(),
+    );
     report
         .proved_observations
         .push("Markdown report directory and per-surface scaffold were initialized".to_string());
@@ -1580,9 +1732,9 @@ async fn run() -> Result<Report, String> {
     println!("[{BIN_NAME}] client construction ok");
     run_live_checks(&runtime, &mut report).await;
     report.final_status = if report.failures.is_empty() {
-        "docs_discovery_bars_ws_checks_passed".to_string()
+        "live_public_surface_checks_passed".to_string()
     } else {
-        "docs_discovery_bars_ws_checks_failed".to_string()
+        "live_public_surface_checks_failed".to_string()
     };
 
     Ok(report)

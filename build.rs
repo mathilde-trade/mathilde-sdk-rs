@@ -6,11 +6,13 @@ fn main() {
 
     println!("cargo:rerun-if-changed=src/generated/aggregator/proto/feed_bars_v1.proto");
     println!("cargo:rerun-if-changed=src/generated/aggregator/proto/feed_bars_service_v1.proto");
+    println!("cargo:rerun-if-changed=src/generated/primitives/proto/feed_outputs_v1.proto");
+    println!("cargo:rerun-if-changed=src/generated/primitives/proto/feed_outputs_service_v1.proto");
 
-    let mut config = prost_build::Config::new();
-    config.include_file("aggregator_bars_proto.rs");
+    let mut aggregator = prost_build::Config::new();
+    aggregator.include_file("aggregator_bars_proto.rs");
 
-    config
+    aggregator
         .compile_protos(
             &[
                 "src/generated/aggregator/proto/feed_bars_v1.proto",
@@ -19,4 +21,18 @@ fn main() {
             &["src/generated/aggregator/proto"],
         )
         .expect("compile aggregator bars protos");
+
+    let mut primitives = prost_build::Config::new();
+    primitives.include_file("primitives_outputs_proto.rs");
+    primitives.type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]");
+
+    primitives
+        .compile_protos(
+            &[
+                "src/generated/primitives/proto/feed_outputs_v1.proto",
+                "src/generated/primitives/proto/feed_outputs_service_v1.proto",
+            ],
+            &["src/generated/primitives/proto"],
+        )
+        .expect("compile primitives outputs protos");
 }

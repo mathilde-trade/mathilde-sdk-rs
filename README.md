@@ -27,16 +27,19 @@ layer, not an opinion or trading layer.
 ## What This Is
 
 This SDK is a thin public-surface binding for MATHILDE systems that have a
-proved public contract. Today that means the public `aggregator` feed surface.
+proved public contract. Today that means the public `aggregator` and
+`primitives` feed surfaces.
 
 At the current implemented scope, the SDK gives you:
 
 - public documentation and OpenAPI reads
 - public discovery surfaces for pairs and downloadable files
-- bars reads over HTTP and gRPC
-- bars streaming and messages streaming over WebSocket
+- bars reads over HTTP and gRPC for `aggregator`
+- outputs reads over HTTP and gRPC for `primitives`
+- live bars, live outputs, and live messages streaming over WebSocket
 - typed request and response surfaces
-- explicit shared conventions for time inputs, request shapes, and WS recovery
+- explicit shared conventions for time inputs, request shapes, selector-driven
+  outputs, and WS recovery
 
 The SDK is transport-aware, but it is still endpoint-faithful. It does not try
 to turn every endpoint into the same abstraction if the upstream contract does
@@ -59,23 +62,32 @@ does not claim it.
 
 ## Supported Public Surfaces
 
-The current implemented public surface is the `aggregator` feed client.
+The current implemented public surfaces are:
+
+- `Aggregator` for the public bars feed
+- `Primitives` for the public computed outputs feed
 
 ### Docs Pages
 
 What it is:
-Public authored documentation reads for the current public `aggregator`
-surface.
+Public authored documentation reads for the current public system surface.
 
 When to use it:
 Use docs pages when the question is about subsystem explanation, theme-level
 interpretation, or endpoint-family overview before integration. The current
 public docs surfaces are:
 
-- `docs_system` for the canonical public system document
-- `docs_summary` for the short public subsystem entry summary
-- `docs_themes` for the compiled public themes corpus
-- `docs_endpoints` for the public machine-first endpoint selection guide
+- `aggregator`
+  - `docs_system`
+  - `docs_summary`
+  - `docs_themes`
+  - `docs_endpoints`
+- `primitives`
+  - `docs_system`
+  - `docs_summary`
+  - `docs_taxonomy`
+  - `docs_registry`
+  - `docs_endpoints`
 
 When not to use it:
 Do not use docs pages as the exact schema authority when you need the wire
@@ -223,7 +235,7 @@ Do not use it as a bars stream or as a historical replay surface.
 
 The SDK uses a small number of explicit conventions across the public surface.
 
-Bars-family method names keep `bars` as the suffix:
+System facade methods are endpoint-shaped and system-scoped:
 
 - `latest`
 - `range`
@@ -388,6 +400,15 @@ use mathilde_sdk_rs::systems::aggregator::Aggregator;
 let client = Aggregator::client(Some(BearerToken::new("feed_public_token")?))?;
 ```
 
+The equivalent checked-in public-default construction for computed outputs is:
+
+```rust
+use mathilde_sdk_rs::core::auth::BearerToken;
+use mathilde_sdk_rs::systems::primitives::Primitives;
+
+let client = Primitives::client(Some(BearerToken::new("feed_public_token")?))?;
+```
+
 If you need explicit transport overrides, the typed config path remains
 available:
 
@@ -439,7 +460,39 @@ match out {
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+If you want selector-driven computed outputs quickly, the client shape is the
+same but the request and payload are different:
+
+```rust
+use mathilde_sdk_rs::core::auth::BearerToken;
+use mathilde_sdk_rs::generated::primitives::{ProcessorFamily, ProcessorGroup};
+use mathilde_sdk_rs::systems::primitives::{LatestOutputsRequest, PrimitiveOutput, Primitives};
+use mathilde_sdk_rs::systems::types::{HttpFormat, LatestMode, Timeframe};
+
+let client = Primitives::client(Some(BearerToken::new("feed_public_token")?))?;
+
+let out = client
+    .latest(&LatestOutputsRequest {
+        pairs: vec!["BTCUSDT".to_string()],
+        tf: Timeframe::M1,
+        latest_mode: Some(LatestMode::ExactWatermark),
+        family: Some(vec![ProcessorFamily::MovingAverages]),
+        group: Some(vec![ProcessorGroup::Ema]),
+        metadata: Some(false),
+        diagnostics: Some(false),
+        format: Some(HttpFormat::Json),
+    })
+    .await?;
+
+if let PrimitiveOutput::ProjectedMin(row) = &out.rows[0].output {
+    println!("pair={}", row.pair);
+}
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
 ## Endpoint And Transport Matrix
+
+### Aggregator
 
 | Family            | HTTP                                                                      | gRPC                     | WS                                  | Cursor                                      | Managed recovery                 | Notes                                  |
 | ----------------- | ------------------------------------------------------------------------- | ------------------------ | ----------------------------------- | ------------------------------------------- | -------------------------------- | -------------------------------------- |
@@ -451,6 +504,29 @@ match out {
 | Time-machine bars | `time_machine`                                                            | `time_machine_grpc`      | No                                  | Yes                                         | No                               | Context around hits                    |
 | Bars WS helpers   | No                                                                        | No                       | `connect_bars_ws_make_before_break` | N/A                                         | `connect_bars_ws_recovering`     | Immutable subscription per connection  |
 | Messages WS       | No                                                                        | No                       | `connect_messages_ws`               | N/A                                         | `connect_messages_ws_recovering` | In-band subscribe and unsubscribe      |
+
+### Primitives
+
+| Family            | HTTP                                                                                          | gRPC                     | WS                                     | Cursor                                              | Managed recovery                    | Notes |
+| ----------------- | --------------------------------------------------------------------------------------------- | ------------------------ | -------------------------------------- | --------------------------------------------------- | ----------------------------------- | ----- |
+| Docs              | `docs_system`, `docs_summary`, `docs_taxonomy`, `docs_registry`, `docs_endpoints`, `openapi` | No                       | No                                     | No                                                  | No                                  | Public docs are returned as ordered JSON values |
+| Discovery         | `pairs_status`, `pairs_list`, `files_downloads`                                               | No                       | No                                     | `pairs_status` supports paging-style fields         | No                                  | Public pair and file discovery |
+| Latest outputs    | `latest`                                                                                      | `latest_grpc`            | No                                     | No                                                  | No                                  | Current aligned computed snapshot |
+| Range outputs     | `range`                                                                                       | `range_grpc`             | `connect_outputs_ws`                   | Yes                                                 | `connect_outputs_ws_recovering`     | Historical outputs and outputs stream |
+| Search outputs    | `search`                                                                                      | `search_grpc`            | No                                     | Yes                                                 | No                                  | Predicate-driven hit discovery |
+| Time-machine out. | `time_machine`                                                                                | `time_machine_grpc`      | No                                     | Yes                                                 | No                                  | Context around hits |
+| Outputs WS helper | No                                                                                            | No                       | `connect_outputs_ws_make_before_break` | N/A                                                 | `connect_outputs_ws_recovering`     | Immutable subscription per connection |
+| Messages WS       | No                                                                                            | No                       | `connect_messages_ws`                  | N/A                                                 | `connect_messages_ws_recovering`    | In-band subscribe and unsubscribe |
+
+Important primitives-specific failure contract:
+
+- selector-present HTTP requests with `format=protobuf` fail closed
+- selector-present gRPC requests fail closed
+- selector-present outputs WS requests with `format=protobuf` fail closed
+
+Those paths are intentionally rejected because projected protobuf does not yet
+prove the stronger omitted-vs-selected-null-vs-selected-value contract that the
+public projected JSON surface preserves.
 
 ## Which Endpoint To Use
 
@@ -465,10 +541,10 @@ prepared to serve as stable truth.
 Do not use it when you need a historical interval, predicate hit discovery, or
 context around hits.
 
-Current aggregator binding:
+Current client bindings:
 
-- `latest`
-- `latest_grpc`
+- `aggregator`: `latest`, `latest_grpc`
+- `primitives`: `latest`, `latest_grpc`
 
 What not to infer:
 
@@ -487,10 +563,10 @@ backfill, or paged historical extraction.
 Do not use it when your real question is "when did this become true?" or "what
 was the local context around those hits?"
 
-Current aggregator binding:
+Current client bindings:
 
-- `range`
-- `range_grpc`
+- `aggregator`: `range`, `range_grpc`
+- `primitives`: `range`, `range_grpc`
 
 What not to infer:
 
@@ -518,12 +594,12 @@ Typical predicate examples are:
 Do not use it when you need the full bounded dataset or when you already know
 the hit points and only want nearby context.
 
-Current aggregator binding:
+Current client bindings:
 
-- `search`
-- `search_grpc`
-- `connect_messages_ws` for streaming predicate-triggered messages rather than
-  historical hit search
+- `aggregator`: `search`, `search_grpc`
+- `primitives`: `search`, `search_grpc`
+- `aggregator` and `primitives`: `connect_messages_ws` for streaming
+  predicate-triggered messages rather than historical hit search
 
 What not to infer:
 
@@ -552,10 +628,10 @@ That means time-machine can answer both:
 
 Do not use it as a general replacement for bounded range reads.
 
-Current aggregator binding:
+Current client bindings:
 
-- `time_machine`
-- `time_machine_grpc`
+- `aggregator`: `time_machine`, `time_machine_grpc`
+- `primitives`: `time_machine`, `time_machine_grpc`
 
 What not to infer:
 
@@ -574,11 +650,13 @@ subscription as immutable for the lifetime of the socket.
 Do not use it if you need in-band subscribe and unsubscribe changes on the same
 connection.
 
-Current aggregator binding:
+Current client bindings:
 
-- `connect_bars_ws`
-- `connect_bars_ws_make_before_break`
-- `connect_bars_ws_recovering`
+- `aggregator`: `connect_bars_ws`, `connect_bars_ws_make_before_break`,
+  `connect_bars_ws_recovering`
+- `primitives`: `connect_outputs_ws`,
+  `connect_outputs_ws_make_before_break`,
+  `connect_outputs_ws_recovering`
 
 What not to infer:
 
@@ -600,10 +678,10 @@ errors for the active subscription set.
 
 Do not use it as a bars stream or as a historical replay surface.
 
-Current aggregator binding:
+Current client bindings:
 
-- `connect_messages_ws`
-- `connect_messages_ws_recovering`
+- `aggregator`: `connect_messages_ws`, `connect_messages_ws_recovering`
+- `primitives`: `connect_messages_ws`, `connect_messages_ws_recovering`
 
 What not to infer:
 
@@ -613,6 +691,11 @@ What not to infer:
   reconnect
 
 ## Examples
+
+The longer examples below are still aggregator-first. `Primitives` mirrors the
+same facade names, but uses `LatestOutputsRequest` / `RangeOutputsRequest` /
+`SearchOutputsRequest` / `TimeMachineOutputsRequest` and returns
+`PrimitiveOutput` payloads chosen from the request shape.
 
 ### Latest Bars
 

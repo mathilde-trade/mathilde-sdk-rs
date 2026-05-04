@@ -3,51 +3,6 @@ use crate::core::time::TimeInput;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
 use crate::systems::types::{AlignMode, BarsView, HttpFormat, LatestMode, Timeframe};
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct PublicPageSection {
-    pub heading: String,
-    pub slug: String,
-    pub level: u8,
-    pub content: String,
-    pub children: Vec<PublicPageSection>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct PublicPageDoc {
-    pub subsystem: String,
-    pub title: String,
-    pub anchor: String,
-    pub source_path: String,
-    pub generated_by: String,
-    pub intro: String,
-    pub sections: Vec<PublicPageSection>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct PublicThemeSection {
-    pub heading: String,
-    pub slug: String,
-    pub content: String,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct PublicThemeDoc {
-    pub theme_key: String,
-    pub title: String,
-    pub anchor: String,
-    pub source_path: String,
-    pub intro: String,
-    pub sections: Vec<PublicThemeSection>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct PublicThemesCompiled {
-    pub subsystem: String,
-    pub source_manifest: String,
-    pub generated_by: String,
-    pub themes: Vec<PublicThemeDoc>,
-}
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Default)]
 pub struct PairsStatusRequest {
     pub after_pair: Option<String>,

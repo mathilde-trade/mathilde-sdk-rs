@@ -18,9 +18,9 @@ use crate::systems::aggregator::types::{
     DownloadedFile, FilesDownloadsRequest, FilesDownloadsResponse, FilesDownloadsRow,
     LatestBarsGrpcRequest, LatestBarsRequest, LatestBarsResponse, PairsListRequest,
     PairsListResponse, PairsStatusRequest, PairsStatusResponse, PublicOpenApiDocument,
-    PublicPageDoc, PublicThemesCompiled, RangeBarsGrpcRequest, RangeBarsRequest, RangeBarsResponse,
-    SearchBarsGrpcRequest, SearchBarsRequest, SearchBarsResponse, TimeMachineBarsGrpcRequest,
-    TimeMachineBarsRequest, TimeMachineBarsResponse,
+    RangeBarsGrpcRequest, RangeBarsRequest, RangeBarsResponse, SearchBarsGrpcRequest,
+    SearchBarsRequest, SearchBarsResponse, TimeMachineBarsGrpcRequest, TimeMachineBarsRequest,
+    TimeMachineBarsResponse,
 };
 use crate::systems::aggregator::{
     BarsWsConnection, BarsWsMakeBeforeBreak, BarsWsSubscribeRequest, MessagesWsConnection,
@@ -62,19 +62,19 @@ impl Aggregator {
         Self::new(AggregatorConfig::mathilde_public_default(bearer_token)?)
     }
 
-    pub async fn docs_system(&self) -> Result<PublicPageDoc, SdkError> {
+    pub async fn docs_system(&self) -> Result<serde_json::Value, SdkError> {
         docs::docs_system(&self.http).await
     }
 
-    pub async fn docs_summary(&self) -> Result<PublicPageDoc, SdkError> {
+    pub async fn docs_summary(&self) -> Result<serde_json::Value, SdkError> {
         docs::docs_summary(&self.http).await
     }
 
-    pub async fn docs_themes(&self) -> Result<PublicThemesCompiled, SdkError> {
+    pub async fn docs_themes(&self) -> Result<serde_json::Value, SdkError> {
         docs::docs_themes(&self.http).await
     }
 
-    pub async fn docs_endpoints(&self) -> Result<PublicPageDoc, SdkError> {
+    pub async fn docs_endpoints(&self) -> Result<serde_json::Value, SdkError> {
         docs::docs_endpoints(&self.http).await
     }
 

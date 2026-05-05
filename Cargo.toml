@@ -11,6 +11,22 @@ path = "bin/sdk_live_public_surface_check.rs"
 name = "endpoint_test"
 path = "bin/endpoint_test.rs"
 
+[[example]]
+name = "understanding_system"
+path = "examples/worflows/understanding_system.rs"
+
+[[example]]
+name = "bounded_recent_window"
+path = "examples/worflows/bounded_recent_window.rs"
+
+[[example]]
+name = "current_downside_state"
+path = "examples/worflows/current_downside_state.rs"
+
+[[example]]
+name = "measured_local_stress_context"
+path = "examples/worflows/measured_local_stress_context.rs"
+
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 futures-util = "0.3"

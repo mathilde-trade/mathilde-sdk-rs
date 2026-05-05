@@ -142,6 +142,27 @@ fn test_regime_latest_outputs_grpc_to_proto_uses_canonical_selectors_secondary_a
 }
 
 #[test]
+fn test_regime_latest_http_normalize_uses_canonical_group_selector_names() {
+    let request = LatestRequest {
+        pairs: vec!["BTCUSDT".to_string()],
+        tf: Timeframe::H1,
+        latest_mode: Some(LatestMode::ExactWatermark),
+        family: Some(vec![ProcessorFamily::Trend]),
+        group: Some(vec![ProcessorGroup::TrendQ1]),
+        secondary: Some(false),
+        metadata: Some(false),
+        diagnostics: Some(false),
+        format: Some(HttpFormat::Json),
+    };
+
+    let normalized = request.normalize_http().expect("normalize latest http");
+    let body = serde_json::to_value(normalized).expect("serialize normalized latest");
+
+    assert_eq!(body["family"], serde_json::json!(["trend"]));
+    assert_eq!(body["group"], serde_json::json!(["trend.q1"]));
+}
+
+#[test]
 fn test_regime_latest_outputs_proto_min_decode_preserves_required_fields() {
     let response = proto::OutputsLatestResponseV1 {
         watermark_end_ms: 1_700_000_000_000,

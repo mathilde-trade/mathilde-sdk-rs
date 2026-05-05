@@ -602,7 +602,7 @@ pub(crate) struct NormalizedLatestOutputsRequest {
     pub tf: Timeframe,
     pub latest_mode: Option<LatestMode>,
     pub family: Option<Vec<ProcessorFamily>>,
-    pub group: Option<Vec<ProcessorGroup>>,
+    pub group: Option<Vec<String>>,
     pub secondary: Option<bool>,
     pub metadata: Option<bool>,
     pub diagnostics: Option<bool>,
@@ -621,7 +621,7 @@ pub(crate) struct NormalizedRangeOutputsRequest {
     pub close_end_ms: Option<i64>,
     pub limit: Option<i64>,
     pub family: Option<Vec<ProcessorFamily>>,
-    pub group: Option<Vec<ProcessorGroup>>,
+    pub group: Option<Vec<String>>,
     pub secondary: Option<bool>,
     pub metadata: Option<bool>,
     pub diagnostics: Option<bool>,
@@ -639,7 +639,7 @@ pub(crate) struct NormalizedSearchOutputsRequest {
     pub predicate: String,
     pub evaluate_pair: Option<String>,
     pub family: Option<Vec<ProcessorFamily>>,
-    pub group: Option<Vec<ProcessorGroup>>,
+    pub group: Option<Vec<String>>,
     pub secondary: Option<bool>,
     pub metadata: Option<bool>,
     pub diagnostics: Option<bool>,
@@ -659,7 +659,7 @@ pub(crate) struct NormalizedTimeMachineOutputsRequest {
     pub hits: Option<Vec<i64>>,
     pub output_pairs: Option<Vec<String>>,
     pub family: Option<Vec<ProcessorFamily>>,
-    pub group: Option<Vec<ProcessorGroup>>,
+    pub group: Option<Vec<String>>,
     pub secondary: Option<bool>,
     pub metadata: Option<bool>,
     pub diagnostics: Option<bool>,
@@ -678,7 +678,7 @@ impl LatestRequest {
             tf: self.tf,
             latest_mode: self.latest_mode,
             family: normalize_family_selectors(self.family.as_deref()),
-            group: normalize_group_selectors(self.group.as_deref()),
+            group: normalize_group_selector_names(self.group.as_deref()),
             secondary: self.secondary,
             metadata: self.metadata,
             diagnostics: self.diagnostics,
@@ -728,7 +728,7 @@ impl RangeRequest {
                 .transpose()?,
             limit: self.limit,
             family: normalize_family_selectors(self.family.as_deref()),
-            group: normalize_group_selectors(self.group.as_deref()),
+            group: normalize_group_selector_names(self.group.as_deref()),
             secondary: self.secondary,
             metadata: self.metadata,
             diagnostics: self.diagnostics,
@@ -783,7 +783,7 @@ impl SearchRequest {
             predicate: normalize_required_string(&self.predicate, "search outputs predicate")?,
             evaluate_pair: normalize_optional_string(self.evaluate_pair.as_deref()),
             family: normalize_family_selectors(self.family.as_deref()),
-            group: normalize_group_selectors(self.group.as_deref()),
+            group: normalize_group_selector_names(self.group.as_deref()),
             secondary: self.secondary,
             metadata: self.metadata,
             diagnostics: self.diagnostics,
@@ -839,7 +839,7 @@ impl TimeMachineRequest {
             hits: self.hits.clone(),
             output_pairs: normalize_optional_pair_values(self.output_pairs.as_deref()),
             family: normalize_family_selectors(self.family.as_deref()),
-            group: normalize_group_selectors(self.group.as_deref()),
+            group: normalize_group_selector_names(self.group.as_deref()),
             secondary: self.secondary,
             metadata: self.metadata,
             diagnostics: self.diagnostics,
@@ -1778,6 +1778,17 @@ pub(crate) fn normalize_group_selectors(
         None
     } else {
         Some(values.to_vec())
+    }
+}
+
+pub(crate) fn normalize_group_selector_names(
+    values: Option<&[ProcessorGroup]>,
+) -> Option<Vec<String>> {
+    let values = values?;
+    if values.is_empty() {
+        None
+    } else {
+        Some(selector_group_names(Some(values)))
     }
 }
 

@@ -17,6 +17,7 @@
 - [WS Recovery And Limits](#ws-recovery-and-limits)
 - [What Not To Infer](#what-not-to-infer)
 - [Further Reading](#further-reading)
+- [Live examples and workflows](examples/README.md)
 
 ## What This Is
 

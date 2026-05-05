@@ -1,3 +1,5 @@
+// This file preserves the authoritative example_workflows entry from https://api.mathilde.dev
+//
 // {
 //             "question": "What is the current grouped BTC regime state, and where did a materially similar grouped regime state occur before?",
 //             "why": "This workflow stays on decomposed market-state measurement rather than on raw bar truth or generic primitive outputs.",
@@ -21,6 +23,7 @@
 //                     "use": "Call Regime search with the measured grouped-state predicate.",
 //                     "route": "POST https://regime.api.mathilde.dev/v1/outputs/search",
 //                     "retrieve": "Historical timestamps where a materially similar grouped regime state was true."
+//                     "note": "Keep search as the primary reusable hit-discovery step before replaying grouped regime context."
 //                 },
 //                 {
 //                     "use": "Call Regime time-machine on the matched timestamps.",

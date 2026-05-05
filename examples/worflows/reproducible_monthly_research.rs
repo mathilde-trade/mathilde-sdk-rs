@@ -1,3 +1,5 @@
+// This file preserves the authoritative example_workflows entry from https://api.mathilde.dev
+//
 // {
 //             "question": "How do I build a reproducible monthly BTC 1h research slice that joins stable bars and computed outputs locally?",
 //             "why": "This workflow is for offline reproducible analysis rather than interactive live retrieval.",
@@ -31,5 +33,6 @@
 //             "stop_when": "The monthly slice is downloaded, joined, and locally reproducible.",
 //             "non_goal": "Do not use this workflow when the real question is the newest stable live snapshot."
 //         },
+//FILES GOES INSIDE TEH DOANLOAD folder as per our /home/tia/_DEV/MATHILDE/mathilde-sdk-rs/examples/files.rs example
 
 fn main() {}

@@ -15,5 +15,4 @@ currently exist for `src/streaming`.
 
 - `src/streaming/mod.rs`: streaming module wiring and exports for shared WS coordination helpers.
 - `src/streaming/make_before_break.rs`: shared make-before-break validation-window config.
-- `src/streaming/replay.rs`: shared replay placeholder module for future reconnect and gap-handling coordination.
 - `src/streaming/subscription.rs`: shared WS recovery backoff config and reconnect state primitives.

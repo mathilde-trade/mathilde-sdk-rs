@@ -9,19 +9,24 @@ use chrono::{SecondsFormat, Utc};
 use futures_util::{SinkExt, StreamExt};
 use mathilde_sdk_rs::core::auth::BearerToken;
 use mathilde_sdk_rs::core::config::{
-    AggregatorConfig, GrpcTransportConfig, HttpTransportConfig, WsTransportConfig,
+    AggregatorConfig, GrpcTransportConfig, HttpTransportConfig, MathildePublicHosts,
+    WsTransportConfig,
 };
 use mathilde_sdk_rs::core::error::SdkError;
 use mathilde_sdk_rs::core::time::TimeInput;
 use mathilde_sdk_rs::streaming::subscription::ExponentialBackoffConfig;
 use mathilde_sdk_rs::systems::aggregator::{
-    AggregatorClient, BarsWsFormat, BarsWsInboundFrame, BarsWsSubscribeRequest,
-    FilesDownloadsRequest, LatestBarsGrpcRequest, LatestBarsRequest, LatestBarsResponse,
-    MessagesWsServerFrame, MessagesWsSubscribeFrame, PairsListRequest, PairsStatusRequest,
-    RangeBarsGrpcRequest, RangeBarsRequest, RangeBarsResponse, SearchBarsGrpcRequest,
-    SearchBarsRequest, SearchBarsResponse, TimeMachineBarsGrpcRequest, TimeMachineBarsRequest,
-    TimeMachineBarsResponse,
+    Aggregator, BarsWsFormat, BarsWsInboundFrame, BarsWsSubscribeRequest, FilesDownloadsRequest,
+    LatestGrpcRequest, LatestRequest, LatestResponse, MessagesWsServerFrame,
+    MessagesWsSubscribeFrame, PairsListRequest, PairsStatusRequest, RangeGrpcRequest, RangeRequest,
+    RangeResponse, SearchGrpcRequest, SearchRequest, SearchResponse, TimeMachineGrpcRequest,
+    TimeMachineRequest, TimeMachineResponse,
 };
+use mathilde_sdk_rs::systems::intro::Intro;
+use mathilde_sdk_rs::systems::primitives::{
+    DocsRegistryRequest as PrimitivesDocsRegistryRequest, Primitives,
+};
+use mathilde_sdk_rs::systems::regime::{DocsRegistryRequest as RegimeDocsRegistryRequest, Regime};
 use mathilde_sdk_rs::systems::types::{AlignMode, HttpFormat, LatestMode, Timeframe};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::{Duration, timeout};
@@ -30,10 +35,10 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, accept_async, connect_async};
 
 const BIN_NAME: &str = "sdk_live_public_surface_check";
-const HTTP_ENV: &str = "AGGREGATOR_FEED_HTTP_BASE_URL";
 const GRPC_ENV: &str = "AGGREGATOR_FEED_GRPC_BASE_URL";
 const WS_ENV: &str = "AGGREGATOR_FEED_WS_BASE_URL";
 const BEARER_ENV: &str = "AGGREGATOR_FEED_BEARER_TOKEN";
+const INTRO_BEARER_ENV: &str = "AGGREGATOR_FEED_BEARER_TOKEN_PUBLIC";
 const RAW_BARS_WS_WINDOW_SECS: u64 = 120;
 const RAW_MESSAGES_WS_WINDOW_SECS: u64 = 120;
 const RECOVERING_BARS_WS_WINDOW_SECS: u64 = 30;
@@ -74,6 +79,7 @@ struct RuntimeConfigSummary {
     grpc_base_url: Option<String>,
     ws_base_url: Option<String>,
     bearer_token_present: bool,
+    intro_bearer_token_present: bool,
 }
 
 #[derive(Debug)]
@@ -91,7 +97,10 @@ struct Report {
 #[derive(Debug)]
 struct RuntimeConfig {
     summary: RuntimeConfigSummary,
-    client: AggregatorClient,
+    client: Aggregator,
+    intro_client: Intro,
+    primitives_client: Primitives,
+    regime_client: Regime,
 }
 
 #[derive(Debug, Clone)]
@@ -156,16 +165,6 @@ fn load_dotenv_if_present(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn required_env(name: &'static str) -> Result<String, SdkError> {
-    env::var(name)
-        .map(|value| value.trim().to_string())
-        .ok()
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            SdkError::request_build(format!("missing required environment variable `{name}`"))
-        })
-}
-
 fn optional_env(name: &'static str) -> Option<String> {
     env::var(name)
         .ok()
@@ -196,11 +195,11 @@ fn join_ws_url(base_url: &str, path: &str) -> Result<String, SdkError> {
 fn build_client_with_ws_override(
     runtime: &RuntimeConfig,
     ws_base_url: &str,
-) -> Result<AggregatorClient, SdkError> {
+) -> Result<Aggregator, SdkError> {
     let bearer_token = optional_env(BEARER_ENV).map(BearerToken::new).transpose()?;
 
     let config = AggregatorConfig {
-        http: Some(HttpTransportConfig::new(&runtime.summary.http_base_url)?),
+        http: HttpTransportConfig::new(&runtime.summary.http_base_url)?,
         grpc: runtime
             .summary
             .grpc_base_url
@@ -211,7 +210,7 @@ fn build_client_with_ws_override(
         bearer_token,
     };
 
-    AggregatorClient::new(config)
+    Aggregator::new(config)
 }
 
 fn is_bars_payload_message(message: &Message) -> bool {
@@ -378,7 +377,7 @@ async fn spawn_recovery_proxy(
     })
 }
 
-async fn observe_raw_bars_ws(client: &AggregatorClient, pair: &str) -> Result<String, SdkError> {
+async fn observe_raw_bars_ws(client: &Aggregator, pair: &str) -> Result<String, SdkError> {
     let request = BarsWsSubscribeRequest {
         pairs: vec![pair.to_string()],
         tfs: vec![Timeframe::M1],
@@ -411,28 +410,8 @@ async fn observe_raw_bars_ws(client: &AggregatorClient, pair: &str) -> Result<St
                     }
                 }
             }
-            Some(BarsWsInboundFrame::JsonRowsMin(rows)) => {
-                payload_frames += 1;
-                payload_rows += rows.len();
-                if let Some(first) = rows.first() {
-                    last_close_ms = first.close_ms;
-                }
-            }
-            Some(BarsWsInboundFrame::JsonRowsFull(rows)) => {
-                payload_frames += 1;
-                payload_rows += rows.len();
-                if let Some(first) = rows.first() {
-                    last_close_ms = first.close_ms;
-                }
-            }
-            Some(BarsWsInboundFrame::ProtobufRowsMin(rows)) => {
-                payload_frames += 1;
-                payload_rows += rows.len();
-                if let Some(first) = rows.first() {
-                    last_close_ms = first.close_ms;
-                }
-            }
-            Some(BarsWsInboundFrame::ProtobufRowsFull(rows)) => {
+            Some(BarsWsInboundFrame::JsonRows(rows))
+            | Some(BarsWsInboundFrame::ProtobufRows(rows)) => {
                 payload_frames += 1;
                 payload_rows += rows.len();
                 if let Some(first) = rows.first() {
@@ -465,10 +444,7 @@ async fn observe_raw_bars_ws(client: &AggregatorClient, pair: &str) -> Result<St
     ))
 }
 
-async fn observe_raw_messages_ws(
-    client: &AggregatorClient,
-    pair: &str,
-) -> Result<String, SdkError> {
+async fn observe_raw_messages_ws(client: &Aggregator, pair: &str) -> Result<String, SdkError> {
     let deadline = Instant::now() + Duration::from_secs(RAW_MESSAGES_WS_WINDOW_SECS);
     let mut stream = client.connect_messages_ws().await?;
     let subscribe = MessagesWsSubscribeFrame {
@@ -584,37 +560,8 @@ async fn observe_recovering_bars_ws(
                     }
                 }
             }
-            Some(BarsWsInboundFrame::JsonRowsMin(rows)) => {
-                if let Some(first) = rows.first() {
-                    last_close_ms = first.close_ms;
-                }
-                if reconnected {
-                    post_reconnect_frames += rows.len().max(1);
-                } else {
-                    pre_reconnect_frames += rows.len().max(1);
-                }
-            }
-            Some(BarsWsInboundFrame::JsonRowsFull(rows)) => {
-                if let Some(first) = rows.first() {
-                    last_close_ms = first.close_ms;
-                }
-                if reconnected {
-                    post_reconnect_frames += rows.len().max(1);
-                } else {
-                    pre_reconnect_frames += rows.len().max(1);
-                }
-            }
-            Some(BarsWsInboundFrame::ProtobufRowsMin(rows)) => {
-                if let Some(first) = rows.first() {
-                    last_close_ms = first.close_ms;
-                }
-                if reconnected {
-                    post_reconnect_frames += rows.len().max(1);
-                } else {
-                    pre_reconnect_frames += rows.len().max(1);
-                }
-            }
-            Some(BarsWsInboundFrame::ProtobufRowsFull(rows)) => {
+            Some(BarsWsInboundFrame::JsonRows(rows))
+            | Some(BarsWsInboundFrame::ProtobufRows(rows)) => {
                 if let Some(first) = rows.first() {
                     last_close_ms = first.close_ms;
                 }
@@ -764,21 +711,34 @@ async fn observe_recovering_messages_ws(
 
 fn initial_surface_results() -> Vec<SurfaceResult> {
     [
+        ("intro", "intro.intro"),
         ("docs", "docs_system"),
         ("docs", "docs_themes"),
         ("docs", "docs_endpoints"),
         ("docs", "openapi"),
+        ("primitives_docs", "primitives.docs_system"),
+        ("primitives_docs", "primitives.docs_summary"),
+        ("primitives_docs", "primitives.docs_taxonomy"),
+        ("primitives_docs", "primitives.docs_registry"),
+        ("primitives_docs", "primitives.docs_endpoints"),
+        ("primitives_docs", "primitives.openapi"),
+        ("regime_docs", "regime.docs_system"),
+        ("regime_docs", "regime.docs_summary"),
+        ("regime_docs", "regime.docs_taxonomy"),
+        ("regime_docs", "regime.docs_registry"),
+        ("regime_docs", "regime.docs_endpoints"),
+        ("regime_docs", "regime.openapi"),
         ("discovery", "pairs_status"),
         ("discovery", "pairs_list"),
         ("discovery", "files_downloads"),
-        ("bars_http", "latest_bars"),
-        ("bars_http", "range_bars"),
-        ("bars_http", "search_bars"),
-        ("bars_http", "time_machine_bars"),
-        ("bars_grpc", "latest_bars_grpc"),
-        ("bars_grpc", "range_bars_grpc"),
-        ("bars_grpc", "search_bars_grpc"),
-        ("bars_grpc", "time_machine_bars_grpc"),
+        ("bars_http", "latest"),
+        ("bars_http", "range"),
+        ("bars_http", "search"),
+        ("bars_http", "time_machine"),
+        ("bars_grpc", "latest_grpc"),
+        ("bars_grpc", "range_grpc"),
+        ("bars_grpc", "search_grpc"),
+        ("bars_grpc", "time_machine_grpc"),
         ("ws", "connect_bars_ws"),
         ("ws", "connect_messages_ws"),
         ("ws_optional", "connect_bars_ws_recovering"),
@@ -816,8 +776,12 @@ fn markdown_report(report: &Report) -> String {
                 config.ws_base_url.as_deref().unwrap_or("not_configured")
             ));
             out.push_str(&format!(
-                "- bearer_token_present: `{}`\n\n",
+                "- bearer_token_present: `{}`\n",
                 config.bearer_token_present
+            ));
+            out.push_str(&format!(
+                "- intro_bearer_token_present: `{}`\n\n",
+                config.intro_bearer_token_present
             ));
         }
         None => out.push_str("- configuration was not established\n\n"),
@@ -923,83 +887,92 @@ fn record_fail(report: &mut Report, surface: &'static str, error: impl Into<Stri
 }
 
 fn build_runtime_config() -> Result<RuntimeConfig, SdkError> {
-    let http_base_url = required_env(HTTP_ENV)?;
-    let grpc_base_url = optional_env(GRPC_ENV);
-    let ws_base_url = optional_env(WS_ENV);
     let bearer_token = optional_env(BEARER_ENV).map(BearerToken::new).transpose()?;
-
-    let config = AggregatorConfig {
-        http: Some(HttpTransportConfig::new(&http_base_url)?),
-        grpc: grpc_base_url
-            .as_ref()
-            .map(GrpcTransportConfig::new)
-            .transpose()?,
-        ws: ws_base_url
-            .as_ref()
-            .map(WsTransportConfig::new)
-            .transpose()?,
-        bearer_token: bearer_token.clone(),
-    };
-
-    let client = AggregatorClient::new(config)?;
+    let bearer_token_present = bearer_token.is_some();
+    let intro_bearer_token = optional_env(INTRO_BEARER_ENV)
+        .map(BearerToken::new)
+        .transpose()?;
+    let intro_bearer_token_present = intro_bearer_token.is_some();
+    let client = Aggregator::client(bearer_token.clone())?;
+    let intro_client = Intro::client(intro_bearer_token)?;
+    let primitives_client = Primitives::client(bearer_token.clone())?;
+    let regime_client = Regime::client(bearer_token.clone())?;
     Ok(RuntimeConfig {
         summary: RuntimeConfigSummary {
-            http_base_url,
-            grpc_base_url,
-            ws_base_url,
-            bearer_token_present: bearer_token.is_some(),
+            http_base_url: MathildePublicHosts::AGGREGATOR_HTTP.to_string(),
+            grpc_base_url: Some(MathildePublicHosts::AGGREGATOR_GRPC.to_string()),
+            ws_base_url: Some(
+                MathildePublicHosts::AGGREGATOR_HTTP.replacen("https://", "wss://", 1),
+            ),
+            bearer_token_present,
+            intro_bearer_token_present,
         },
         client,
+        intro_client,
+        primitives_client,
+        regime_client,
     })
 }
 
-fn pair_from_latest_response(out: &LatestBarsResponse) -> Option<&str> {
-    match out {
-        LatestBarsResponse::Min(out) => out.rows.first().map(|row| row.bar.pair.as_str()),
-        LatestBarsResponse::Full(out) => out.rows.first().map(|row| row.bar.pair.as_str()),
-    }
+fn pair_from_latest_response(out: &LatestResponse) -> Option<&str> {
+    out.rows.first().map(|row| row.pair.as_str())
 }
 
-fn close_end_from_latest_response(out: &LatestBarsResponse) -> i64 {
-    match out {
-        LatestBarsResponse::Min(out) => out.close_end_ms,
-        LatestBarsResponse::Full(out) => out.close_end_ms,
-    }
+fn close_end_from_latest_response(out: &LatestResponse) -> i64 {
+    out.close_end_ms
 }
 
-fn range_rows_len(out: &RangeBarsResponse) -> usize {
-    match out {
-        RangeBarsResponse::Min(out) => out.rows.len(),
-        RangeBarsResponse::Full(out) => out.rows.len(),
-    }
+fn range_rows_len(out: &RangeResponse) -> usize {
+    out.rows.len()
 }
 
-fn search_hits_len(out: &SearchBarsResponse) -> usize {
-    match out {
-        SearchBarsResponse::Min(out) => out.hits.len(),
-        SearchBarsResponse::Full(out) => out.hits.len(),
-    }
+fn search_hits_len(out: &SearchResponse) -> usize {
+    out.hits.len()
 }
 
-fn time_machine_rows_len(out: &TimeMachineBarsResponse) -> usize {
-    match out {
-        TimeMachineBarsResponse::Min(out) => out.rows.len(),
-        TimeMachineBarsResponse::Full(out) => out.rows.len(),
-    }
+fn time_machine_rows_len(out: &TimeMachineResponse) -> usize {
+    out.rows.len()
+}
+
+fn json_str<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    value.get(key)?.as_str()
+}
+
+fn json_array_len(value: &serde_json::Value, key: &str) -> Option<usize> {
+    value.get(key)?.as_array().map(|rows| rows.len())
 }
 
 async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
     let client = &runtime.client;
+    let intro = &runtime.intro_client;
+    let primitives = &runtime.primitives_client;
+    let regime = &runtime.regime_client;
+
+    match intro.intro().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "intro.intro",
+                format!(
+                    "subsystem={} keys={}",
+                    json_str(&out, "subsystem").unwrap_or(""),
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(report, "intro.intro", "intro root was not a JSON object"),
+        Err(error) => record_fail(report, "intro.intro", error.to_string()),
+    }
 
     match client.docs_system().await {
-        Ok(out) if !out.intro.trim().is_empty() => {
+        Ok(out) if json_str(&out, "intro").is_some_and(|intro| !intro.trim().is_empty()) => {
             record_pass(
                 report,
                 "docs_system",
                 format!(
                     "subsystem={} sections={}",
-                    out.subsystem,
-                    out.sections.len()
+                    json_str(&out, "subsystem").unwrap_or(""),
+                    json_array_len(&out, "sections").unwrap_or(0)
                 ),
             );
         }
@@ -1008,14 +981,14 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
     }
 
     match client.docs_summary().await {
-        Ok(out) if !out.intro.trim().is_empty() => {
+        Ok(out) if json_str(&out, "intro").is_some_and(|intro| !intro.trim().is_empty()) => {
             record_pass(
                 report,
                 "docs_summary",
                 format!(
                     "subsystem={} sections={}",
-                    out.subsystem,
-                    out.sections.len()
+                    json_str(&out, "subsystem").unwrap_or(""),
+                    json_array_len(&out, "sections").unwrap_or(0)
                 ),
             );
         }
@@ -1024,26 +997,287 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
     }
 
     match client.docs_themes().await {
-        Ok(out) if !out.themes.is_empty() => {
+        Ok(out) if json_array_len(&out, "themes").is_some_and(|count| count > 0) => {
             record_pass(
                 report,
                 "docs_themes",
-                format!("subsystem={} themes={}", out.subsystem, out.themes.len()),
+                format!(
+                    "subsystem={} themes={}",
+                    json_str(&out, "subsystem").unwrap_or(""),
+                    json_array_len(&out, "themes").unwrap_or(0)
+                ),
             );
         }
         Ok(_) => record_fail(report, "docs_themes", "empty themes content"),
         Err(error) => record_fail(report, "docs_themes", error.to_string()),
     }
 
+    match primitives.docs_system().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "primitives.docs_system",
+                format!(
+                    "subsystem={} keys={}",
+                    json_str(&out, "subsystem").unwrap_or(""),
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "primitives.docs_system",
+            "docs_system was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "primitives.docs_system", error.to_string()),
+    }
+
+    match primitives.docs_summary().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "primitives.docs_summary",
+                format!(
+                    "subsystem={} keys={}",
+                    json_str(&out, "subsystem").unwrap_or(""),
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "primitives.docs_summary",
+            "docs_summary was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "primitives.docs_summary", error.to_string()),
+    }
+
+    match primitives.docs_taxonomy().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "primitives.docs_taxonomy",
+                format!(
+                    "keys={}",
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "primitives.docs_taxonomy",
+            "docs_taxonomy was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "primitives.docs_taxonomy", error.to_string()),
+    }
+
+    match primitives
+        .docs_registry(&PrimitivesDocsRegistryRequest::default())
+        .await
+    {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "primitives.docs_registry",
+                format!(
+                    "keys={}",
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "primitives.docs_registry",
+            "docs_registry was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "primitives.docs_registry", error.to_string()),
+    }
+
+    match primitives.docs_endpoints().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "primitives.docs_endpoints",
+                format!(
+                    "keys={}",
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "primitives.docs_endpoints",
+            "docs_endpoints was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "primitives.docs_endpoints", error.to_string()),
+    }
+
+    match primitives.openapi().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "primitives.openapi",
+                format!(
+                    "keys={}",
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "primitives.openapi",
+            "openapi was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "primitives.openapi", error.to_string()),
+    }
+
+    match regime.docs_system().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "regime.docs_system",
+                format!(
+                    "subsystem={} keys={}",
+                    json_str(&out, "subsystem").unwrap_or(""),
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "regime.docs_system",
+            "docs_system was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "regime.docs_system", error.to_string()),
+    }
+
+    match regime.docs_summary().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "regime.docs_summary",
+                format!(
+                    "subsystem={} keys={}",
+                    json_str(&out, "subsystem").unwrap_or(""),
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "regime.docs_summary",
+            "docs_summary was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "regime.docs_summary", error.to_string()),
+    }
+
+    match regime.docs_taxonomy().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "regime.docs_taxonomy",
+                format!(
+                    "keys={}",
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "regime.docs_taxonomy",
+            "docs_taxonomy was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "regime.docs_taxonomy", error.to_string()),
+    }
+
+    match regime
+        .docs_registry(&RegimeDocsRegistryRequest::default())
+        .await
+    {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "regime.docs_registry",
+                format!(
+                    "keys={}",
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "regime.docs_registry",
+            "docs_registry was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "regime.docs_registry", error.to_string()),
+    }
+
+    match regime.docs_endpoints().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "regime.docs_endpoints",
+                format!(
+                    "keys={}",
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "regime.docs_endpoints",
+            "docs_endpoints was not a JSON object",
+        ),
+        Err(error) => record_fail(report, "regime.docs_endpoints", error.to_string()),
+    }
+
+    match regime.openapi().await {
+        Ok(out) if out.is_object() => {
+            record_pass(
+                report,
+                "regime.openapi",
+                format!(
+                    "keys={}",
+                    out.as_object().map(|value| value.len()).unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(report, "regime.openapi", "openapi was not a JSON object"),
+        Err(error) => record_fail(report, "regime.openapi", error.to_string()),
+    }
+
+    match primitives.openapi().await {
+        Ok(out) if out.get("openapi").is_some() => {
+            record_pass(
+                report,
+                "primitives.openapi",
+                format!(
+                    "openapi={} paths={}",
+                    json_str(&out, "openapi").unwrap_or(""),
+                    out.get("paths")
+                        .and_then(|value| value.as_object())
+                        .map(|value| value.len())
+                        .unwrap_or(0)
+                ),
+            );
+        }
+        Ok(_) => record_fail(
+            report,
+            "primitives.openapi",
+            "openapi document missing `openapi` key",
+        ),
+        Err(error) => record_fail(report, "primitives.openapi", error.to_string()),
+    }
+
     match client.docs_endpoints().await {
-        Ok(out) if !out.intro.trim().is_empty() => {
+        Ok(out) if json_str(&out, "intro").is_some_and(|intro| !intro.trim().is_empty()) => {
             record_pass(
                 report,
                 "docs_endpoints",
                 format!(
                     "subsystem={} sections={}",
-                    out.subsystem,
-                    out.sections.len()
+                    json_str(&out, "subsystem").unwrap_or(""),
+                    json_array_len(&out, "sections").unwrap_or(0)
                 ),
             );
         }
@@ -1143,22 +1377,21 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
         Err(error) => record_fail(report, "files_downloads", error.to_string()),
     }
 
-    let latest_http_min_request = LatestBarsRequest {
+    let latest_http_min_request = LatestRequest {
         pairs: vec![target_pair.clone()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
-        exclude_sources: None,
         metadata: Some(false),
         format: Some(HttpFormat::Json),
     };
 
-    let latest_http_full_request = LatestBarsRequest {
+    let latest_http_full_request = LatestRequest {
         metadata: Some(true),
         ..latest_http_min_request.clone()
     };
 
-    let latest_http_min = client.latest_bars(&latest_http_min_request).await;
-    let latest_http_full = client.latest_bars(&latest_http_full_request).await;
+    let latest_http_min = client.latest(&latest_http_min_request).await;
+    let latest_http_full = client.latest(&latest_http_full_request).await;
 
     let anchor_close_ms = match (&latest_http_min, &latest_http_full) {
         (Ok(min), Ok(full))
@@ -1168,7 +1401,7 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             let close_end_ms = close_end_from_latest_response(min);
             record_pass(
                 report,
-                "latest_bars",
+                "latest",
                 format!(
                     "pair={} close_end_ms={}",
                     pair_from_latest_response(min).unwrap_or("unknown"),
@@ -1178,29 +1411,25 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             close_end_ms
         }
         (Ok(_), Ok(_)) => {
-            record_fail(report, "latest_bars", "min/full latest parity mismatch");
+            record_fail(report, "latest", "min/full latest parity mismatch");
             0
         }
         (Err(error), _) => {
-            record_fail(report, "latest_bars", error.to_string());
+            record_fail(report, "latest", error.to_string());
             0
         }
         (_, Err(error)) => {
-            record_fail(report, "latest_bars", error.to_string());
+            record_fail(report, "latest", error.to_string());
             0
         }
     };
 
     if anchor_close_ms <= 0 {
-        record_fail(report, "range_bars", "latest anchor was not established");
-        record_fail(report, "search_bars", "latest anchor was not established");
-        record_fail(
-            report,
-            "time_machine_bars",
-            "latest anchor was not established",
-        );
+        record_fail(report, "range", "latest anchor was not established");
+        record_fail(report, "search", "latest anchor was not established");
+        record_fail(report, "time_machine", "latest anchor was not established");
     } else {
-        let range_min_request = RangeBarsRequest {
+        let range_min_request = RangeRequest {
             pairs: vec![target_pair.clone()],
             tf: Timeframe::M1,
             align_mode: Some(AlignMode::Exact),
@@ -1208,25 +1437,24 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             cursor: None,
             close_end: Some(TimeInput::Ms(anchor_close_ms)),
             limit: Some(5),
-            exclude_sources: None,
             metadata: Some(false),
             format: Some(HttpFormat::Json),
         };
-        let range_full_request = RangeBarsRequest {
+        let range_full_request = RangeRequest {
             metadata: Some(true),
             ..range_min_request.clone()
         };
 
         match (
-            client.range_bars(&range_min_request).await,
-            client.range_bars(&range_full_request).await,
+            client.range(&range_min_request).await,
+            client.range(&range_full_request).await,
         ) {
             (Ok(min), Ok(full))
                 if range_rows_len(&min) > 0 && range_rows_len(&min) == range_rows_len(&full) =>
             {
                 record_pass(
                     report,
-                    "range_bars",
+                    "range",
                     format!(
                         "rows={} close_end_ms={anchor_close_ms}",
                         range_rows_len(&min)
@@ -1235,62 +1463,61 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             }
             (Ok(min), Ok(full)) => record_fail(
                 report,
-                "range_bars",
+                "range",
                 format!(
                     "unexpected min/full range rows: min={} full={}",
                     range_rows_len(&min),
                     range_rows_len(&full)
                 ),
             ),
-            (Err(error), _) => record_fail(report, "range_bars", error.to_string()),
-            (_, Err(error)) => record_fail(report, "range_bars", error.to_string()),
+            (Err(error), _) => record_fail(report, "range", error.to_string()),
+            (_, Err(error)) => record_fail(report, "range", error.to_string()),
         }
 
         let predicate = format!("{target_pair}.close > 0");
-        let search_min_request = SearchBarsRequest {
+        let search_min_request = SearchRequest {
             tf: Timeframe::M1,
             close_start: TimeInput::Ms(anchor_close_ms - 60 * 60_000),
             close_end: Some(TimeInput::Ms(anchor_close_ms)),
             cursor: None,
             predicate: predicate.clone(),
             evaluate_pair: Some(target_pair.clone()),
-            exclude_sources: None,
             metadata: Some(false),
             max_hits: Some(20),
             format: Some(HttpFormat::Json),
         };
-        let search_full_request = SearchBarsRequest {
+        let search_full_request = SearchRequest {
             metadata: Some(true),
             ..search_min_request.clone()
         };
 
         match (
-            client.search_bars(&search_min_request).await,
-            client.search_bars(&search_full_request).await,
+            client.search(&search_min_request).await,
+            client.search(&search_full_request).await,
         ) {
             (Ok(min), Ok(full))
                 if search_hits_len(&min) > 0 && search_hits_len(&min) == search_hits_len(&full) =>
             {
                 record_pass(
                     report,
-                    "search_bars",
+                    "search",
                     format!("hits={} predicate={predicate}", search_hits_len(&min)),
                 );
             }
             (Ok(min), Ok(full)) => record_fail(
                 report,
-                "search_bars",
+                "search",
                 format!(
                     "unexpected min/full search hits: min={} full={}",
                     search_hits_len(&min),
                     search_hits_len(&full)
                 ),
             ),
-            (Err(error), _) => record_fail(report, "search_bars", error.to_string()),
-            (_, Err(error)) => record_fail(report, "search_bars", error.to_string()),
+            (Err(error), _) => record_fail(report, "search", error.to_string()),
+            (_, Err(error)) => record_fail(report, "search", error.to_string()),
         }
 
-        let time_machine_min_request = TimeMachineBarsRequest {
+        let time_machine_min_request = TimeMachineRequest {
             tf: Timeframe::M1,
             close_start: TimeInput::Ms(anchor_close_ms - 20 * 60_000),
             close_end: Some(TimeInput::Ms(anchor_close_ms)),
@@ -1298,7 +1525,6 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             predicate: None,
             hits: Some(vec![anchor_close_ms - 120_000, anchor_close_ms - 60_000]),
             output_pairs: Some(vec![target_pair.clone()]),
-            exclude_sources: None,
             metadata: Some(false),
             before_bars: Some(2),
             after_bars: Some(2),
@@ -1306,14 +1532,14 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             overlap_mode: Some("clip".to_string()),
             format: Some(HttpFormat::Json),
         };
-        let time_machine_full_request = TimeMachineBarsRequest {
+        let time_machine_full_request = TimeMachineRequest {
             metadata: Some(true),
             ..time_machine_min_request.clone()
         };
 
         match (
-            client.time_machine_bars(&time_machine_min_request).await,
-            client.time_machine_bars(&time_machine_full_request).await,
+            client.time_machine(&time_machine_min_request).await,
+            client.time_machine(&time_machine_full_request).await,
         ) {
             (Ok(min), Ok(full))
                 if time_machine_rows_len(&min) > 0
@@ -1321,51 +1547,51 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             {
                 record_pass(
                     report,
-                    "time_machine_bars",
+                    "time_machine",
                     format!("rows={}", time_machine_rows_len(&min)),
                 );
             }
             (Ok(min), Ok(full)) => record_fail(
                 report,
-                "time_machine_bars",
+                "time_machine",
                 format!(
                     "unexpected min/full time-machine rows: min={} full={}",
                     time_machine_rows_len(&min),
                     time_machine_rows_len(&full)
                 ),
             ),
-            (Err(error), _) => record_fail(report, "time_machine_bars", error.to_string()),
-            (_, Err(error)) => record_fail(report, "time_machine_bars", error.to_string()),
+            (Err(error), _) => record_fail(report, "time_machine", error.to_string()),
+            (_, Err(error)) => record_fail(report, "time_machine", error.to_string()),
         }
 
         if runtime.summary.grpc_base_url.is_none() {
             record_fail(
                 report,
-                "latest_bars_grpc",
+                "latest_grpc",
                 format!("missing required environment variable `{GRPC_ENV}`"),
             );
             record_fail(
                 report,
-                "range_bars_grpc",
+                "range_grpc",
                 format!("missing required environment variable `{GRPC_ENV}`"),
             );
             record_fail(
                 report,
-                "search_bars_grpc",
+                "search_grpc",
                 format!("missing required environment variable `{GRPC_ENV}`"),
             );
             record_fail(
                 report,
-                "time_machine_bars_grpc",
+                "time_machine_grpc",
                 format!("missing required environment variable `{GRPC_ENV}`"),
             );
         } else {
-            let latest_grpc_min_request = LatestBarsGrpcRequest::from(&latest_http_min_request);
-            let latest_grpc_full_request = LatestBarsGrpcRequest::from(&latest_http_full_request);
+            let latest_grpc_min_request = LatestGrpcRequest::from(&latest_http_min_request);
+            let latest_grpc_full_request = LatestGrpcRequest::from(&latest_http_full_request);
 
             match (
-                client.latest_bars_grpc(&latest_grpc_min_request).await,
-                client.latest_bars_grpc(&latest_grpc_full_request).await,
+                client.latest_grpc(&latest_grpc_min_request).await,
+                client.latest_grpc(&latest_grpc_full_request).await,
             ) {
                 (Ok(min), Ok(full))
                     if pair_from_latest_response(&min).is_some()
@@ -1373,7 +1599,7 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
                 {
                     record_pass(
                         report,
-                        "latest_bars_grpc",
+                        "latest_grpc",
                         format!(
                             "pair={} close_end_ms={}",
                             pair_from_latest_response(&min).unwrap_or("unknown"),
@@ -1381,20 +1607,18 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
                         ),
                     );
                 }
-                (Ok(_), Ok(_)) => record_fail(
-                    report,
-                    "latest_bars_grpc",
-                    "min/full latest parity mismatch",
-                ),
-                (Err(error), _) => record_fail(report, "latest_bars_grpc", error.to_string()),
-                (_, Err(error)) => record_fail(report, "latest_bars_grpc", error.to_string()),
+                (Ok(_), Ok(_)) => {
+                    record_fail(report, "latest_grpc", "min/full latest parity mismatch")
+                }
+                (Err(error), _) => record_fail(report, "latest_grpc", error.to_string()),
+                (_, Err(error)) => record_fail(report, "latest_grpc", error.to_string()),
             }
 
-            let range_grpc_min_request = RangeBarsGrpcRequest::from(&range_min_request);
-            let range_grpc_full_request = RangeBarsGrpcRequest::from(&range_full_request);
+            let range_grpc_min_request = RangeGrpcRequest::from(&range_min_request);
+            let range_grpc_full_request = RangeGrpcRequest::from(&range_full_request);
             match (
-                client.range_bars_grpc(&range_grpc_min_request).await,
-                client.range_bars_grpc(&range_grpc_full_request).await,
+                client.range_grpc(&range_grpc_min_request).await,
+                client.range_grpc(&range_grpc_full_request).await,
             ) {
                 (Ok(min), Ok(full))
                     if range_rows_len(&min) > 0
@@ -1402,28 +1626,28 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
                 {
                     record_pass(
                         report,
-                        "range_bars_grpc",
+                        "range_grpc",
                         format!("rows={}", range_rows_len(&min)),
                     );
                 }
                 (Ok(min), Ok(full)) => record_fail(
                     report,
-                    "range_bars_grpc",
+                    "range_grpc",
                     format!(
                         "unexpected min/full range rows: min={} full={}",
                         range_rows_len(&min),
                         range_rows_len(&full)
                     ),
                 ),
-                (Err(error), _) => record_fail(report, "range_bars_grpc", error.to_string()),
-                (_, Err(error)) => record_fail(report, "range_bars_grpc", error.to_string()),
+                (Err(error), _) => record_fail(report, "range_grpc", error.to_string()),
+                (_, Err(error)) => record_fail(report, "range_grpc", error.to_string()),
             }
 
-            let search_grpc_min_request = SearchBarsGrpcRequest::from(&search_min_request);
-            let search_grpc_full_request = SearchBarsGrpcRequest::from(&search_full_request);
+            let search_grpc_min_request = SearchGrpcRequest::from(&search_min_request);
+            let search_grpc_full_request = SearchGrpcRequest::from(&search_full_request);
             match (
-                client.search_bars_grpc(&search_grpc_min_request).await,
-                client.search_bars_grpc(&search_grpc_full_request).await,
+                client.search_grpc(&search_grpc_min_request).await,
+                client.search_grpc(&search_grpc_full_request).await,
             ) {
                 (Ok(min), Ok(full))
                     if search_hits_len(&min) > 0
@@ -1431,33 +1655,33 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
                 {
                     record_pass(
                         report,
-                        "search_bars_grpc",
+                        "search_grpc",
                         format!("hits={}", search_hits_len(&min)),
                     );
                 }
                 (Ok(min), Ok(full)) => record_fail(
                     report,
-                    "search_bars_grpc",
+                    "search_grpc",
                     format!(
                         "unexpected min/full search hits: min={} full={}",
                         search_hits_len(&min),
                         search_hits_len(&full)
                     ),
                 ),
-                (Err(error), _) => record_fail(report, "search_bars_grpc", error.to_string()),
-                (_, Err(error)) => record_fail(report, "search_bars_grpc", error.to_string()),
+                (Err(error), _) => record_fail(report, "search_grpc", error.to_string()),
+                (_, Err(error)) => record_fail(report, "search_grpc", error.to_string()),
             }
 
             let time_machine_grpc_min_request =
-                TimeMachineBarsGrpcRequest::from(&time_machine_min_request);
+                TimeMachineGrpcRequest::from(&time_machine_min_request);
             let time_machine_grpc_full_request =
-                TimeMachineBarsGrpcRequest::from(&time_machine_full_request);
+                TimeMachineGrpcRequest::from(&time_machine_full_request);
             match (
                 client
-                    .time_machine_bars_grpc(&time_machine_grpc_min_request)
+                    .time_machine_grpc(&time_machine_grpc_min_request)
                     .await,
                 client
-                    .time_machine_bars_grpc(&time_machine_grpc_full_request)
+                    .time_machine_grpc(&time_machine_grpc_full_request)
                     .await,
             ) {
                 (Ok(min), Ok(full))
@@ -1466,21 +1690,21 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
                 {
                     record_pass(
                         report,
-                        "time_machine_bars_grpc",
+                        "time_machine_grpc",
                         format!("rows={}", time_machine_rows_len(&min)),
                     );
                 }
                 (Ok(min), Ok(full)) => record_fail(
                     report,
-                    "time_machine_bars_grpc",
+                    "time_machine_grpc",
                     format!(
                         "unexpected min/full time-machine rows: min={} full={}",
                         time_machine_rows_len(&min),
                         time_machine_rows_len(&full)
                     ),
                 ),
-                (Err(error), _) => record_fail(report, "time_machine_bars_grpc", error.to_string()),
-                (_, Err(error)) => record_fail(report, "time_machine_bars_grpc", error.to_string()),
+                (Err(error), _) => record_fail(report, "time_machine_grpc", error.to_string()),
+                (_, Err(error)) => record_fail(report, "time_machine_grpc", error.to_string()),
             }
         }
     }
@@ -1565,7 +1789,7 @@ async fn run() -> Result<Report, String> {
         final_status: "foundation_failed".to_string(),
     };
 
-    println!("[{BIN_NAME}] starting docs/discovery/bars/ws live checks");
+    println!("[{BIN_NAME}] starting live public surface checks");
     println!(
         "[{BIN_NAME}] loading environment from {}",
         repo_dotenv.display()
@@ -1582,10 +1806,18 @@ async fn run() -> Result<Report, String> {
     };
 
     report.config = Some(runtime.summary.clone());
-    report.proved_observations.push(format!(
-        "loaded `{}` and constructed `AggregatorClient` successfully",
-        HTTP_ENV
-    ));
+    report.proved_observations.push(
+        "constructed `Aggregator` from checked-in public defaults without introducing new environment variables".to_string(),
+    );
+    report.proved_observations.push(
+        "constructed `Primitives` from checked-in public defaults without introducing new environment variables".to_string(),
+    );
+    report.proved_observations.push(
+        "constructed `Regime` from checked-in public defaults without introducing new environment variables".to_string(),
+    );
+    report.proved_observations.push(
+        "constructed `Intro` from checked-in public defaults without introducing new environment variables".to_string(),
+    );
     report
         .proved_observations
         .push("Markdown report directory and per-surface scaffold were initialized".to_string());
@@ -1593,9 +1825,9 @@ async fn run() -> Result<Report, String> {
     println!("[{BIN_NAME}] client construction ok");
     run_live_checks(&runtime, &mut report).await;
     report.final_status = if report.failures.is_empty() {
-        "docs_discovery_bars_ws_checks_passed".to_string()
+        "live_public_surface_checks_passed".to_string()
     } else {
-        "docs_discovery_bars_ws_checks_failed".to_string()
+        "live_public_surface_checks_failed".to_string()
     };
 
     Ok(report)

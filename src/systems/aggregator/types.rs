@@ -1,54 +1,7 @@
 use crate::core::error::SdkError;
 use crate::core::time::TimeInput;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
-use crate::systems::types::{
-    AlignMode, BarsView, ExcludeSource, HttpFormat, LatestMode, Timeframe,
-};
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct PublicPageSection {
-    pub heading: String,
-    pub slug: String,
-    pub level: u8,
-    pub content: String,
-    pub children: Vec<PublicPageSection>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct PublicPageDoc {
-    pub subsystem: String,
-    pub title: String,
-    pub anchor: String,
-    pub source_path: String,
-    pub generated_by: String,
-    pub intro: String,
-    pub sections: Vec<PublicPageSection>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct PublicThemeSection {
-    pub heading: String,
-    pub slug: String,
-    pub content: String,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct PublicThemeDoc {
-    pub theme_key: String,
-    pub title: String,
-    pub anchor: String,
-    pub source_path: String,
-    pub intro: String,
-    pub sections: Vec<PublicThemeSection>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct PublicThemesCompiled {
-    pub subsystem: String,
-    pub source_manifest: String,
-    pub generated_by: String,
-    pub themes: Vec<PublicThemeDoc>,
-}
+use crate::systems::types::{AlignMode, BarsView, HttpFormat, LatestMode, Timeframe};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Default)]
 pub struct PairsStatusRequest {
@@ -214,80 +167,68 @@ pub struct DownloadedFile {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct LatestBarsRequest {
+pub struct LatestRequest {
     pub pairs: Vec<String>,
     pub tf: Timeframe,
     pub latest_mode: LatestMode,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub format: Option<HttpFormat>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
 pub struct NormalizedLatestBarsRequest {
-    pub pairs: String,
+    pub pairs: Vec<String>,
     pub tf: Timeframe,
     pub latest_mode: LatestMode,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub format: Option<HttpFormat>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct LatestBarsGrpcRequest {
+pub struct LatestGrpcRequest {
     pub pairs: Vec<String>,
     pub tf: Timeframe,
     pub latest_mode: LatestMode,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
 }
 
-impl LatestBarsRequest {
+impl LatestRequest {
     pub fn normalize(&self) -> Result<NormalizedLatestBarsRequest, SdkError> {
         Ok(NormalizedLatestBarsRequest {
-            pairs: join_required_pair_values_csv(&self.pairs, "latest bars")?,
+            pairs: normalize_required_pair_values(&self.pairs, "latest bars")?,
             tf: self.tf,
             latest_mode: self.latest_mode,
-            exclude_sources: self.exclude_sources.clone(),
             metadata: self.metadata,
             format: self.format,
         })
     }
 }
 
-impl LatestBarsGrpcRequest {
+impl LatestGrpcRequest {
     #[allow(dead_code)]
     pub(crate) fn to_proto(&self) -> Result<proto::LatestBarsRequestV1, SdkError> {
         Ok(proto::LatestBarsRequestV1 {
             pairs: normalize_required_pair_values(&self.pairs, "latest bars")?,
             tf: self.tf.as_str().to_string(),
             latest_mode: self.latest_mode.as_str().to_string(),
-            exclude_sources: self
-                .exclude_sources
-                .clone()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|source| source.as_str().to_string())
-                .collect(),
             metadata: self.metadata.unwrap_or(false),
         })
     }
 }
 
-impl From<&LatestBarsRequest> for LatestBarsGrpcRequest {
-    fn from(value: &LatestBarsRequest) -> Self {
+impl From<&LatestRequest> for LatestGrpcRequest {
+    fn from(value: &LatestRequest) -> Self {
         Self {
             pairs: value.pairs.clone(),
             tf: value.tf,
             latest_mode: value.latest_mode,
-            exclude_sources: value.exclude_sources.clone(),
             metadata: value.metadata,
         }
     }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct RangeBarsRequest {
+pub struct RangeRequest {
     pub pairs: Vec<String>,
     pub tf: Timeframe,
     pub align_mode: Option<AlignMode>,
@@ -295,13 +236,12 @@ pub struct RangeBarsRequest {
     pub cursor: Option<String>,
     pub close_end: Option<TimeInput>,
     pub limit: Option<i64>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub format: Option<HttpFormat>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct RangeBarsGrpcRequest {
+pub struct RangeGrpcRequest {
     pub pairs: Vec<String>,
     pub tf: Timeframe,
     pub align_mode: Option<AlignMode>,
@@ -309,13 +249,12 @@ pub struct RangeBarsGrpcRequest {
     pub cursor: Option<String>,
     pub close_end: Option<TimeInput>,
     pub limit: Option<i64>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
 pub struct NormalizedRangeBarsRequest {
-    pub pairs: String,
+    pub pairs: Vec<String>,
     pub tf: Timeframe,
     pub align_mode: Option<AlignMode>,
     #[serde(rename = "close_start_ms")]
@@ -324,7 +263,6 @@ pub struct NormalizedRangeBarsRequest {
     #[serde(rename = "close_end_ms")]
     pub close_end_ms: Option<i64>,
     pub limit: Option<i64>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub format: Option<HttpFormat>,
 }
@@ -338,14 +276,13 @@ pub struct NormalizedRangeBarsGrpcRequest {
     pub cursor: Option<String>,
     pub close_end_ms: i64,
     pub limit: Option<i64>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: bool,
 }
 
-impl RangeBarsRequest {
+impl RangeRequest {
     pub fn normalize(&self) -> Result<NormalizedRangeBarsRequest, SdkError> {
         Ok(NormalizedRangeBarsRequest {
-            pairs: join_required_pair_values_csv(&self.pairs, "range bars")?,
+            pairs: normalize_required_pair_values(&self.pairs, "range bars")?,
             tf: self.tf,
             align_mode: self.align_mode,
             close_start_ms: self
@@ -360,14 +297,13 @@ impl RangeBarsRequest {
                 .map(TimeInput::to_utc_ms)
                 .transpose()?,
             limit: self.limit,
-            exclude_sources: self.exclude_sources.clone(),
             metadata: self.metadata,
             format: self.format,
         })
     }
 }
 
-impl RangeBarsGrpcRequest {
+impl RangeGrpcRequest {
     #[allow(dead_code)]
     pub(crate) fn normalize(&self) -> Result<NormalizedRangeBarsGrpcRequest, SdkError> {
         Ok(NormalizedRangeBarsGrpcRequest {
@@ -388,7 +324,6 @@ impl RangeBarsGrpcRequest {
                 .transpose()?
                 .unwrap_or(0),
             limit: self.limit,
-            exclude_sources: self.exclude_sources.clone(),
             metadata: self.metadata.unwrap_or(false),
         })
     }
@@ -402,12 +337,6 @@ impl RangeBarsGrpcRequest {
             close_end_ms: normalized.close_end_ms,
             cursor: normalized.cursor,
             limit: normalized.limit,
-            exclude_sources: normalized
-                .exclude_sources
-                .unwrap_or_default()
-                .into_iter()
-                .map(|source| source.as_str().to_string())
-                .collect(),
             metadata: normalized.metadata,
             close_start_ms: normalized.close_start_ms,
             align_mode: normalized
@@ -417,8 +346,8 @@ impl RangeBarsGrpcRequest {
     }
 }
 
-impl From<&RangeBarsRequest> for RangeBarsGrpcRequest {
-    fn from(value: &RangeBarsRequest) -> Self {
+impl From<&RangeRequest> for RangeGrpcRequest {
+    fn from(value: &RangeRequest) -> Self {
         Self {
             pairs: value.pairs.clone(),
             tf: value.tf,
@@ -427,35 +356,32 @@ impl From<&RangeBarsRequest> for RangeBarsGrpcRequest {
             cursor: value.cursor.clone(),
             close_end: value.close_end.clone(),
             limit: value.limit,
-            exclude_sources: value.exclude_sources.clone(),
             metadata: value.metadata,
         }
     }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct SearchBarsRequest {
+pub struct SearchRequest {
     pub tf: Timeframe,
     pub close_start: TimeInput,
     pub close_end: Option<TimeInput>,
     pub cursor: Option<String>,
     pub predicate: String,
     pub evaluate_pair: Option<String>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub max_hits: Option<i64>,
     pub format: Option<HttpFormat>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct SearchBarsGrpcRequest {
+pub struct SearchGrpcRequest {
     pub tf: Timeframe,
     pub close_start: TimeInput,
     pub close_end: Option<TimeInput>,
     pub cursor: Option<String>,
     pub predicate: String,
     pub evaluate_pair: Option<String>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub max_hits: Option<i64>,
 }
@@ -470,7 +396,6 @@ pub struct NormalizedSearchBarsRequest {
     pub cursor: Option<String>,
     pub predicate: String,
     pub evaluate_pair: Option<String>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub max_hits: Option<i64>,
     pub format: Option<HttpFormat>,
@@ -484,12 +409,11 @@ pub struct NormalizedSearchBarsGrpcRequest {
     pub cursor: Option<String>,
     pub predicate: String,
     pub evaluate_pair: Option<String>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: bool,
     pub max_hits: Option<i64>,
 }
 
-impl SearchBarsRequest {
+impl SearchRequest {
     pub fn normalize(&self) -> Result<NormalizedSearchBarsRequest, SdkError> {
         Ok(NormalizedSearchBarsRequest {
             tf: self.tf,
@@ -502,7 +426,6 @@ impl SearchBarsRequest {
             cursor: self.cursor.clone(),
             predicate: self.predicate.clone(),
             evaluate_pair: self.evaluate_pair.clone(),
-            exclude_sources: self.exclude_sources.clone(),
             metadata: self.metadata,
             max_hits: self.max_hits,
             format: self.format,
@@ -510,7 +433,7 @@ impl SearchBarsRequest {
     }
 }
 
-impl SearchBarsGrpcRequest {
+impl SearchGrpcRequest {
     #[allow(dead_code)]
     pub(crate) fn normalize(&self) -> Result<NormalizedSearchBarsGrpcRequest, SdkError> {
         Ok(NormalizedSearchBarsGrpcRequest {
@@ -525,7 +448,6 @@ impl SearchBarsGrpcRequest {
             cursor: self.cursor.clone(),
             predicate: self.predicate.trim().to_string(),
             evaluate_pair: self.evaluate_pair.clone(),
-            exclude_sources: self.exclude_sources.clone(),
             metadata: self.metadata.unwrap_or(false),
             max_hits: self.max_hits,
         })
@@ -541,20 +463,14 @@ impl SearchBarsGrpcRequest {
             cursor: normalized.cursor,
             predicate: normalized.predicate,
             evaluate_pair: normalized.evaluate_pair,
-            exclude_sources: normalized
-                .exclude_sources
-                .unwrap_or_default()
-                .into_iter()
-                .map(|source| source.as_str().to_string())
-                .collect(),
             metadata: normalized.metadata,
             max_hits: normalized.max_hits,
         })
     }
 }
 
-impl From<&SearchBarsRequest> for SearchBarsGrpcRequest {
-    fn from(value: &SearchBarsRequest) -> Self {
+impl From<&SearchRequest> for SearchGrpcRequest {
+    fn from(value: &SearchRequest) -> Self {
         Self {
             tf: value.tf,
             close_start: value.close_start.clone(),
@@ -562,7 +478,6 @@ impl From<&SearchBarsRequest> for SearchBarsGrpcRequest {
             cursor: value.cursor.clone(),
             predicate: value.predicate.clone(),
             evaluate_pair: value.evaluate_pair.clone(),
-            exclude_sources: value.exclude_sources.clone(),
             metadata: value.metadata,
             max_hits: value.max_hits,
         }
@@ -570,7 +485,7 @@ impl From<&SearchBarsRequest> for SearchBarsGrpcRequest {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct TimeMachineBarsRequest {
+pub struct TimeMachineRequest {
     pub tf: Timeframe,
     pub close_start: TimeInput,
     pub close_end: Option<TimeInput>,
@@ -578,7 +493,6 @@ pub struct TimeMachineBarsRequest {
     pub predicate: Option<String>,
     pub hits: Option<Vec<i64>>,
     pub output_pairs: Option<Vec<String>>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub before_bars: Option<i64>,
     pub after_bars: Option<i64>,
@@ -588,7 +502,7 @@ pub struct TimeMachineBarsRequest {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct TimeMachineBarsGrpcRequest {
+pub struct TimeMachineGrpcRequest {
     pub tf: Timeframe,
     pub close_start: TimeInput,
     pub close_end: Option<TimeInput>,
@@ -596,7 +510,6 @@ pub struct TimeMachineBarsGrpcRequest {
     pub predicate: Option<String>,
     pub hits: Option<Vec<i64>>,
     pub output_pairs: Option<Vec<String>>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub before_bars: Option<i64>,
     pub after_bars: Option<i64>,
@@ -615,7 +528,6 @@ pub struct NormalizedTimeMachineBarsRequest {
     pub predicate: Option<String>,
     pub hits: Option<Vec<i64>>,
     pub output_pairs: Option<Vec<String>>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: Option<bool>,
     pub before_bars: Option<i64>,
     pub after_bars: Option<i64>,
@@ -633,7 +545,6 @@ pub struct NormalizedTimeMachineBarsGrpcRequest {
     pub predicate: Option<String>,
     pub hits: Option<Vec<i64>>,
     pub output_pairs: Option<Vec<String>>,
-    pub exclude_sources: Option<Vec<ExcludeSource>>,
     pub metadata: bool,
     pub before_bars: Option<i64>,
     pub after_bars: Option<i64>,
@@ -641,7 +552,7 @@ pub struct NormalizedTimeMachineBarsGrpcRequest {
     pub overlap_mode: Option<String>,
 }
 
-impl TimeMachineBarsRequest {
+impl TimeMachineRequest {
     pub fn normalize(&self) -> Result<NormalizedTimeMachineBarsRequest, SdkError> {
         Ok(NormalizedTimeMachineBarsRequest {
             tf: self.tf,
@@ -655,7 +566,6 @@ impl TimeMachineBarsRequest {
             predicate: self.predicate.clone(),
             hits: self.hits.clone(),
             output_pairs: self.output_pairs.clone(),
-            exclude_sources: self.exclude_sources.clone(),
             metadata: self.metadata,
             before_bars: self.before_bars,
             after_bars: self.after_bars,
@@ -666,7 +576,7 @@ impl TimeMachineBarsRequest {
     }
 }
 
-impl TimeMachineBarsGrpcRequest {
+impl TimeMachineGrpcRequest {
     #[allow(dead_code)]
     pub(crate) fn normalize(&self) -> Result<NormalizedTimeMachineBarsGrpcRequest, SdkError> {
         Ok(NormalizedTimeMachineBarsGrpcRequest {
@@ -682,7 +592,6 @@ impl TimeMachineBarsGrpcRequest {
             predicate: self.predicate.clone(),
             hits: self.hits.clone(),
             output_pairs: self.output_pairs.clone(),
-            exclude_sources: self.exclude_sources.clone(),
             metadata: self.metadata.unwrap_or(false),
             before_bars: self.before_bars,
             after_bars: self.after_bars,
@@ -702,12 +611,6 @@ impl TimeMachineBarsGrpcRequest {
             predicate: normalized.predicate,
             hits: normalized.hits.unwrap_or_default(),
             output_pairs: normalized.output_pairs.unwrap_or_default(),
-            exclude_sources: normalized
-                .exclude_sources
-                .unwrap_or_default()
-                .into_iter()
-                .map(|source| source.as_str().to_string())
-                .collect(),
             metadata: normalized.metadata,
             before_bars: normalized.before_bars,
             after_bars: normalized.after_bars,
@@ -717,8 +620,8 @@ impl TimeMachineBarsGrpcRequest {
     }
 }
 
-impl From<&TimeMachineBarsRequest> for TimeMachineBarsGrpcRequest {
-    fn from(value: &TimeMachineBarsRequest) -> Self {
+impl From<&TimeMachineRequest> for TimeMachineGrpcRequest {
+    fn from(value: &TimeMachineRequest) -> Self {
         Self {
             tf: value.tf,
             close_start: value.close_start.clone(),
@@ -727,7 +630,6 @@ impl From<&TimeMachineBarsRequest> for TimeMachineBarsGrpcRequest {
             predicate: value.predicate.clone(),
             hits: value.hits.clone(),
             output_pairs: value.output_pairs.clone(),
-            exclude_sources: value.exclude_sources.clone(),
             metadata: value.metadata,
             before_bars: value.before_bars,
             after_bars: value.after_bars,
@@ -735,12 +637,6 @@ impl From<&TimeMachineBarsRequest> for TimeMachineBarsGrpcRequest {
             overlap_mode: value.overlap_mode.clone(),
         }
     }
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct ExcludedSourceCount {
-    pub source: String,
-    pub count: i64,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -766,14 +662,10 @@ pub struct Bar {
     pub taker_signed_n: Option<i64>,
     pub vw: Option<f64>,
     pub n: Option<i64>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct LatestBarsPresentRow {
-    #[serde(flatten)]
-    pub bar: Bar,
-    pub age_ms: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub age_ms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<BarMetadata>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -811,136 +703,58 @@ pub struct BarMetadata {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct BarWithMetadata {
-    pub pair: String,
-    pub tf: Timeframe,
-    pub open_ms: i64,
-    pub close_ms: i64,
-    pub open_utc: String,
-    pub close_utc: String,
-    pub o: f64,
-    pub h: f64,
-    pub l: f64,
-    pub c: f64,
-    pub v: f64,
-    pub quote_v: Option<f64>,
-    pub taker_known_v: Option<f64>,
-    pub taker_signed_v: Option<f64>,
-    pub taker_known_quote_v: Option<f64>,
-    pub taker_signed_quote_v: Option<f64>,
-    pub taker_known_n: Option<i64>,
-    pub taker_signed_n: Option<i64>,
-    pub vw: Option<f64>,
-    pub n: Option<i64>,
-    pub metadata: BarMetadata,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct LatestBarsWithMetadataPresentRow {
-    #[serde(flatten)]
-    pub bar: BarWithMetadata,
-    pub age_ms: i64,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct RangeBarsMinResponse {
+pub struct RangeResponse {
     pub rows: Vec<Bar>,
     pub close_end_ms: i64,
     pub next_cursor: Option<String>,
-    pub excluded_sources: Option<Vec<ExcludeSource>>,
-    pub excluded_rows_total: Option<i64>,
-    pub excluded_rows_by_source: Option<Vec<ExcludedSourceCount>>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct RangeBarsFullResponse {
-    pub rows: Vec<BarWithMetadata>,
-    pub close_end_ms: i64,
-    pub next_cursor: Option<String>,
-    pub excluded_sources: Option<Vec<ExcludeSource>>,
-    pub excluded_rows_total: Option<i64>,
-    pub excluded_rows_by_source: Option<Vec<ExcludedSourceCount>>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum RangeBarsResponse {
-    Min(RangeBarsMinResponse),
-    Full(RangeBarsFullResponse),
-}
-
-impl RangeBarsResponse {
+impl RangeResponse {
     pub fn next_cursor(&self) -> Option<&str> {
-        match self {
-            Self::Min(response) => response.next_cursor.as_deref(),
-            Self::Full(response) => response.next_cursor.as_deref(),
-        }
+        self.next_cursor.as_deref()
     }
 
     pub fn close_end_ms(&self) -> i64 {
-        match self {
-            Self::Min(response) => response.close_end_ms,
-            Self::Full(response) => response.close_end_ms,
-        }
+        self.close_end_ms
     }
 
     pub fn done(&self) -> bool {
         self.next_cursor().is_none()
     }
 
+    pub fn validate_metadata(&self, metadata_required: bool) -> Result<(), SdkError> {
+        for row in &self.rows {
+            row.ensure_metadata_shape(metadata_required, "range bars response row")?;
+        }
+        Ok(())
+    }
+
     pub fn from_proto(
         response: proto::BarsRangeResponseV1,
         metadata: bool,
     ) -> Result<Self, SdkError> {
-        if metadata {
-            Ok(Self::Full(RangeBarsFullResponse {
-                rows: response
-                    .rows
-                    .into_iter()
-                    .map(BarWithMetadata::from_proto)
-                    .collect::<Result<Vec<_>, _>>()?,
-                close_end_ms: response.close_end_ms,
-                next_cursor: response.next_cursor,
-                excluded_sources: Some(ExcludeSource::vec_from_proto(response.excluded_sources)?),
-                excluded_rows_total: response.excluded_rows_total,
-                excluded_rows_by_source: Some(
-                    response
-                        .excluded_rows_by_source
-                        .into_iter()
-                        .map(ExcludedSourceCount::from_proto)
-                        .collect(),
-                ),
-            }))
-        } else {
-            Ok(Self::Min(RangeBarsMinResponse {
-                rows: response
-                    .rows
-                    .into_iter()
-                    .map(Bar::from_proto)
-                    .collect::<Result<Vec<_>, _>>()?,
-                close_end_ms: response.close_end_ms,
-                next_cursor: response.next_cursor,
-                excluded_sources: Some(ExcludeSource::vec_from_proto(response.excluded_sources)?),
-                excluded_rows_total: response.excluded_rows_total,
-                excluded_rows_by_source: Some(
-                    response
-                        .excluded_rows_by_source
-                        .into_iter()
-                        .map(ExcludedSourceCount::from_proto)
-                        .collect(),
-                ),
-            }))
-        }
+        let response = Self {
+            rows: response
+                .rows
+                .into_iter()
+                .map(Bar::from_proto)
+                .collect::<Result<Vec<_>, _>>()?,
+            close_end_ms: response.close_end_ms,
+            next_cursor: response.next_cursor,
+        };
+        response.validate_metadata(metadata)?;
+        Ok(response)
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct RangeBarsTraverseResult {
-    pub pages: Vec<RangeBarsResponse>,
+pub struct RangeTraverseResult {
+    pub pages: Vec<RangeResponse>,
     pub pages_fetched: usize,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct SearchBarsMinResponse {
+pub struct SearchResponse {
     pub hits: Vec<i64>,
     pub evaluated_rows: Option<Vec<Bar>>,
     pub next_cursor: Option<String>,
@@ -952,115 +766,70 @@ pub struct SearchBarsMinResponse {
     pub predicate_normalized: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct SearchBarsFullResponse {
-    pub hits: Vec<i64>,
-    pub evaluated_rows: Option<Vec<BarWithMetadata>>,
-    pub next_cursor: Option<String>,
-    pub done: bool,
-    pub returned_hits: i64,
-    pub effective_hits_limit: i64,
-    pub truncated: bool,
-    pub predicate_pairs: Vec<String>,
-    pub predicate_normalized: String,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum SearchBarsResponse {
-    Min(SearchBarsMinResponse),
-    Full(SearchBarsFullResponse),
-}
-
-impl SearchBarsResponse {
+impl SearchResponse {
     pub fn next_cursor(&self) -> Option<&str> {
-        match self {
-            Self::Min(response) => response.next_cursor.as_deref(),
-            Self::Full(response) => response.next_cursor.as_deref(),
-        }
+        self.next_cursor.as_deref()
     }
 
     pub fn done(&self) -> bool {
-        match self {
-            Self::Min(response) => response.done,
-            Self::Full(response) => response.done,
+        self.done
+    }
+
+    pub fn validate_metadata(&self, metadata_required: bool) -> Result<(), SdkError> {
+        if let Some(rows) = &self.evaluated_rows {
+            for row in rows {
+                row.ensure_metadata_shape(metadata_required, "search bars response row")?;
+            }
         }
+        Ok(())
     }
 
     pub fn from_proto(
         response: proto::BarsSearchResponseV1,
         metadata: bool,
     ) -> Result<Self, SdkError> {
-        if metadata {
-            Ok(Self::Full(SearchBarsFullResponse {
-                hits: response.hits,
-                evaluated_rows: if response.evaluated_rows.is_empty() {
-                    None
-                } else {
-                    Some(
-                        response
-                            .evaluated_rows
-                            .into_iter()
-                            .map(BarWithMetadata::from_proto)
-                            .collect::<Result<Vec<_>, _>>()?,
-                    )
-                },
-                next_cursor: response.next_cursor,
-                done: response.done,
-                returned_hits: response.returned_hits,
-                effective_hits_limit: response.effective_hits_limit,
-                truncated: response.truncated,
-                predicate_pairs: response.predicate_pairs,
-                predicate_normalized: response.predicate_normalized,
-            }))
-        } else {
-            Ok(Self::Min(SearchBarsMinResponse {
-                hits: response.hits,
-                evaluated_rows: if response.evaluated_rows.is_empty() {
-                    None
-                } else {
-                    Some(
-                        response
-                            .evaluated_rows
-                            .into_iter()
-                            .map(Bar::from_proto)
-                            .collect::<Result<Vec<_>, _>>()?,
-                    )
-                },
-                next_cursor: response.next_cursor,
-                done: response.done,
-                returned_hits: response.returned_hits,
-                effective_hits_limit: response.effective_hits_limit,
-                truncated: response.truncated,
-                predicate_pairs: response.predicate_pairs,
-                predicate_normalized: response.predicate_normalized,
-            }))
-        }
+        let response = Self {
+            hits: response.hits,
+            evaluated_rows: if response.evaluated_rows.is_empty() {
+                None
+            } else {
+                Some(
+                    response
+                        .evaluated_rows
+                        .into_iter()
+                        .map(Bar::from_proto)
+                        .collect::<Result<Vec<_>, _>>()?,
+                )
+            },
+            next_cursor: response.next_cursor,
+            done: response.done,
+            returned_hits: response.returned_hits,
+            effective_hits_limit: response.effective_hits_limit,
+            truncated: response.truncated,
+            predicate_pairs: response.predicate_pairs,
+            predicate_normalized: response.predicate_normalized,
+        };
+        response.validate_metadata(metadata)?;
+        Ok(response)
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct SearchBarsTraverseResult {
-    pub pages: Vec<SearchBarsResponse>,
+pub struct SearchTraverseResult {
+    pub pages: Vec<SearchResponse>,
     pub pages_fetched: usize,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct TimeMachineBarsMinRow {
+pub struct TimeMachineBarsRow {
     pub hit_close_ms: i64,
     pub offset: i64,
     pub bar: Bar,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct TimeMachineBarsFullRow {
-    pub hit_close_ms: i64,
-    pub offset: i64,
-    pub bar: BarWithMetadata,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct TimeMachineBarsMinResponse {
-    pub rows: Vec<TimeMachineBarsMinRow>,
+pub struct TimeMachineResponse {
+    pub rows: Vec<TimeMachineBarsRow>,
     pub next_cursor: Option<String>,
     pub done: bool,
     pub returned_hits: i64,
@@ -1070,147 +839,120 @@ pub struct TimeMachineBarsMinResponse {
     pub predicate_normalized: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct TimeMachineBarsFullResponse {
-    pub rows: Vec<TimeMachineBarsFullRow>,
-    pub next_cursor: Option<String>,
-    pub done: bool,
-    pub returned_hits: i64,
-    pub effective_hits_limit: i64,
-    pub truncated: bool,
-    pub predicate_pairs: Vec<String>,
-    pub predicate_normalized: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum TimeMachineBarsResponse {
-    Min(TimeMachineBarsMinResponse),
-    Full(TimeMachineBarsFullResponse),
-}
-
-impl TimeMachineBarsResponse {
+impl TimeMachineResponse {
     pub fn next_cursor(&self) -> Option<&str> {
-        match self {
-            Self::Min(response) => response.next_cursor.as_deref(),
-            Self::Full(response) => response.next_cursor.as_deref(),
-        }
+        self.next_cursor.as_deref()
     }
 
     pub fn done(&self) -> bool {
-        match self {
-            Self::Min(response) => response.done,
-            Self::Full(response) => response.done,
+        self.done
+    }
+
+    pub fn validate_metadata(&self, metadata_required: bool) -> Result<(), SdkError> {
+        for row in &self.rows {
+            row.bar
+                .ensure_metadata_shape(metadata_required, "time-machine bars response row")?;
         }
+        Ok(())
     }
 
     pub fn from_proto(
         response: proto::BarsTimeMachineResponseV1,
         metadata: bool,
     ) -> Result<Self, SdkError> {
-        if metadata {
-            Ok(Self::Full(TimeMachineBarsFullResponse {
-                rows: response
-                    .rows
-                    .into_iter()
-                    .map(TimeMachineBarsFullRow::from_proto)
-                    .collect::<Result<Vec<_>, _>>()?,
-                next_cursor: response.next_cursor,
-                done: response.done,
-                returned_hits: response.returned_hits,
-                effective_hits_limit: response.effective_hits_limit,
-                truncated: response.truncated,
-                predicate_pairs: response.predicate_pairs,
-                predicate_normalized: response.predicate_normalized,
-            }))
-        } else {
-            Ok(Self::Min(TimeMachineBarsMinResponse {
-                rows: response
-                    .rows
-                    .into_iter()
-                    .map(TimeMachineBarsMinRow::from_proto)
-                    .collect::<Result<Vec<_>, _>>()?,
-                next_cursor: response.next_cursor,
-                done: response.done,
-                returned_hits: response.returned_hits,
-                effective_hits_limit: response.effective_hits_limit,
-                truncated: response.truncated,
-                predicate_pairs: response.predicate_pairs,
-                predicate_normalized: response.predicate_normalized,
-            }))
-        }
+        let response = Self {
+            rows: response
+                .rows
+                .into_iter()
+                .map(TimeMachineBarsRow::from_proto)
+                .collect::<Result<Vec<_>, _>>()?,
+            next_cursor: response.next_cursor,
+            done: response.done,
+            returned_hits: response.returned_hits,
+            effective_hits_limit: response.effective_hits_limit,
+            truncated: response.truncated,
+            predicate_pairs: response.predicate_pairs,
+            predicate_normalized: response.predicate_normalized,
+        };
+        response.validate_metadata(metadata)?;
+        Ok(response)
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct TimeMachineBarsTraverseResult {
-    pub pages: Vec<TimeMachineBarsResponse>,
+pub struct TimeMachineTraverseResult {
+    pub pages: Vec<TimeMachineResponse>,
     pub pages_fetched: usize,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct LatestBarsMinResponse {
+pub struct LatestResponse {
     pub watermark_end_ms: i64,
     pub close_end_ms: i64,
     pub latest_mode: LatestMode,
     pub view: BarsView,
-    pub rows: Vec<LatestBarsPresentRow>,
+    pub rows: Vec<Bar>,
     pub missing_pairs: Vec<String>,
-    pub excluded_sources: Option<Vec<ExcludeSource>>,
-    pub excluded_rows_total: Option<i64>,
-    pub excluded_rows_by_source: Option<Vec<ExcludedSourceCount>>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct LatestBarsFullResponse {
-    pub watermark_end_ms: i64,
-    pub close_end_ms: i64,
-    pub latest_mode: LatestMode,
-    pub view: BarsView,
-    pub rows: Vec<LatestBarsWithMetadataPresentRow>,
-    pub missing_pairs: Vec<String>,
-    pub excluded_sources: Option<Vec<ExcludeSource>>,
-    pub excluded_rows_total: Option<i64>,
-    pub excluded_rows_by_source: Option<Vec<ExcludedSourceCount>>,
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LatestBarsResponseWire {
+    watermark_end_ms: i64,
+    close_end_ms: i64,
+    latest_mode: LatestMode,
+    view: BarsView,
+    rows: Vec<Bar>,
+    #[serde(default)]
+    missing_pairs: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum LatestBarsResponse {
-    Min(LatestBarsMinResponse),
-    Full(LatestBarsFullResponse),
-}
-
-impl<'de> serde::Deserialize<'de> for LatestBarsResponse {
+impl<'de> serde::Deserialize<'de> for LatestResponse {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        let value = serde_json::Value::deserialize(deserializer)?;
-        let view = value
-            .get("view")
-            .cloned()
-            .ok_or_else(|| serde::de::Error::custom("latest bars response missing `view`"))?;
-        let view: BarsView = serde_json::from_value(view).map_err(serde::de::Error::custom)?;
-
-        match view {
-            BarsView::Min => serde_json::from_value::<LatestBarsMinResponse>(value)
-                .map(Self::Min)
-                .map_err(serde::de::Error::custom),
-            BarsView::Full => serde_json::from_value::<LatestBarsFullResponse>(value)
-                .map(Self::Full)
-                .map_err(serde::de::Error::custom),
-        }
+        let wire = LatestBarsResponseWire::deserialize(deserializer)?;
+        let response = Self {
+            watermark_end_ms: wire.watermark_end_ms,
+            close_end_ms: wire.close_end_ms,
+            latest_mode: wire.latest_mode,
+            view: wire.view,
+            rows: wire.rows,
+            missing_pairs: wire.missing_pairs,
+        };
+        response.validate_view().map_err(serde::de::Error::custom)?;
+        Ok(response)
     }
 }
 
-impl LatestBarsResponse {
+impl LatestResponse {
+    pub fn validate_view(&self) -> Result<(), SdkError> {
+        let metadata_required = matches!(self.view, BarsView::Full);
+        let context = if metadata_required {
+            "latest bars full response row"
+        } else {
+            "latest bars min response row"
+        };
+        for row in &self.rows {
+            row.ensure_metadata_shape(metadata_required, context)?;
+            if row.age_ms.is_none() {
+                return Err(SdkError::contract_drift(format!(
+                    "{context} missing `age_ms`"
+                )));
+            }
+        }
+        Ok(())
+    }
+
     pub fn from_proto(response: proto::BarsLatestResponseV1) -> Result<Self, SdkError> {
         let view = proto::BarsViewV1::try_from(response.view).map_err(|_| {
             SdkError::contract_drift("latest bars protobuf response has invalid view")
         })?;
 
-        match view {
-            proto::BarsViewV1::Min => Ok(Self::Min(LatestBarsMinResponse {
+        let response = match view {
+            proto::BarsViewV1::Min => Self {
                 watermark_end_ms: response.watermark_end_ms,
                 close_end_ms: response.close_end_ms,
                 latest_mode: LatestMode::from_proto(&response.latest_mode)?,
@@ -1218,20 +960,11 @@ impl LatestBarsResponse {
                 rows: response
                     .rows
                     .into_iter()
-                    .map(LatestBarsPresentRow::from_proto)
+                    .map(Bar::from_proto_latest)
                     .collect::<Result<Vec<_>, _>>()?,
                 missing_pairs: response.missing_pairs,
-                excluded_sources: Some(ExcludeSource::vec_from_proto(response.excluded_sources)?),
-                excluded_rows_total: response.excluded_rows_total,
-                excluded_rows_by_source: Some(
-                    response
-                        .excluded_rows_by_source
-                        .into_iter()
-                        .map(ExcludedSourceCount::from_proto)
-                        .collect(),
-                ),
-            })),
-            proto::BarsViewV1::Full => Ok(Self::Full(LatestBarsFullResponse {
+            },
+            proto::BarsViewV1::Full => Self {
                 watermark_end_ms: response.watermark_end_ms,
                 close_end_ms: response.close_end_ms,
                 latest_mode: LatestMode::from_proto(&response.latest_mode)?,
@@ -1239,32 +972,18 @@ impl LatestBarsResponse {
                 rows: response
                     .rows
                     .into_iter()
-                    .map(LatestBarsWithMetadataPresentRow::from_proto)
+                    .map(Bar::from_proto_latest)
                     .collect::<Result<Vec<_>, _>>()?,
                 missing_pairs: response.missing_pairs,
-                excluded_sources: Some(ExcludeSource::vec_from_proto(response.excluded_sources)?),
-                excluded_rows_total: response.excluded_rows_total,
-                excluded_rows_by_source: Some(
-                    response
-                        .excluded_rows_by_source
-                        .into_iter()
-                        .map(ExcludedSourceCount::from_proto)
-                        .collect(),
-                ),
-            })),
-            proto::BarsViewV1::Unspecified => Err(SdkError::contract_drift(
-                "latest bars protobuf response has unspecified view",
-            )),
-        }
-    }
-}
-
-impl ExcludedSourceCount {
-    fn from_proto(value: proto::ExcludedSourceCountV1) -> Self {
-        Self {
-            source: value.source,
-            count: value.count,
-        }
+            },
+            proto::BarsViewV1::Unspecified => {
+                return Err(SdkError::contract_drift(
+                    "latest bars protobuf response has unspecified view",
+                ));
+            }
+        };
+        response.validate_view()?;
+        Ok(response)
     }
 }
 
@@ -1290,13 +1009,6 @@ pub(crate) fn normalize_required_pair_values(
     Ok(normalized)
 }
 
-pub(crate) fn join_required_pair_values_csv(
-    values: &[String],
-    context: &'static str,
-) -> Result<String, SdkError> {
-    Ok(normalize_required_pair_values(values, context)?.join(","))
-}
-
 pub(crate) fn join_optional_pair_values_csv(values: Option<&[String]>) -> Option<String> {
     let joined = normalize_pair_values(values?).join(",");
     if joined.is_empty() {
@@ -1306,29 +1018,7 @@ pub(crate) fn join_optional_pair_values_csv(values: Option<&[String]>) -> Option
     }
 }
 
-impl LatestBarsPresentRow {
-    fn from_proto(value: proto::BarsPresentRowV1) -> Result<Self, SdkError> {
-        Ok(Self {
-            bar: Bar::from_proto(value.bar.ok_or_else(|| {
-                SdkError::contract_drift("latest bars protobuf row missing `bar`")
-            })?)?,
-            age_ms: value.age_ms.unwrap_or(0),
-        })
-    }
-}
-
-impl LatestBarsWithMetadataPresentRow {
-    fn from_proto(value: proto::BarsPresentRowV1) -> Result<Self, SdkError> {
-        Ok(Self {
-            bar: BarWithMetadata::from_proto(value.bar.ok_or_else(|| {
-                SdkError::contract_drift("latest bars protobuf row missing `bar`")
-            })?)?,
-            age_ms: value.age_ms.unwrap_or(0),
-        })
-    }
-}
-
-impl TimeMachineBarsMinRow {
+impl TimeMachineBarsRow {
     fn from_proto(value: proto::BarsTimeMachineRowV1) -> Result<Self, SdkError> {
         Ok(Self {
             hit_close_ms: value.hit_close_ms,
@@ -1340,27 +1030,35 @@ impl TimeMachineBarsMinRow {
     }
 }
 
-impl TimeMachineBarsFullRow {
-    fn from_proto(value: proto::BarsTimeMachineRowV1) -> Result<Self, SdkError> {
-        Ok(Self {
-            hit_close_ms: value.hit_close_ms,
-            offset: value.offset,
-            bar: BarWithMetadata::from_proto(value.bar.ok_or_else(|| {
-                SdkError::contract_drift("time-machine full protobuf row missing `bar`")
-            })?)?,
-        })
-    }
-}
-
 impl Bar {
+    pub(crate) fn ensure_metadata_shape(
+        &self,
+        metadata_required: bool,
+        context: &'static str,
+    ) -> Result<(), SdkError> {
+        match (metadata_required, self.metadata.is_some()) {
+            (true, false) => Err(SdkError::contract_drift(format!(
+                "{context} missing `metadata`"
+            ))),
+            (false, true) => Err(SdkError::contract_drift(format!(
+                "{context} unexpectedly included `metadata`"
+            ))),
+            _ => Ok(()),
+        }
+    }
+
     pub(crate) fn from_proto(value: proto::BarRowV1) -> Result<Self, SdkError> {
         Ok(Self {
             pair: value.pair,
             tf: Timeframe::from_proto(&value.tf)?,
             open_ms: value.s_ms,
             close_ms: value.e_ms,
-            open_utc: value.s_utc.unwrap_or_default(),
-            close_utc: value.e_utc.unwrap_or_default(),
+            open_utc: value
+                .s_utc
+                .ok_or_else(|| SdkError::contract_drift("bar protobuf row missing `s_utc`"))?,
+            close_utc: value
+                .e_utc
+                .ok_or_else(|| SdkError::contract_drift("bar protobuf row missing `e_utc`"))?,
             o: value.o,
             h: value.h,
             l: value.l,
@@ -1375,37 +1073,20 @@ impl Bar {
             taker_signed_n: value.taker_signed_n,
             vw: value.vw,
             n: value.n,
+            age_ms: None,
+            metadata: value.metadata.map(BarMetadata::from_proto),
         })
     }
-}
 
-impl BarWithMetadata {
-    pub(crate) fn from_proto(value: proto::BarRowV1) -> Result<Self, SdkError> {
-        Ok(Self {
-            pair: value.pair,
-            tf: Timeframe::from_proto(&value.tf)?,
-            open_ms: value.s_ms,
-            close_ms: value.e_ms,
-            open_utc: value.s_utc.unwrap_or_default(),
-            close_utc: value.e_utc.unwrap_or_default(),
-            o: value.o,
-            h: value.h,
-            l: value.l,
-            c: value.c,
-            v: value.v,
-            quote_v: value.quote_v,
-            taker_known_v: value.taker_known_v,
-            taker_signed_v: value.taker_signed_v,
-            taker_known_quote_v: value.taker_known_quote_v,
-            taker_signed_quote_v: value.taker_signed_quote_v,
-            taker_known_n: value.taker_known_n,
-            taker_signed_n: value.taker_signed_n,
-            vw: value.vw,
-            n: value.n,
-            metadata: BarMetadata::from_proto(value.metadata.ok_or_else(|| {
-                SdkError::contract_drift("latest bars full protobuf row missing `metadata`")
-            })?),
-        })
+    pub(crate) fn from_proto_latest(value: proto::BarsPresentRowV1) -> Result<Self, SdkError> {
+        let mut bar =
+            Self::from_proto(value.bar.ok_or_else(|| {
+                SdkError::contract_drift("latest bars protobuf row missing `bar`")
+            })?)?;
+        bar.age_ms = Some(value.age_ms.ok_or_else(|| {
+            SdkError::contract_drift("latest bars protobuf row missing `age_ms`")
+        })?);
+        Ok(bar)
     }
 }
 
@@ -1482,25 +1163,5 @@ impl LatestMode {
                 "unsupported latest_mode `{other}`"
             ))),
         }
-    }
-}
-
-impl ExcludeSource {
-    fn from_proto(value: String) -> Result<Self, SdkError> {
-        match value.as_str() {
-            "api" => Ok(Self::Api),
-            "fix-data" => Ok(Self::FixData),
-            "frontier" => Ok(Self::Frontier),
-            "aggregate" => Ok(Self::Aggregate),
-            "synthetic" => Ok(Self::Synthetic),
-            "no_trade_fill" => Ok(Self::NoTradeFill),
-            other => Err(SdkError::contract_drift(format!(
-                "unsupported exclude_source `{other}`"
-            ))),
-        }
-    }
-
-    fn vec_from_proto(values: Vec<String>) -> Result<Vec<Self>, SdkError> {
-        values.into_iter().map(Self::from_proto).collect()
     }
 }

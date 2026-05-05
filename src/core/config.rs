@@ -57,9 +57,9 @@ impl WsTransportConfig {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct AggregatorConfig {
-    pub http: Option<HttpTransportConfig>,
+    pub http: HttpTransportConfig,
     pub grpc: Option<GrpcTransportConfig>,
     pub ws: Option<WsTransportConfig>,
     pub bearer_token: Option<BearerToken>,
@@ -77,9 +77,7 @@ fn derive_ws_url_from_http_base(http_base_url: &str) -> Result<Url, SdkError> {
 impl AggregatorConfig {
     pub fn mathilde_public_default(bearer_token: Option<BearerToken>) -> Result<Self, SdkError> {
         Ok(Self {
-            http: Some(HttpTransportConfig::new(
-                MathildePublicHosts::AGGREGATOR_HTTP,
-            )?),
+            http: HttpTransportConfig::new(MathildePublicHosts::AGGREGATOR_HTTP)?,
             grpc: Some(GrpcTransportConfig::new(
                 MathildePublicHosts::AGGREGATOR_GRPC,
             )?),
@@ -90,10 +88,8 @@ impl AggregatorConfig {
         })
     }
 
-    pub fn require_http(&self) -> Result<&HttpTransportConfig, SdkError> {
-        self.http
-            .as_ref()
-            .ok_or_else(|| SdkError::missing_transport_config("http"))
+    pub fn require_http(&self) -> &HttpTransportConfig {
+        &self.http
     }
 
     pub fn require_grpc(&self) -> Result<&GrpcTransportConfig, SdkError> {
@@ -106,5 +102,100 @@ impl AggregatorConfig {
         self.ws
             .as_ref()
             .ok_or_else(|| SdkError::missing_transport_config("ws"))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PrimitivesConfig {
+    pub http: HttpTransportConfig,
+    pub grpc: Option<GrpcTransportConfig>,
+    pub ws: Option<WsTransportConfig>,
+    pub bearer_token: Option<BearerToken>,
+}
+
+impl PrimitivesConfig {
+    pub fn mathilde_public_default(bearer_token: Option<BearerToken>) -> Result<Self, SdkError> {
+        Ok(Self {
+            http: HttpTransportConfig::new(MathildePublicHosts::PRIMITIVES_HTTP)?,
+            grpc: Some(GrpcTransportConfig::new(
+                MathildePublicHosts::PRIMITIVES_GRPC,
+            )?),
+            ws: Some(WsTransportConfig {
+                base_url: derive_ws_url_from_http_base(MathildePublicHosts::PRIMITIVES_HTTP)?,
+            }),
+            bearer_token,
+        })
+    }
+
+    pub fn require_http(&self) -> &HttpTransportConfig {
+        &self.http
+    }
+
+    pub fn require_grpc(&self) -> Result<&GrpcTransportConfig, SdkError> {
+        self.grpc
+            .as_ref()
+            .ok_or_else(|| SdkError::missing_transport_config("grpc"))
+    }
+
+    pub fn require_ws(&self) -> Result<&WsTransportConfig, SdkError> {
+        self.ws
+            .as_ref()
+            .ok_or_else(|| SdkError::missing_transport_config("ws"))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RegimeConfig {
+    pub http: HttpTransportConfig,
+    pub grpc: Option<GrpcTransportConfig>,
+    pub ws: Option<WsTransportConfig>,
+    pub bearer_token: Option<BearerToken>,
+}
+
+impl RegimeConfig {
+    pub fn mathilde_public_default(bearer_token: Option<BearerToken>) -> Result<Self, SdkError> {
+        Ok(Self {
+            http: HttpTransportConfig::new(MathildePublicHosts::REGIME_HTTP)?,
+            grpc: Some(GrpcTransportConfig::new(MathildePublicHosts::REGIME_GRPC)?),
+            ws: Some(WsTransportConfig {
+                base_url: derive_ws_url_from_http_base(MathildePublicHosts::REGIME_HTTP)?,
+            }),
+            bearer_token,
+        })
+    }
+
+    pub fn require_http(&self) -> &HttpTransportConfig {
+        &self.http
+    }
+
+    pub fn require_grpc(&self) -> Result<&GrpcTransportConfig, SdkError> {
+        self.grpc
+            .as_ref()
+            .ok_or_else(|| SdkError::missing_transport_config("grpc"))
+    }
+
+    pub fn require_ws(&self) -> Result<&WsTransportConfig, SdkError> {
+        self.ws
+            .as_ref()
+            .ok_or_else(|| SdkError::missing_transport_config("ws"))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct IntroConfig {
+    pub http: HttpTransportConfig,
+    pub bearer_token: Option<BearerToken>,
+}
+
+impl IntroConfig {
+    pub fn mathilde_public_default(bearer_token: Option<BearerToken>) -> Result<Self, SdkError> {
+        Ok(Self {
+            http: HttpTransportConfig::new(MathildePublicHosts::INTRO)?,
+            bearer_token,
+        })
+    }
+
+    pub fn require_http(&self) -> &HttpTransportConfig {
+        &self.http
     }
 }

@@ -3,8 +3,8 @@ use crate::core::time::TimeInput;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
 use crate::streaming::make_before_break::MakeBeforeBreakConfig;
 use crate::streaming::subscription::{ExponentialBackoffConfig, ReconnectBackoff};
+use crate::systems::aggregator::types::Bar;
 use crate::systems::aggregator::types::normalize_pair_values;
-use crate::systems::aggregator::types::{Bar, BarWithMetadata};
 use crate::systems::types::Timeframe;
 use crate::transport::ws::WsTransport;
 use futures_util::{SinkExt, StreamExt};
@@ -85,30 +85,12 @@ pub struct BarsWsErrorFrame {
     pub error: String,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
-struct BarsWsJsonMinRow {
-    #[serde(flatten)]
-    bar: Bar,
-    #[serde(default)]
-    _age_ms: Option<i64>,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-struct BarsWsJsonFullRow {
-    #[serde(flatten)]
-    bar: BarWithMetadata,
-    #[serde(default)]
-    _age_ms: Option<i64>,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum BarsWsInboundFrame {
     Meta(BarsWsMetaFrame),
     Error(BarsWsErrorFrame),
-    JsonRowsMin(Vec<Bar>),
-    JsonRowsFull(Vec<BarWithMetadata>),
-    ProtobufRowsMin(Vec<Bar>),
-    ProtobufRowsFull(Vec<BarWithMetadata>),
+    JsonRows(Vec<Bar>),
+    ProtobufRows(Vec<Bar>),
 }
 
 #[derive(Debug)]
@@ -173,7 +155,13 @@ impl BarsWsSubscribeRequest {
             ));
         }
 
-        let last_n_bars = self.last_n_bars.filter(|value| *value > 0);
+        if let Some(last_n_bars) = self.last_n_bars {
+            if last_n_bars <= 0 {
+                return Err(SdkError::request_build(
+                    "bars ws subscribe requires `last_n_bars` > 0 when provided",
+                ));
+            }
+        }
 
         Ok(NormalizedBarsWsSubscribeRequest {
             pairs,
@@ -188,7 +176,7 @@ impl BarsWsSubscribeRequest {
                 .as_ref()
                 .map(TimeInput::to_utc_ms)
                 .transpose()?,
-            last_n_bars,
+            last_n_bars: self.last_n_bars,
             format: self.format.unwrap_or_default(),
         })
     }
@@ -414,40 +402,47 @@ fn decode_text_frame(
     text: &str,
     request: &BarsWsSubscribeRequest,
 ) -> Result<BarsWsInboundFrame, SdkError> {
+    if text_frame_starts_with_array(text, "bars ws JSON text frame")? {
+        let metadata_required = request.metadata.unwrap_or(false);
+        let rows = serde_json::from_str::<Vec<Bar>>(text).map_err(|source| {
+            SdkError::contract_drift(format!("bars ws JSON rows decode failed: {source}"))
+        })?;
+        for row in &rows {
+            row.ensure_metadata_shape(metadata_required, "bars ws JSON row")?;
+        }
+        return Ok(BarsWsInboundFrame::JsonRows(rows));
+    }
+
     if let Ok(error) = serde_json::from_str::<BarsWsErrorFrame>(text) {
         if !error.kind.is_empty() && !error.error.is_empty() {
             return Ok(BarsWsInboundFrame::Error(error));
         }
     }
 
-    if let Ok(meta) = serde_json::from_str::<BarsWsMetaFrame>(text) {
-        return Ok(BarsWsInboundFrame::Meta(meta));
-    }
+    let meta = serde_json::from_str::<BarsWsMetaFrame>(text).map_err(|source| {
+        SdkError::contract_drift(format!(
+            "bars ws JSON control frame decode failed: {source}"
+        ))
+    })?;
+    Ok(BarsWsInboundFrame::Meta(meta))
+}
 
-    if request.metadata.unwrap_or(false) {
-        let rows = serde_json::from_str::<Vec<BarsWsJsonFullRow>>(text)
-            .map_err(|source| {
-                SdkError::contract_drift(format!("bars ws full JSON rows decode failed: {source}"))
-            })?
-            .into_iter()
-            .map(|row| row.bar)
-            .collect();
-        return Ok(BarsWsInboundFrame::JsonRowsFull(rows));
+fn text_frame_starts_with_array(text: &str, context: &'static str) -> Result<bool, SdkError> {
+    match text.bytes().find(|byte| !byte.is_ascii_whitespace()) {
+        Some(b'[') => Ok(true),
+        Some(b'{') => Ok(false),
+        Some(byte) => Err(SdkError::contract_drift(format!(
+            "{context} must start with `[` or `{{` after whitespace, got byte 0x{byte:02x}"
+        ))),
+        None => Err(SdkError::contract_drift(format!(
+            "{context} was empty or whitespace-only"
+        ))),
     }
-
-    let rows = serde_json::from_str::<Vec<BarsWsJsonMinRow>>(text)
-        .map_err(|source| {
-            SdkError::contract_drift(format!("bars ws min JSON rows decode failed: {source}"))
-        })?
-        .into_iter()
-        .map(|row| row.bar)
-        .collect();
-    Ok(BarsWsInboundFrame::JsonRowsMin(rows))
 }
 
 fn decode_binary_frame(
     bytes: &[u8],
-    _request: &BarsWsSubscribeRequest,
+    request: &BarsWsSubscribeRequest,
 ) -> Result<BarsWsInboundFrame, SdkError> {
     let payload = proto::BarsRowsPayloadV1::decode(bytes).map_err(|source| {
         SdkError::contract_drift(format!("bars ws protobuf payload decode failed: {source}"))
@@ -460,30 +455,25 @@ fn decode_binary_frame(
         ))
     })?;
 
+    let metadata_required = request.metadata.unwrap_or(false);
+
     match view {
-        proto::BarsViewV1::Min => {
+        proto::BarsViewV1::Min | proto::BarsViewV1::Full => {
+            if metadata_required != matches!(view, proto::BarsViewV1::Full) {
+                return Err(SdkError::contract_drift(
+                    "bars ws protobuf payload view does not match metadata request",
+                ));
+            }
+
             let rows = payload
                 .rows
                 .into_iter()
-                .map(|row| {
-                    Bar::from_proto(row.bar.ok_or_else(|| {
-                        SdkError::contract_drift("bars ws protobuf min row missing `bar`")
-                    })?)
-                })
+                .map(Bar::from_proto_latest)
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(BarsWsInboundFrame::ProtobufRowsMin(rows))
-        }
-        proto::BarsViewV1::Full => {
-            let rows = payload
-                .rows
-                .into_iter()
-                .map(|row| {
-                    BarWithMetadata::from_proto(row.bar.ok_or_else(|| {
-                        SdkError::contract_drift("bars ws protobuf full row missing `bar`")
-                    })?)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(BarsWsInboundFrame::ProtobufRowsFull(rows))
+            for row in &rows {
+                row.ensure_metadata_shape(metadata_required, "bars ws protobuf row")?;
+            }
+            Ok(BarsWsInboundFrame::ProtobufRows(rows))
         }
         proto::BarsViewV1::Unspecified => Err(SdkError::contract_drift(
             "bars ws protobuf payload view is unspecified",
@@ -533,5 +523,42 @@ async fn validate_candidate_stream(
                 });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn json_request() -> BarsWsSubscribeRequest {
+        BarsWsSubscribeRequest {
+            pairs: vec!["BTCUSDT".to_string()],
+            tfs: vec![Timeframe::M1],
+            metadata: Some(false),
+            from_close: None,
+            last_n_bars: Some(1),
+            format: Some(BarsWsFormat::Json),
+        }
+    }
+
+    #[test]
+    fn test_decode_text_frame_accepts_whitespace_prefixed_json_rows() {
+        let text = " \n\t[{\"pair\":\"BTCUSDT\",\"tf\":\"1m\",\"open_ms\":1,\"close_ms\":2,\"open_utc\":\"2026-02-02T00:00:00Z\",\"close_utc\":\"2026-02-02T00:01:00Z\",\"o\":1.0,\"h\":1.0,\"l\":1.0,\"c\":1.0,\"v\":1.0,\"quote_v\":null,\"taker_known_v\":null,\"taker_signed_v\":null,\"taker_known_quote_v\":null,\"taker_signed_quote_v\":null,\"taker_known_n\":null,\"taker_signed_n\":null,\"vw\":null,\"n\":1}]";
+
+        let frame = decode_text_frame(text, &json_request()).expect("json rows frame");
+        match frame {
+            BarsWsInboundFrame::JsonRows(rows) => {
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0].pair, "BTCUSDT");
+            }
+            other => panic!("expected json rows, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_decode_text_frame_rejects_invalid_leading_byte() {
+        let error = decode_text_frame(" \n9", &json_request()).expect_err("invalid leading byte");
+        let message = format!("{error}");
+        assert!(message.contains("must start with `[` or `{`"));
     }
 }

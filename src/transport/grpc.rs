@@ -7,6 +7,7 @@ use tonic::transport::{Channel, Endpoint};
 #[derive(Debug, Clone)]
 pub struct GrpcTransport {
     channel: Channel,
+    #[cfg(test)]
     endpoint_uri: String,
     bearer_token: Option<BearerToken>,
 }
@@ -17,12 +18,13 @@ impl GrpcTransport {
         bearer_token: Option<BearerToken>,
     ) -> Result<Self, SdkError> {
         let endpoint_uri = Self::endpoint_uri(config);
-        let channel = Endpoint::from_shared(endpoint_uri.clone())
+        let channel = Endpoint::new(endpoint_uri.clone())
             .map_err(SdkError::grpc_transport)?
             .connect_lazy();
 
         Ok(Self {
             channel,
+            #[cfg(test)]
             endpoint_uri,
             bearer_token,
         })
@@ -35,6 +37,7 @@ impl GrpcTransport {
         }
     }
 
+    #[cfg(test)]
     pub fn endpoint(&self) -> &str {
         &self.endpoint_uri
     }

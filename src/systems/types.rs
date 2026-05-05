@@ -73,35 +73,6 @@ impl LatestMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum ExcludeSource {
-    #[serde(rename = "api")]
-    Api,
-    #[serde(rename = "fix-data")]
-    FixData,
-    #[serde(rename = "frontier")]
-    Frontier,
-    #[serde(rename = "aggregate")]
-    Aggregate,
-    #[serde(rename = "synthetic")]
-    Synthetic,
-    #[serde(rename = "no_trade_fill")]
-    NoTradeFill,
-}
-
-impl ExcludeSource {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Api => "api",
-            Self::FixData => "fix-data",
-            Self::Frontier => "frontier",
-            Self::Aggregate => "aggregate",
-            Self::Synthetic => "synthetic",
-            Self::NoTradeFill => "no_trade_fill",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AlignMode {
     #[serde(rename = "exact")]
     Exact,

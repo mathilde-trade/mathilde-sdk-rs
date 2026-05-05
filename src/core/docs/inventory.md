@@ -15,7 +15,6 @@ currently exist for `src/core`.
 
 - `src/core/mod.rs`: core module wiring and exports for shared SDK primitives.
 - `src/core/auth.rs`: bearer-token validation and HTTP auth-header helper.
-- `src/core/client.rs`: shared base client helpers for HTTP request execution.
 - `src/core/config.rs`: typed SDK transport configuration surfaces and builders.
 - `src/core/error.rs`: shared typed SDK error surface across transports and endpoint families.
 - `src/core/pagination.rs`: shared pagination state-machine primitives, repeated-cursor guards, and explicit traversal-admission helpers.

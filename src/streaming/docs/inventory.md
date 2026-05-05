@@ -1,6 +1,6 @@
 # `src/streaming` — Inventory (DRAFT)
 
-Protocol: `.dev/specs/SDK_INVENTORY_SYSTEM_SPEC_2026-04-08.md`
+Protocol: `.dev/specs/SDK_INVENTORY_SYSTEM_SPEC_2026-05-05.md`
 
 This inventory describes only implemented module-level code and artifacts that
 currently exist for `src/streaming`.

@@ -255,7 +255,7 @@ What it is not:
 
 ## Workflow Examples
 
-The workflow examples live under [`worflows/`](worflows). The directory name is
+The workflow examples live under [`workflows/`](workflows). The directory name is
 kept as currently implemented.
 
 These files preserve the authoritative workflow content from
@@ -263,7 +263,7 @@ These files preserve the authoritative workflow content from
 
 ### Understanding The System
 
-File: [understanding_system.rs](worflows/understanding_system.rs)
+File: [understanding_system.rs](workflows/understanding_system.rs)
 
 What it shows:
 
@@ -280,7 +280,7 @@ What it is not:
 
 ### Bounded Recent Window
 
-File: [bounded_recent_window.rs](worflows/bounded_recent_window.rs)
+File: [bounded_recent_window.rs](workflows/bounded_recent_window.rs)
 
 What it shows:
 
@@ -299,7 +299,7 @@ What it is not:
 
 ### Current Downside State
 
-File: [current_downside_state.rs](worflows/current_downside_state.rs)
+File: [current_downside_state.rs](workflows/current_downside_state.rs)
 
 What it shows:
 
@@ -320,7 +320,7 @@ What it is not:
 
 ### Measured Local Stress Context
 
-File: [measured_local_stress_context.rs](worflows/measured_local_stress_context.rs)
+File: [measured_local_stress_context.rs](workflows/measured_local_stress_context.rs)
 
 What it shows:
 
@@ -339,7 +339,7 @@ What it is not:
 
 ### Current Grouped Regime State
 
-File: [current_grouped_regime_state.rs](worflows/current_grouped_regime_state.rs)
+File: [current_grouped_regime_state.rs](workflows/current_grouped_regime_state.rs)
 
 What it shows:
 
@@ -358,7 +358,7 @@ What it is not:
 
 ### Reproducible Monthly Research
 
-File: [reproducible_monthly_research.rs](worflows/reproducible_monthly_research.rs)
+File: [reproducible_monthly_research.rs](workflows/reproducible_monthly_research.rs)
 
 What it shows:
 

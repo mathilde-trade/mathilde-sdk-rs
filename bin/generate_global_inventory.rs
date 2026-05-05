@@ -175,6 +175,18 @@ fn discover_component_inventories(repo_root: &Path) -> Result<Vec<ComponentInven
             });
         }
     }
+
+    let examples_root = repo_root.join("examples");
+    let examples_inventory = examples_root.join("docs").join("inventory.md");
+    if examples_inventory.is_file() {
+        out.push(ComponentInventory {
+            kind: ComponentKind::Module,
+            name: "sdk::examples".to_string(),
+            inventory_path: examples_inventory,
+            source_root: examples_root,
+            allow_scope: false,
+        });
+    }
     out.sort_by(|a, b| (a.kind as u8, &a.name).cmp(&(b.kind as u8, &b.name)));
     Ok(out)
 }
@@ -377,6 +389,7 @@ fn parse_inventory_source_file_purposes(inventory_text: &str) -> HashMap<String,
     // - `crates/<name>/.../*.rs`: purpose...
     // - `services/<name>/.../*.rs`: purpose...
     // - `src/<module>/.../*.rs`: purpose... (crate-local; rebased by caller)
+    // - `examples/.../*.rs`: purpose...
     let mut map = HashMap::new();
     for raw_line in inventory_text.lines() {
         let line = raw_line.trim_start();
@@ -391,7 +404,11 @@ fn parse_inventory_source_file_purposes(inventory_text: &str) -> HashMap<String,
         if !path.ends_with(".rs") {
             continue;
         }
-        if !(path.starts_with("crates/") || path.starts_with("services/") || path.starts_with("src/")) {
+        if !(path.starts_with("crates/")
+            || path.starts_with("services/")
+            || path.starts_with("src/")
+            || path.starts_with("examples/"))
+        {
             continue;
         }
         let after = rest[end_tick + 1..].trim_start();
@@ -578,10 +595,10 @@ fn main() -> Result<(), String> {
     ));
     lines.push("".to_string());
     lines.push(format!("Generated: {now}"));
-    lines.push("Protocol: `.dev/specs/SDK_INVENTORY_SYSTEM_SPEC_2026-04-08.md`".to_string());
+    lines.push("Protocol: `.dev/specs/SDK_INVENTORY_SYSTEM_SPEC_2026-05-05.md`".to_string());
     lines.push("".to_string());
     lines.push(
-        "This file is generated from per-component inventories under `crates/*/docs/inventory.md`, `services/*/docs/inventory.md`, and SDK module inventories under `src/*/docs/inventory.md`."
+        "This file is generated from per-component inventories under `crates/*/docs/inventory.md`, `services/*/docs/inventory.md`, SDK module inventories under `src/*/docs/inventory.md`, and the runnable examples inventory at `examples/docs/inventory.md`."
             .to_string(),
     );
     lines.push(
@@ -673,7 +690,11 @@ fn main() -> Result<(), String> {
             ComponentKind::Service => format!("services/{}", inv.name),
             ComponentKind::Module => {
                 if let Some(module_name) = inv.name.strip_prefix("sdk::") {
-                    format!("src/{module_name}")
+                    if module_name == "examples" {
+                        "examples".to_string()
+                    } else {
+                        format!("src/{module_name}")
+                    }
                 } else {
                     format!(
                         "crates/{}/src/{}",

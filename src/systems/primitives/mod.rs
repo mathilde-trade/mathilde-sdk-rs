@@ -1,18 +1,17 @@
-pub mod client;
-pub mod docs;
-pub mod files;
-pub mod messages_ws;
-pub mod outputs_grpc;
-pub mod outputs_http;
-pub mod outputs_pagination;
-pub mod outputs_ws;
-pub mod pairs;
-pub mod types;
+mod client;
+mod docs;
+mod files;
+mod messages_ws;
+mod outputs_grpc;
+mod outputs_http;
+mod outputs_pagination;
+mod outputs_ws;
+mod pairs;
+mod types;
 
+#[doc(hidden)]
 pub use crate::generated::primitives::{
     OutputBarsMetadata, OutputMetadata, OutputProcessDiagnostic, ProcessorFamily, ProcessorGroup,
-    ProcessorOutputMin, ProcessorOutputWithMeta, ProcessorProjectedOutputMin,
-    ProcessorProjectedOutputWithMeta, ProjectedF64, ProjectedValue,
 };
 pub use client::Primitives;
 pub use messages_ws::{
@@ -20,11 +19,11 @@ pub use messages_ws::{
     MessagesWsMessageFrame, MessagesWsServerFrame, MessagesWsSubscribeFrame,
     MessagesWsSubscribedFrame, MessagesWsUnsubscribeFrame, RecoveringMessagesWsConnection,
 };
+
 pub use outputs_pagination::{
-    RangeOutputsCall, RangeOutputsGrpcCall, RangeOutputsGrpcPager, RangeOutputsPager,
-    SearchOutputsCall, SearchOutputsGrpcCall, SearchOutputsGrpcPager, SearchOutputsPager,
-    TimeMachineOutputsCall, TimeMachineOutputsGrpcCall, TimeMachineOutputsGrpcPager,
-    TimeMachineOutputsPager,
+    RangeCall, RangeGrpcCall, RangeGrpcPager, RangePager, SearchCall, SearchGrpcCall,
+    SearchGrpcPager, SearchPager, TimeMachineCall, TimeMachineGrpcCall, TimeMachineGrpcPager,
+    TimeMachinePager,
 };
 pub use outputs_ws::{
     NormalizedOutputsWsSubscribeRequest, OutputsWsConnection, OutputsWsErrorFrame, OutputsWsFormat,
@@ -32,14 +31,32 @@ pub use outputs_ws::{
     OutputsWsSubscribeRequest, RecoveringOutputsWsConnection,
 };
 pub use types::{
-    DocsRegistryRequest, DownloadedFile, FilesDownloadsRequest, FilesDownloadsResponse,
-    FilesDownloadsRow, LatestOutputsGrpcRequest, LatestOutputsPresentRow, LatestOutputsRequest,
-    LatestOutputsResponse, OutputView, PairStatusBootstrap, PairStatusHistoryBlock,
+    ComputedFields, DocsRegistryRequest, DownloadedFile, FilesDownloadsRequest,
+    FilesDownloadsResponse, FilesDownloadsRow, LatestGrpcRequest, LatestPresentRow, LatestRequest,
+    LatestResponse, OutputRow, OutputView, PairStatusBootstrap, PairStatusHistoryBlock,
     PairStatusReadinessBlock, PairStatusReadinessCell, PairStatusRow, PairStatusStatusBlock,
-    PairsListRequest, PairsListResponse, PairsStatusRequest, PairsStatusResponse, PrimitiveOutput,
-    PublicOpenApiDocument, RangeOutputsGrpcRequest, RangeOutputsRequest, RangeOutputsResponse,
-    RangeOutputsTraverseResult, SearchOutputsGrpcRequest, SearchOutputsRequest,
-    SearchOutputsResponse, SearchOutputsTraverseResult, TimeMachineOutputsGrpcRequest,
-    TimeMachineOutputsRequest, TimeMachineOutputsResponse, TimeMachineOutputsRow,
-    TimeMachineOutputsTraverseResult,
+    PairsListRequest, PairsListResponse, PairsStatusRequest, PairsStatusResponse,
+    PublicOpenApiDocument, RangeGrpcRequest, RangeRequest, RangeResponse, RangeTraverseResult,
+    SearchGrpcRequest, SearchRequest, SearchResponse, SearchTraverseResult, TimeMachineGrpcRequest,
+    TimeMachineRequest, TimeMachineResponse, TimeMachineRow, TimeMachineTraverseResult,
+};
+
+#[allow(unused_imports)]
+pub(crate) mod raw {
+    pub use crate::generated::primitives::raw::{
+        OutputBarsMetadata, OutputMetadata, OutputProcessDiagnostic, ProcessorFamily,
+        ProcessorGroup,
+    };
+}
+
+#[cfg(test)]
+#[allow(unused_imports)]
+pub(crate) use outputs_grpc::latest_outputs_grpc;
+#[cfg(test)]
+#[allow(unused_imports)]
+pub(crate) use outputs_http::latest_outputs;
+#[cfg(test)]
+#[allow(unused_imports)]
+pub(crate) use types::{
+    PrimitiveOutputMode, diagnostics_enabled, selector_family_names, selector_group_names,
 };

@@ -2,34 +2,15 @@ use crate::core::auth::BearerToken;
 use crate::core::time::TimeInput;
 use crate::generated::primitives::outputs_proto::mathilde::feed::outputs::v1 as proto;
 use crate::generated::primitives::{ProcessorFamily, ProcessorGroup};
-use crate::systems::primitives::types::{PrimitiveOutputMode, diagnostics_enabled};
 use crate::systems::primitives::{
-    LatestOutputsGrpcRequest, LatestOutputsRequest, LatestOutputsResponse, OutputView,
-    PrimitiveOutput, Primitives, RangeOutputsRequest, SearchOutputsRequest, SearchOutputsResponse,
-    TimeMachineOutputsRequest,
+    LatestGrpcRequest, LatestRequest, LatestResponse, OutputView, PrimitiveOutputMode, Primitives,
+    RangeRequest, SearchRequest, SearchResponse, TimeMachineRequest, diagnostics_enabled,
 };
 use crate::systems::types::{HttpFormat, LatestMode, Timeframe};
 
 #[test]
-fn test_primitives_latest_outputs_request_rejects_metadata_family_without_metadata() {
-    let request = LatestOutputsRequest {
-        pairs: vec!["BTCUSDT".to_string()],
-        tf: Timeframe::M1,
-        latest_mode: Some(LatestMode::ExactWatermark),
-        family: Some(vec![ProcessorFamily::Metadata]),
-        group: None,
-        metadata: Some(false),
-        diagnostics: None,
-        format: Some(HttpFormat::Json),
-    };
-
-    let error = request.validate().expect_err("metadata family must fail");
-    assert!(error.to_string().contains("family=metadata"));
-}
-
-#[test]
-fn test_primitives_range_outputs_request_infers_projected_min_mode() {
-    let request = RangeOutputsRequest {
+fn test_primitives_range_request_infers_projected_min_mode() {
+    let request = RangeRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: None,
@@ -51,8 +32,8 @@ fn test_primitives_range_outputs_request_infers_projected_min_mode() {
 }
 
 #[test]
-fn test_primitives_search_outputs_request_infers_with_meta_mode() {
-    let request = SearchOutputsRequest {
+fn test_primitives_search_request_infers_with_meta_mode() {
+    let request = SearchRequest {
         tf: Timeframe::M1,
         close_start: TimeInput::from(1_700_000_000_000_i64),
         close_end: None,
@@ -74,8 +55,8 @@ fn test_primitives_search_outputs_request_infers_with_meta_mode() {
 }
 
 #[test]
-fn test_primitives_time_machine_outputs_request_infers_min_mode() {
-    let request = TimeMachineOutputsRequest {
+fn test_primitives_time_machine_request_infers_min_mode() {
+    let request = TimeMachineRequest {
         tf: Timeframe::M1,
         close_start: TimeInput::from(1_700_000_000_000_i64),
         close_end: None,
@@ -101,8 +82,8 @@ fn test_primitives_time_machine_outputs_request_infers_min_mode() {
 }
 
 #[test]
-fn test_primitives_latest_outputs_grpc_request_from_http_request_preserves_typed_selectors() {
-    let request = LatestOutputsRequest {
+fn test_primitives_latest_grpc_request_from_http_request_preserves_typed_selectors() {
+    let request = LatestRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: Some(LatestMode::LatestAvailableLeWatermark),
@@ -113,7 +94,7 @@ fn test_primitives_latest_outputs_grpc_request_from_http_request_preserves_typed
         format: Some(HttpFormat::Protobuf),
     };
 
-    let grpc = LatestOutputsGrpcRequest::from(&request);
+    let grpc = LatestGrpcRequest::from(&request);
 
     assert_eq!(grpc.pairs, request.pairs);
     assert_eq!(grpc.tf, request.tf);
@@ -125,8 +106,8 @@ fn test_primitives_latest_outputs_grpc_request_from_http_request_preserves_typed
 }
 
 #[test]
-fn test_primitives_latest_outputs_grpc_to_proto_uses_canonical_selectors_and_empty_excludes() {
-    let request = LatestOutputsGrpcRequest {
+fn test_primitives_latest_grpc_to_proto_uses_canonical_selectors_and_empty_excludes() {
+    let request = LatestGrpcRequest {
         pairs: vec![" BTCUSDT ".to_string(), "".to_string()],
         tf: Timeframe::M1,
         latest_mode: None,
@@ -146,7 +127,7 @@ fn test_primitives_latest_outputs_grpc_to_proto_uses_canonical_selectors_and_emp
 }
 
 #[test]
-fn test_primitives_latest_outputs_proto_min_decode_preserves_required_fields() {
+fn test_primitives_latest_proto_min_decode_preserves_required_fields() {
     let response = proto::OutputsLatestResponseV1 {
         watermark_end_ms: 1_700_000_000_000,
         close_end_ms: 1_700_000_000_000,
@@ -165,6 +146,7 @@ fn test_primitives_latest_outputs_proto_min_decode_preserves_required_fields() {
                 l: 0.5,
                 c: 1.5,
                 v: 3.0,
+                bs_close_window_min: Some(0.75),
                 diagnostics: Vec::new(),
                 ..Default::default()
             }),
@@ -173,7 +155,7 @@ fn test_primitives_latest_outputs_proto_min_decode_preserves_required_fields() {
         missing_pairs: vec!["ETHUSDT".to_string()],
     };
 
-    let decoded = LatestOutputsResponse::from_proto(
+    let decoded = LatestResponse::from_proto(
         response,
         PrimitiveOutputMode::Min,
         diagnostics_enabled(Some(false)),
@@ -183,19 +165,19 @@ fn test_primitives_latest_outputs_proto_min_decode_preserves_required_fields() {
     assert_eq!(decoded.view, OutputView::Min);
     assert_eq!(decoded.rows.len(), 1);
     assert_eq!(decoded.missing_pairs, vec!["ETHUSDT".to_string()]);
-    match &decoded.rows[0].output {
-        PrimitiveOutput::Min(output) => {
-            assert_eq!(output.pair, "BTCUSDT");
-            assert_eq!(output.open_utc, "2023-11-14T22:12:20Z");
-            assert_eq!(output.close_utc, "2023-11-14T22:13:20Z");
-            assert_eq!(output.diagnostics, None);
-        }
-        other => panic!("unexpected output variant: {other:?}"),
-    }
+    assert_eq!(decoded.rows[0].age_ms, 123);
+    assert_eq!(decoded.rows[0].row.pair, "BTCUSDT");
+    assert_eq!(decoded.rows[0].row.open_utc, "2023-11-14T22:12:20Z");
+    assert_eq!(decoded.rows[0].row.close_utc, "2023-11-14T22:13:20Z");
+    assert!(decoded.rows[0].row.diagnostics.is_none());
+    assert_eq!(
+        decoded.rows[0].row.computed.f64("bs_close_window_min"),
+        Some(0.75)
+    );
 }
 
 #[test]
-fn test_primitives_latest_outputs_proto_full_decode_defaults_tail_bar_provenance() {
+fn test_primitives_latest_proto_full_decode_defaults_tail_bar_provenance() {
     let response = proto::OutputsLatestResponseV1 {
         watermark_end_ms: 1_700_000_000_000,
         close_end_ms: 1_700_000_000_000,
@@ -233,25 +215,28 @@ fn test_primitives_latest_outputs_proto_full_decode_defaults_tail_bar_provenance
         missing_pairs: Vec::new(),
     };
 
-    let decoded = LatestOutputsResponse::from_proto(
+    let decoded = LatestResponse::from_proto(
         response,
         PrimitiveOutputMode::WithMeta,
         diagnostics_enabled(Some(true)),
     )
     .expect("latest full proto decode");
 
-    match &decoded.rows[0].output {
-        PrimitiveOutput::WithMeta(output) => {
-            assert_eq!(output.metadata.source, "feed");
-            assert_eq!(output.metadata.tail_bar_provenance.source, None);
-            assert_eq!(output.diagnostics.as_ref().map(Vec::len), Some(1));
-        }
-        other => panic!("unexpected output variant: {other:?}"),
-    }
+    let row = &decoded.rows[0].row;
+    assert_eq!(row.metadata.as_ref().expect("metadata").source, "feed");
+    assert_eq!(
+        row.metadata
+            .as_ref()
+            .expect("metadata")
+            .tail_bar_provenance
+            .source,
+        None
+    );
+    assert_eq!(row.diagnostics.as_ref().map(Vec::len), Some(1));
 }
 
 #[test]
-fn test_primitives_search_outputs_proto_rejects_evaluated_rows_without_evaluate_pair() {
+fn test_primitives_search_proto_rejects_evaluated_rows_without_evaluate_pair() {
     let response = proto::OutputsSearchResponseV1 {
         hits: vec![1],
         evaluated_rows: vec![proto::OutputRowV1 {
@@ -277,7 +262,7 @@ fn test_primitives_search_outputs_proto_rejects_evaluated_rows_without_evaluate_
         done: true,
     };
 
-    let error = SearchOutputsResponse::from_proto(
+    let error = SearchResponse::from_proto(
         response,
         PrimitiveOutputMode::Min,
         diagnostics_enabled(Some(false)),

@@ -2,7 +2,7 @@ use crate::core::auth::BearerToken;
 use crate::core::config::{GrpcTransportConfig, HttpTransportConfig, RegimeConfig};
 use crate::core::time::TimeInput;
 use crate::generated::regime::outputs_proto::mathilde::feed::outputs::v1 as proto;
-use crate::systems::regime::{RangeOutputsGrpcRequest, Regime, RegimeOutput};
+use crate::systems::regime::{RangeGrpcRequest, Regime};
 use crate::systems::types::{AlignMode, Timeframe};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -68,11 +68,7 @@ fn encode_grpc_message<M: Message>(message: M) -> Vec<u8> {
 }
 
 fn decode_grpc_message<M: Message + Default>(body: &[u8]) -> M {
-    assert!(body.len() >= 5, "grpc frame too short");
-    assert_eq!(body[0], 0, "compressed grpc frame unsupported in test");
-    let len = u32::from_be_bytes([body[1], body[2], body[3], body[4]]) as usize;
-    assert_eq!(body.len(), 5 + len, "grpc frame length mismatch");
-    M::decode(&body[5..]).expect("decode grpc message")
+    crate::tests::contract::grpc_test_support::decode_test_grpc_message(body)
 }
 
 async fn spawn_range_grpc_server() -> (String, oneshot::Receiver<CapturedRangeRequest>) {
@@ -142,7 +138,7 @@ async fn test_regime_range_outputs_grpc_uses_unary_path_and_decodes_with_meta_re
     let (base_url, captured_rx) = spawn_range_grpc_server().await;
     let token = BearerToken::new("feed_public_token").expect("valid token");
     let client = Regime::new(config_for_grpc(&base_url, Some(token))).expect("client");
-    let request = RangeOutputsGrpcRequest {
+    let request = RangeGrpcRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::H1,
         align_mode: Some(AlignMode::Exact),
@@ -175,8 +171,8 @@ async fn test_regime_range_outputs_grpc_uses_unary_path_and_decodes_with_meta_re
     assert!(captured.body.secondary);
     assert!(captured.body.exclude_sources.is_empty());
     assert_eq!(out.next_cursor.as_deref(), Some("next-range"));
-    match &out.rows[0] {
-        RegimeOutput::WithMeta(output) => assert_eq!(output.metadata.source, "feed"),
-        other => panic!("expected with-meta output, got {other:?}"),
-    }
+    assert_eq!(
+        out.rows[0].metadata.as_ref().expect("metadata").source,
+        "feed"
+    );
 }

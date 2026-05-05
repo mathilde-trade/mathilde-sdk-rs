@@ -3,110 +3,109 @@ use crate::core::pagination::{PaginationAdvance, PaginationState, require_explic
 use crate::core::time::TimeInput;
 use crate::systems::primitives::client::Primitives;
 use crate::systems::primitives::types::{
-    RangeOutputsGrpcRequest, RangeOutputsRequest, RangeOutputsResponse, RangeOutputsTraverseResult,
-    SearchOutputsGrpcRequest, SearchOutputsRequest, SearchOutputsResponse,
-    SearchOutputsTraverseResult, TimeMachineOutputsGrpcRequest, TimeMachineOutputsRequest,
-    TimeMachineOutputsResponse, TimeMachineOutputsTraverseResult,
+    RangeGrpcRequest, RangeRequest, RangeResponse, RangeTraverseResult, SearchGrpcRequest,
+    SearchRequest, SearchResponse, SearchTraverseResult, TimeMachineGrpcRequest,
+    TimeMachineRequest, TimeMachineResponse, TimeMachineTraverseResult,
 };
 
 #[derive(Debug)]
-pub struct RangeOutputsCall<'a> {
+pub struct RangeCall<'a> {
     client: &'a Primitives,
-    request: RangeOutputsRequest,
+    request: RangeRequest,
 }
 
 #[derive(Debug)]
-pub struct RangeOutputsGrpcCall<'a> {
+pub struct RangeGrpcCall<'a> {
     client: &'a Primitives,
-    request: RangeOutputsGrpcRequest,
+    request: RangeGrpcRequest,
 }
 
 #[derive(Debug)]
-pub struct SearchOutputsCall<'a> {
+pub struct SearchCall<'a> {
     client: &'a Primitives,
-    request: SearchOutputsRequest,
+    request: SearchRequest,
 }
 
 #[derive(Debug)]
-pub struct SearchOutputsGrpcCall<'a> {
+pub struct SearchGrpcCall<'a> {
     client: &'a Primitives,
-    request: SearchOutputsGrpcRequest,
+    request: SearchGrpcRequest,
 }
 
 #[derive(Debug)]
-pub struct TimeMachineOutputsCall<'a> {
+pub struct TimeMachineCall<'a> {
     client: &'a Primitives,
-    request: TimeMachineOutputsRequest,
+    request: TimeMachineRequest,
 }
 
 #[derive(Debug)]
-pub struct TimeMachineOutputsGrpcCall<'a> {
+pub struct TimeMachineGrpcCall<'a> {
     client: &'a Primitives,
-    request: TimeMachineOutputsGrpcRequest,
+    request: TimeMachineGrpcRequest,
 }
 
 #[derive(Debug)]
-pub struct RangeOutputsPager<'a> {
+pub struct RangePager<'a> {
     client: &'a Primitives,
-    request: RangeOutputsRequest,
+    request: RangeRequest,
     state: PaginationState,
     finished: bool,
 }
 
 #[derive(Debug)]
-pub struct RangeOutputsGrpcPager<'a> {
+pub struct RangeGrpcPager<'a> {
     client: &'a Primitives,
-    request: RangeOutputsGrpcRequest,
+    request: RangeGrpcRequest,
     state: PaginationState,
     finished: bool,
 }
 
 #[derive(Debug)]
-pub struct SearchOutputsPager<'a> {
+pub struct SearchPager<'a> {
     client: &'a Primitives,
-    request: SearchOutputsRequest,
+    request: SearchRequest,
     state: PaginationState,
     finished: bool,
 }
 
 #[derive(Debug)]
-pub struct SearchOutputsGrpcPager<'a> {
+pub struct SearchGrpcPager<'a> {
     client: &'a Primitives,
-    request: SearchOutputsGrpcRequest,
+    request: SearchGrpcRequest,
     state: PaginationState,
     finished: bool,
 }
 
 #[derive(Debug)]
-pub struct TimeMachineOutputsPager<'a> {
+pub struct TimeMachinePager<'a> {
     client: &'a Primitives,
-    request: TimeMachineOutputsRequest,
+    request: TimeMachineRequest,
     state: PaginationState,
     finished: bool,
 }
 
 #[derive(Debug)]
-pub struct TimeMachineOutputsGrpcPager<'a> {
+pub struct TimeMachineGrpcPager<'a> {
     client: &'a Primitives,
-    request: TimeMachineOutputsGrpcRequest,
+    request: TimeMachineGrpcRequest,
     state: PaginationState,
     finished: bool,
 }
 
-impl<'a> RangeOutputsCall<'a> {
-    pub(crate) fn new(client: &'a Primitives, request: RangeOutputsRequest) -> Self {
+impl<'a> RangeCall<'a> {
+    pub(crate) fn new(client: &'a Primitives, request: RangeRequest) -> Self {
         Self { client, request }
     }
 
-    pub async fn send(self) -> Result<RangeOutputsResponse, SdkError> {
+    pub async fn send(self) -> Result<RangeResponse, SdkError> {
         self.client.range(&self.request).await
     }
 
-    pub fn pager(self) -> Result<RangeOutputsPager<'a>, SdkError> {
-        Ok(RangeOutputsPager::new(self.client, self.request))
+    pub fn pager(self) -> Result<RangePager<'a>, SdkError> {
+        Ok(RangePager::new(self.client, self.request))
     }
 
-    pub async fn traverse(self) -> Result<RangeOutputsTraverseResult, SdkError> {
+    pub async fn traverse(self) -> Result<RangeTraverseResult, SdkError> {
         let mut pager = self.pager()?;
         let mut pages = Vec::new();
 
@@ -114,27 +113,27 @@ impl<'a> RangeOutputsCall<'a> {
             pages.push(page);
         }
 
-        Ok(RangeOutputsTraverseResult {
+        Ok(RangeTraverseResult {
             pages,
             pages_fetched: pager.pages_fetched(),
         })
     }
 }
 
-impl<'a> RangeOutputsGrpcCall<'a> {
-    pub(crate) fn new(client: &'a Primitives, request: RangeOutputsGrpcRequest) -> Self {
+impl<'a> RangeGrpcCall<'a> {
+    pub(crate) fn new(client: &'a Primitives, request: RangeGrpcRequest) -> Self {
         Self { client, request }
     }
 
-    pub async fn send(self) -> Result<RangeOutputsResponse, SdkError> {
+    pub async fn send(self) -> Result<RangeResponse, SdkError> {
         self.client.range_grpc(&self.request).await
     }
 
-    pub fn pager(self) -> Result<RangeOutputsGrpcPager<'a>, SdkError> {
-        Ok(RangeOutputsGrpcPager::new(self.client, self.request))
+    pub fn pager(self) -> Result<RangeGrpcPager<'a>, SdkError> {
+        Ok(RangeGrpcPager::new(self.client, self.request))
     }
 
-    pub async fn traverse(self) -> Result<RangeOutputsTraverseResult, SdkError> {
+    pub async fn traverse(self) -> Result<RangeTraverseResult, SdkError> {
         let mut pager = self.pager()?;
         let mut pages = Vec::new();
 
@@ -142,28 +141,28 @@ impl<'a> RangeOutputsGrpcCall<'a> {
             pages.push(page);
         }
 
-        Ok(RangeOutputsTraverseResult {
+        Ok(RangeTraverseResult {
             pages,
             pages_fetched: pager.pages_fetched(),
         })
     }
 }
 
-impl<'a> SearchOutputsCall<'a> {
-    pub(crate) fn new(client: &'a Primitives, request: SearchOutputsRequest) -> Self {
+impl<'a> SearchCall<'a> {
+    pub(crate) fn new(client: &'a Primitives, request: SearchRequest) -> Self {
         Self { client, request }
     }
 
-    pub async fn send(self) -> Result<SearchOutputsResponse, SdkError> {
+    pub async fn send(self) -> Result<SearchResponse, SdkError> {
         self.client.search(&self.request).await
     }
 
-    pub fn pager(self) -> Result<SearchOutputsPager<'a>, SdkError> {
+    pub fn pager(self) -> Result<SearchPager<'a>, SdkError> {
         require_explicit_close_end(self.request.close_end.as_ref(), "search")?;
-        Ok(SearchOutputsPager::new(self.client, self.request))
+        Ok(SearchPager::new(self.client, self.request))
     }
 
-    pub async fn traverse(self) -> Result<SearchOutputsTraverseResult, SdkError> {
+    pub async fn traverse(self) -> Result<SearchTraverseResult, SdkError> {
         let mut pager = self.pager()?;
         let mut pages = Vec::new();
 
@@ -171,28 +170,28 @@ impl<'a> SearchOutputsCall<'a> {
             pages.push(page);
         }
 
-        Ok(SearchOutputsTraverseResult {
+        Ok(SearchTraverseResult {
             pages,
             pages_fetched: pager.pages_fetched(),
         })
     }
 }
 
-impl<'a> SearchOutputsGrpcCall<'a> {
-    pub(crate) fn new(client: &'a Primitives, request: SearchOutputsGrpcRequest) -> Self {
+impl<'a> SearchGrpcCall<'a> {
+    pub(crate) fn new(client: &'a Primitives, request: SearchGrpcRequest) -> Self {
         Self { client, request }
     }
 
-    pub async fn send(self) -> Result<SearchOutputsResponse, SdkError> {
+    pub async fn send(self) -> Result<SearchResponse, SdkError> {
         self.client.search_grpc(&self.request).await
     }
 
-    pub fn pager(self) -> Result<SearchOutputsGrpcPager<'a>, SdkError> {
+    pub fn pager(self) -> Result<SearchGrpcPager<'a>, SdkError> {
         require_explicit_close_end(self.request.close_end.as_ref(), "search")?;
-        Ok(SearchOutputsGrpcPager::new(self.client, self.request))
+        Ok(SearchGrpcPager::new(self.client, self.request))
     }
 
-    pub async fn traverse(self) -> Result<SearchOutputsTraverseResult, SdkError> {
+    pub async fn traverse(self) -> Result<SearchTraverseResult, SdkError> {
         let mut pager = self.pager()?;
         let mut pages = Vec::new();
 
@@ -200,28 +199,28 @@ impl<'a> SearchOutputsGrpcCall<'a> {
             pages.push(page);
         }
 
-        Ok(SearchOutputsTraverseResult {
+        Ok(SearchTraverseResult {
             pages,
             pages_fetched: pager.pages_fetched(),
         })
     }
 }
 
-impl<'a> TimeMachineOutputsCall<'a> {
-    pub(crate) fn new(client: &'a Primitives, request: TimeMachineOutputsRequest) -> Self {
+impl<'a> TimeMachineCall<'a> {
+    pub(crate) fn new(client: &'a Primitives, request: TimeMachineRequest) -> Self {
         Self { client, request }
     }
 
-    pub async fn send(self) -> Result<TimeMachineOutputsResponse, SdkError> {
+    pub async fn send(self) -> Result<TimeMachineResponse, SdkError> {
         self.client.time_machine(&self.request).await
     }
 
-    pub fn pager(self) -> Result<TimeMachineOutputsPager<'a>, SdkError> {
+    pub fn pager(self) -> Result<TimeMachinePager<'a>, SdkError> {
         require_explicit_close_end(self.request.close_end.as_ref(), "time-machine")?;
-        Ok(TimeMachineOutputsPager::new(self.client, self.request))
+        Ok(TimeMachinePager::new(self.client, self.request))
     }
 
-    pub async fn traverse(self) -> Result<TimeMachineOutputsTraverseResult, SdkError> {
+    pub async fn traverse(self) -> Result<TimeMachineTraverseResult, SdkError> {
         let mut pager = self.pager()?;
         let mut pages = Vec::new();
 
@@ -229,28 +228,28 @@ impl<'a> TimeMachineOutputsCall<'a> {
             pages.push(page);
         }
 
-        Ok(TimeMachineOutputsTraverseResult {
+        Ok(TimeMachineTraverseResult {
             pages,
             pages_fetched: pager.pages_fetched(),
         })
     }
 }
 
-impl<'a> TimeMachineOutputsGrpcCall<'a> {
-    pub(crate) fn new(client: &'a Primitives, request: TimeMachineOutputsGrpcRequest) -> Self {
+impl<'a> TimeMachineGrpcCall<'a> {
+    pub(crate) fn new(client: &'a Primitives, request: TimeMachineGrpcRequest) -> Self {
         Self { client, request }
     }
 
-    pub async fn send(self) -> Result<TimeMachineOutputsResponse, SdkError> {
+    pub async fn send(self) -> Result<TimeMachineResponse, SdkError> {
         self.client.time_machine_grpc(&self.request).await
     }
 
-    pub fn pager(self) -> Result<TimeMachineOutputsGrpcPager<'a>, SdkError> {
+    pub fn pager(self) -> Result<TimeMachineGrpcPager<'a>, SdkError> {
         require_explicit_close_end(self.request.close_end.as_ref(), "time-machine")?;
-        Ok(TimeMachineOutputsGrpcPager::new(self.client, self.request))
+        Ok(TimeMachineGrpcPager::new(self.client, self.request))
     }
 
-    pub async fn traverse(self) -> Result<TimeMachineOutputsTraverseResult, SdkError> {
+    pub async fn traverse(self) -> Result<TimeMachineTraverseResult, SdkError> {
         let mut pager = self.pager()?;
         let mut pages = Vec::new();
 
@@ -258,15 +257,15 @@ impl<'a> TimeMachineOutputsGrpcCall<'a> {
             pages.push(page);
         }
 
-        Ok(TimeMachineOutputsTraverseResult {
+        Ok(TimeMachineTraverseResult {
             pages,
             pages_fetched: pager.pages_fetched(),
         })
     }
 }
 
-impl<'a> RangeOutputsPager<'a> {
-    fn new(client: &'a Primitives, request: RangeOutputsRequest) -> Self {
+impl<'a> RangePager<'a> {
+    fn new(client: &'a Primitives, request: RangeRequest) -> Self {
         Self {
             client,
             request,
@@ -279,7 +278,7 @@ impl<'a> RangeOutputsPager<'a> {
         self.state.pages_fetched()
     }
 
-    pub async fn next(&mut self) -> Result<Option<RangeOutputsResponse>, SdkError> {
+    pub async fn next(&mut self) -> Result<Option<RangeResponse>, SdkError> {
         if self.finished {
             return Ok(None);
         }
@@ -309,8 +308,8 @@ impl<'a> RangeOutputsPager<'a> {
     }
 }
 
-impl<'a> RangeOutputsGrpcPager<'a> {
-    fn new(client: &'a Primitives, request: RangeOutputsGrpcRequest) -> Self {
+impl<'a> RangeGrpcPager<'a> {
+    fn new(client: &'a Primitives, request: RangeGrpcRequest) -> Self {
         Self {
             client,
             request,
@@ -323,7 +322,7 @@ impl<'a> RangeOutputsGrpcPager<'a> {
         self.state.pages_fetched()
     }
 
-    pub async fn next(&mut self) -> Result<Option<RangeOutputsResponse>, SdkError> {
+    pub async fn next(&mut self) -> Result<Option<RangeResponse>, SdkError> {
         if self.finished {
             return Ok(None);
         }
@@ -353,8 +352,8 @@ impl<'a> RangeOutputsGrpcPager<'a> {
     }
 }
 
-impl<'a> SearchOutputsPager<'a> {
-    fn new(client: &'a Primitives, request: SearchOutputsRequest) -> Self {
+impl<'a> SearchPager<'a> {
+    fn new(client: &'a Primitives, request: SearchRequest) -> Self {
         Self {
             client,
             request,
@@ -367,7 +366,7 @@ impl<'a> SearchOutputsPager<'a> {
         self.state.pages_fetched()
     }
 
-    pub async fn next(&mut self) -> Result<Option<SearchOutputsResponse>, SdkError> {
+    pub async fn next(&mut self) -> Result<Option<SearchResponse>, SdkError> {
         if self.finished {
             return Ok(None);
         }
@@ -391,8 +390,8 @@ impl<'a> SearchOutputsPager<'a> {
     }
 }
 
-impl<'a> SearchOutputsGrpcPager<'a> {
-    fn new(client: &'a Primitives, request: SearchOutputsGrpcRequest) -> Self {
+impl<'a> SearchGrpcPager<'a> {
+    fn new(client: &'a Primitives, request: SearchGrpcRequest) -> Self {
         Self {
             client,
             request,
@@ -405,7 +404,7 @@ impl<'a> SearchOutputsGrpcPager<'a> {
         self.state.pages_fetched()
     }
 
-    pub async fn next(&mut self) -> Result<Option<SearchOutputsResponse>, SdkError> {
+    pub async fn next(&mut self) -> Result<Option<SearchResponse>, SdkError> {
         if self.finished {
             return Ok(None);
         }
@@ -429,8 +428,8 @@ impl<'a> SearchOutputsGrpcPager<'a> {
     }
 }
 
-impl<'a> TimeMachineOutputsPager<'a> {
-    fn new(client: &'a Primitives, request: TimeMachineOutputsRequest) -> Self {
+impl<'a> TimeMachinePager<'a> {
+    fn new(client: &'a Primitives, request: TimeMachineRequest) -> Self {
         Self {
             client,
             request,
@@ -443,7 +442,7 @@ impl<'a> TimeMachineOutputsPager<'a> {
         self.state.pages_fetched()
     }
 
-    pub async fn next(&mut self) -> Result<Option<TimeMachineOutputsResponse>, SdkError> {
+    pub async fn next(&mut self) -> Result<Option<TimeMachineResponse>, SdkError> {
         if self.finished {
             return Ok(None);
         }
@@ -467,8 +466,8 @@ impl<'a> TimeMachineOutputsPager<'a> {
     }
 }
 
-impl<'a> TimeMachineOutputsGrpcPager<'a> {
-    fn new(client: &'a Primitives, request: TimeMachineOutputsGrpcRequest) -> Self {
+impl<'a> TimeMachineGrpcPager<'a> {
+    fn new(client: &'a Primitives, request: TimeMachineGrpcRequest) -> Self {
         Self {
             client,
             request,
@@ -481,7 +480,7 @@ impl<'a> TimeMachineOutputsGrpcPager<'a> {
         self.state.pages_fetched()
     }
 
-    pub async fn next(&mut self) -> Result<Option<TimeMachineOutputsResponse>, SdkError> {
+    pub async fn next(&mut self) -> Result<Option<TimeMachineResponse>, SdkError> {
         if self.finished {
             return Ok(None);
         }

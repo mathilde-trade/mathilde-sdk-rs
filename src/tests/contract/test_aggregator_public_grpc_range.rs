@@ -2,7 +2,7 @@ use crate::core::auth::BearerToken;
 use crate::core::config::{AggregatorConfig, GrpcTransportConfig, HttpTransportConfig};
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
-use crate::systems::aggregator::{Aggregator, RangeBarsGrpcRequest, RangeBarsResponse};
+use crate::systems::aggregator::{Aggregator, RangeGrpcRequest};
 use crate::systems::types::{AlignMode, Timeframe};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -64,8 +64,8 @@ fn proto_bar_min(pair: &str) -> proto::BarRowV1 {
         taker_signed_n: Some(3),
         vw: Some(100.21),
         n: None,
-        coverage_ratio: Some(0.95),
-        at_ms: Some(1770000060005),
+        coverage_ratio: None,
+        at_ms: None,
         metadata: None,
     }
 }
@@ -91,7 +91,7 @@ fn proto_metadata() -> proto::BarMetadataV1 {
         recomputed_reason: None,
         covered_1m_count: None,
         expected_1m_count: None,
-        coverage_ratio: None,
+        coverage_ratio: Some(0.95),
         inputs_source_counts_frontier: None,
         inputs_source_counts_api: None,
         inputs_source_counts_synthetic: None,
@@ -102,7 +102,6 @@ fn proto_metadata() -> proto::BarMetadataV1 {
         frontier_5s_synth_ratio: Some(0.0),
         frontier_5s_trade_n: Some(12),
         frontier_5s_trade_ratio: Some(1.0),
-        age_ms: Some(202),
     }
 }
 
@@ -135,11 +134,7 @@ fn encode_grpc_message<M: Message>(message: M) -> Vec<u8> {
 }
 
 fn decode_grpc_message<M: Message + Default>(body: &[u8]) -> M {
-    assert!(body.len() >= 5, "grpc frame too short");
-    assert_eq!(body[0], 0, "compressed grpc frame unsupported in test");
-    let len = u32::from_be_bytes([body[1], body[2], body[3], body[4]]) as usize;
-    assert_eq!(body.len(), 5 + len, "grpc frame length mismatch");
-    M::decode(&body[5..]).expect("decode grpc message")
+    crate::tests::contract::grpc_test_support::decode_test_grpc_message(body)
 }
 
 fn grpc_status_number(code: tonic::Code) -> &'static str {
@@ -317,7 +312,7 @@ async fn test_range_bars_grpc_tail_mode_uses_unary_path_and_decodes_min_response
 
     let token = BearerToken::new("feed_public_token").expect("valid token");
     let client = Aggregator::new(config_for_grpc(&base_url, Some(token))).expect("client");
-    let request = RangeBarsGrpcRequest {
+    let request = RangeGrpcRequest {
         pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: None,
@@ -351,19 +346,11 @@ async fn test_range_bars_grpc_tail_mode_uses_unary_path_and_decodes_min_response
     assert!(!captured.body.metadata);
     assert!(captured.body.align_mode.is_none());
 
-    match out {
-        RangeBarsResponse::Min(out) => {
-            assert_eq!(out.rows.len(), 1);
-            assert_eq!(out.rows[0].pair, "BTCUSDT");
-            assert_eq!(out.rows[0].coverage_ratio, Some(0.95));
-            assert_eq!(out.rows[0].at_ms, Some(1770000060005));
-            assert_eq!(out.next_cursor.as_deref(), Some("cursor-1"));
-            assert_eq!(out.close_end_ms, 1770003600000);
-        }
-        RangeBarsResponse::Full(other) => {
-            panic!("expected min range grpc response, got full: {other:?}")
-        }
-    }
+    assert_eq!(out.rows.len(), 1);
+    assert_eq!(out.rows[0].pair, "BTCUSDT");
+    assert!(out.rows[0].metadata.is_none());
+    assert_eq!(out.next_cursor.as_deref(), Some("cursor-1"));
+    assert_eq!(out.close_end_ms, 1770003600000);
 }
 
 #[tokio::test]
@@ -372,7 +359,7 @@ async fn test_range_bars_grpc_explicit_window_decodes_full_response() {
         spawn_range_grpc_server(RangeGrpcUnaryReply::Success(proto_range_response_full())).await;
 
     let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
-    let request = RangeBarsGrpcRequest {
+    let request = RangeGrpcRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: Some(AlignMode::Exact),
@@ -395,18 +382,12 @@ async fn test_range_bars_grpc_explicit_window_decodes_full_response() {
     assert_eq!(captured.body.align_mode.as_deref(), Some("exact"));
     assert!(captured.body.metadata);
 
-    match out {
-        RangeBarsResponse::Full(out) => {
-            assert_eq!(out.rows.len(), 1);
-            assert_eq!(out.rows[0].pair, "BTCUSDT");
-            assert_eq!(out.rows[0].metadata.source, "frontier");
-            assert_eq!(out.rows[0].metadata.age_ms, Some(202));
-            assert!(out.next_cursor.is_none());
-        }
-        RangeBarsResponse::Min(other) => {
-            panic!("expected full range grpc response, got min: {other:?}")
-        }
-    }
+    assert_eq!(out.rows.len(), 1);
+    assert_eq!(out.rows[0].pair, "BTCUSDT");
+    let metadata = out.rows[0].metadata.as_ref().expect("metadata");
+    assert_eq!(metadata.source, "frontier");
+    assert_eq!(metadata.coverage_ratio, Some(0.95));
+    assert!(out.next_cursor.is_none());
 }
 
 #[tokio::test]
@@ -419,7 +400,7 @@ async fn test_range_bars_grpc_missing_grpc_config_is_typed_error() {
     })
     .expect("client");
 
-    let request = RangeBarsGrpcRequest {
+    let request = RangeGrpcRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: None,
@@ -450,7 +431,7 @@ async fn test_range_bars_grpc_non_ok_status_is_typed_error() {
     .await;
 
     let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
-    let request = RangeBarsGrpcRequest {
+    let request = RangeGrpcRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: None,
@@ -481,7 +462,7 @@ async fn test_range_bars_grpc_call_send_matches_one_page_method() {
         spawn_range_grpc_server(RangeGrpcUnaryReply::Success(proto_range_response_min())).await;
 
     let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
-    let request = RangeBarsGrpcRequest {
+    let request = RangeGrpcRequest {
         pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: None,
@@ -518,7 +499,7 @@ async fn test_range_bars_grpc_call_traverse_freezes_omitted_close_end_from_first
     .await;
 
     let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
-    let request = RangeBarsGrpcRequest {
+    let request = RangeGrpcRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: None,
@@ -551,19 +532,11 @@ async fn test_range_bars_grpc_call_traverse_freezes_omitted_close_end_from_first
     assert_eq!(out.pages_fetched, 2);
     assert_eq!(out.pages.len(), 2);
 
-    match &out.pages[0] {
-        RangeBarsResponse::Min(response) => {
-            assert_eq!(response.rows[0].pair, "BTCUSDT");
-            assert_eq!(response.next_cursor.as_deref(), Some("cursor-1"));
-        }
-        other => panic!("expected min first grpc page, got {other:?}"),
-    }
+    let first = &out.pages[0];
+    assert_eq!(first.rows[0].pair, "BTCUSDT");
+    assert_eq!(first.next_cursor.as_deref(), Some("cursor-1"));
 
-    match &out.pages[1] {
-        RangeBarsResponse::Min(response) => {
-            assert_eq!(response.rows[0].pair, "ETHUSDT");
-            assert!(response.next_cursor.is_none());
-        }
-        other => panic!("expected min second grpc page, got {other:?}"),
-    }
+    let second = &out.pages[1];
+    assert_eq!(second.rows[0].pair, "ETHUSDT");
+    assert!(second.next_cursor.is_none());
 }

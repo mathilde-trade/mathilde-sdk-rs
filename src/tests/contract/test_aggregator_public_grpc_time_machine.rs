@@ -2,7 +2,7 @@ use crate::core::auth::BearerToken;
 use crate::core::config::{AggregatorConfig, GrpcTransportConfig, HttpTransportConfig};
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
-use crate::systems::aggregator::{Aggregator, TimeMachineBarsGrpcRequest, TimeMachineBarsResponse};
+use crate::systems::aggregator::{Aggregator, TimeMachineGrpcRequest};
 use crate::systems::types::Timeframe;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -63,8 +63,8 @@ fn proto_bar_min(pair: &str) -> proto::BarRowV1 {
         taker_signed_n: Some(3),
         vw: Some(100.21),
         n: None,
-        coverage_ratio: Some(0.95),
-        at_ms: Some(1770000060005),
+        coverage_ratio: None,
+        at_ms: None,
         metadata: None,
     }
 }
@@ -94,7 +94,7 @@ fn proto_metadata() -> proto::BarMetadataV1 {
         recomputed_reason: None,
         covered_1m_count: None,
         expected_1m_count: None,
-        coverage_ratio: None,
+        coverage_ratio: Some(0.95),
         inputs_source_counts_frontier: None,
         inputs_source_counts_api: None,
         inputs_source_counts_synthetic: None,
@@ -105,7 +105,6 @@ fn proto_metadata() -> proto::BarMetadataV1 {
         frontier_5s_synth_ratio: Some(0.0),
         frontier_5s_trade_n: Some(12),
         frontier_5s_trade_ratio: Some(1.0),
-        age_ms: Some(202),
     }
 }
 
@@ -156,11 +155,7 @@ fn encode_grpc_message<M: Message>(message: M) -> Vec<u8> {
 }
 
 fn decode_grpc_message<M: Message + Default>(body: &[u8]) -> M {
-    assert!(body.len() >= 5, "grpc frame too short");
-    assert_eq!(body[0], 0, "compressed grpc frame unsupported in test");
-    let len = u32::from_be_bytes([body[1], body[2], body[3], body[4]]) as usize;
-    assert_eq!(body.len(), 5 + len, "grpc frame length mismatch");
-    M::decode(&body[5..]).expect("decode grpc message")
+    crate::tests::contract::grpc_test_support::decode_test_grpc_message(body)
 }
 
 fn grpc_status_number(code: tonic::Code) -> &'static str {
@@ -265,7 +260,7 @@ async fn test_time_machine_bars_grpc_predicate_mode_uses_unary_path_and_decodes_
 
     let token = BearerToken::new("feed_public_token").expect("valid token");
     let client = Aggregator::new(config_for_grpc(&base_url, Some(token))).expect("client");
-    let request = TimeMachineBarsGrpcRequest {
+    let request = TimeMachineGrpcRequest {
         tf: Timeframe::M1,
         close_start: "2026-02-02T00:00:00Z".into(),
         close_end: Some(1770007200000_i64.into()),
@@ -313,26 +308,20 @@ async fn test_time_machine_bars_grpc_predicate_mode_uses_unary_path_and_decodes_
     assert_eq!(captured.body.max_hits, Some(500));
     assert_eq!(captured.body.overlap_mode.as_deref(), Some("merge"));
 
-    match out {
-        TimeMachineBarsResponse::Min(out) => {
-            assert_eq!(out.rows.len(), 1);
-            assert_eq!(out.rows[0].bar.pair, "BTCUSDT");
-            assert_eq!(out.rows[0].offset, 0);
-            assert_eq!(out.next_cursor.as_deref(), Some("cursor-1"));
-            assert!(!out.done);
-            assert_eq!(out.returned_hits, 1);
-            assert_eq!(out.effective_hits_limit, 500);
-            assert!(!out.truncated);
-            assert_eq!(out.predicate_pairs, vec!["BTCUSDT", "ETHUSDT"]);
-            assert_eq!(
-                out.predicate_normalized.as_deref(),
-                Some("BTCUSDT.c > ETHUSDT.c * 1.5")
-            );
-        }
-        TimeMachineBarsResponse::Full(other) => {
-            panic!("expected min time-machine grpc response, got full: {other:?}")
-        }
-    }
+    assert_eq!(out.rows.len(), 1);
+    assert_eq!(out.rows[0].bar.pair, "BTCUSDT");
+    assert!(out.rows[0].bar.metadata.is_none());
+    assert_eq!(out.rows[0].offset, 0);
+    assert_eq!(out.next_cursor.as_deref(), Some("cursor-1"));
+    assert!(!out.done);
+    assert_eq!(out.returned_hits, 1);
+    assert_eq!(out.effective_hits_limit, 500);
+    assert!(!out.truncated);
+    assert_eq!(out.predicate_pairs, vec!["BTCUSDT", "ETHUSDT"]);
+    assert_eq!(
+        out.predicate_normalized.as_deref(),
+        Some("BTCUSDT.c > ETHUSDT.c * 1.5")
+    );
 }
 
 #[tokio::test]
@@ -343,7 +332,7 @@ async fn test_time_machine_bars_grpc_hits_mode_omitted_close_end_decodes_full_re
     .await;
 
     let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
-    let request = TimeMachineBarsGrpcRequest {
+    let request = TimeMachineGrpcRequest {
         tf: Timeframe::M1,
         close_start: "2026-02-02:00:00".into(),
         close_end: None,
@@ -376,26 +365,25 @@ async fn test_time_machine_bars_grpc_hits_mode_omitted_close_end_decodes_full_re
     assert_eq!(captured.body.max_hits, Some(100));
     assert_eq!(captured.body.overlap_mode.as_deref(), Some("clip"));
 
-    match out {
-        TimeMachineBarsResponse::Full(out) => {
-            assert_eq!(out.rows.len(), 1);
-            assert_eq!(out.rows[0].bar.pair, "BTCUSDT");
-            assert_eq!(out.rows[0].bar.coverage_ratio, Some(0.95));
-            assert_eq!(out.rows[0].bar.at_ms, Some(1770000060005));
-            assert_eq!(out.rows[0].bar.metadata.age_ms, Some(202));
-            assert_eq!(out.rows[0].offset, 0);
-            assert!(out.next_cursor.is_none());
-            assert!(out.done);
-            assert_eq!(out.returned_hits, 1);
-            assert_eq!(out.effective_hits_limit, 100);
-            assert!(!out.truncated);
-            assert_eq!(out.predicate_pairs, vec!["BTCUSDT"]);
-            assert!(out.predicate_normalized.is_none());
-        }
-        TimeMachineBarsResponse::Min(other) => {
-            panic!("expected full time-machine grpc response, got min: {other:?}")
-        }
-    }
+    assert_eq!(out.rows.len(), 1);
+    assert_eq!(out.rows[0].bar.pair, "BTCUSDT");
+    assert_eq!(
+        out.rows[0]
+            .bar
+            .metadata
+            .as_ref()
+            .expect("metadata")
+            .coverage_ratio,
+        Some(0.95)
+    );
+    assert_eq!(out.rows[0].offset, 0);
+    assert!(out.next_cursor.is_none());
+    assert!(out.done);
+    assert_eq!(out.returned_hits, 1);
+    assert_eq!(out.effective_hits_limit, 100);
+    assert!(!out.truncated);
+    assert_eq!(out.predicate_pairs, vec!["BTCUSDT"]);
+    assert!(out.predicate_normalized.is_none());
 }
 
 #[tokio::test]
@@ -409,7 +397,7 @@ async fn test_time_machine_bars_grpc_returns_missing_config_error_without_grpc_t
     .expect("client");
 
     let err = client
-        .time_machine_grpc(&TimeMachineBarsGrpcRequest {
+        .time_machine_grpc(&TimeMachineGrpcRequest {
             tf: Timeframe::M1,
             close_start: "2026-02-02T00:00:00Z".into(),
             close_end: None,
@@ -442,7 +430,7 @@ async fn test_time_machine_bars_grpc_maps_non_ok_grpc_status() {
 
     let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
     let err = client
-        .time_machine_grpc(&TimeMachineBarsGrpcRequest {
+        .time_machine_grpc(&TimeMachineGrpcRequest {
             tf: Timeframe::M1,
             close_start: "2026-02-02T00:00:00Z".into(),
             close_end: None,
@@ -471,7 +459,7 @@ async fn test_time_machine_bars_grpc_maps_non_ok_grpc_status() {
 #[tokio::test]
 async fn test_time_machine_bars_grpc_call_traverse_requires_explicit_close_end() {
     let client = Aggregator::new(config_for_grpc("http://127.0.0.1:1", None)).expect("client");
-    let request = TimeMachineBarsGrpcRequest {
+    let request = TimeMachineGrpcRequest {
         tf: Timeframe::M1,
         close_start: "2026-02-02T00:00:00Z".into(),
         close_end: None,

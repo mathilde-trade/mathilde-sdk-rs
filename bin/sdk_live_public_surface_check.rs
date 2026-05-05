@@ -17,11 +17,10 @@ use mathilde_sdk_rs::core::time::TimeInput;
 use mathilde_sdk_rs::streaming::subscription::ExponentialBackoffConfig;
 use mathilde_sdk_rs::systems::aggregator::{
     Aggregator, BarsWsFormat, BarsWsInboundFrame, BarsWsSubscribeRequest, FilesDownloadsRequest,
-    LatestBarsGrpcRequest, LatestBarsRequest, LatestBarsResponse, MessagesWsServerFrame,
-    MessagesWsSubscribeFrame, PairsListRequest, PairsStatusRequest, RangeBarsGrpcRequest,
-    RangeBarsRequest, RangeBarsResponse, SearchBarsGrpcRequest, SearchBarsRequest,
-    SearchBarsResponse, TimeMachineBarsGrpcRequest, TimeMachineBarsRequest,
-    TimeMachineBarsResponse,
+    LatestGrpcRequest, LatestRequest, LatestResponse, MessagesWsServerFrame,
+    MessagesWsSubscribeFrame, PairsListRequest, PairsStatusRequest, RangeGrpcRequest, RangeRequest,
+    RangeResponse, SearchGrpcRequest, SearchRequest, SearchResponse, TimeMachineGrpcRequest,
+    TimeMachineRequest, TimeMachineResponse,
 };
 use mathilde_sdk_rs::systems::intro::Intro;
 use mathilde_sdk_rs::systems::primitives::{
@@ -409,28 +408,8 @@ async fn observe_raw_bars_ws(client: &Aggregator, pair: &str) -> Result<String, 
                     }
                 }
             }
-            Some(BarsWsInboundFrame::JsonRowsMin(rows)) => {
-                payload_frames += 1;
-                payload_rows += rows.len();
-                if let Some(first) = rows.first() {
-                    last_close_ms = first.close_ms;
-                }
-            }
-            Some(BarsWsInboundFrame::JsonRowsFull(rows)) => {
-                payload_frames += 1;
-                payload_rows += rows.len();
-                if let Some(first) = rows.first() {
-                    last_close_ms = first.close_ms;
-                }
-            }
-            Some(BarsWsInboundFrame::ProtobufRowsMin(rows)) => {
-                payload_frames += 1;
-                payload_rows += rows.len();
-                if let Some(first) = rows.first() {
-                    last_close_ms = first.close_ms;
-                }
-            }
-            Some(BarsWsInboundFrame::ProtobufRowsFull(rows)) => {
+            Some(BarsWsInboundFrame::JsonRows(rows))
+            | Some(BarsWsInboundFrame::ProtobufRows(rows)) => {
                 payload_frames += 1;
                 payload_rows += rows.len();
                 if let Some(first) = rows.first() {
@@ -579,37 +558,8 @@ async fn observe_recovering_bars_ws(
                     }
                 }
             }
-            Some(BarsWsInboundFrame::JsonRowsMin(rows)) => {
-                if let Some(first) = rows.first() {
-                    last_close_ms = first.close_ms;
-                }
-                if reconnected {
-                    post_reconnect_frames += rows.len().max(1);
-                } else {
-                    pre_reconnect_frames += rows.len().max(1);
-                }
-            }
-            Some(BarsWsInboundFrame::JsonRowsFull(rows)) => {
-                if let Some(first) = rows.first() {
-                    last_close_ms = first.close_ms;
-                }
-                if reconnected {
-                    post_reconnect_frames += rows.len().max(1);
-                } else {
-                    pre_reconnect_frames += rows.len().max(1);
-                }
-            }
-            Some(BarsWsInboundFrame::ProtobufRowsMin(rows)) => {
-                if let Some(first) = rows.first() {
-                    last_close_ms = first.close_ms;
-                }
-                if reconnected {
-                    post_reconnect_frames += rows.len().max(1);
-                } else {
-                    pre_reconnect_frames += rows.len().max(1);
-                }
-            }
-            Some(BarsWsInboundFrame::ProtobufRowsFull(rows)) => {
+            Some(BarsWsInboundFrame::JsonRows(rows))
+            | Some(BarsWsInboundFrame::ProtobufRows(rows)) => {
                 if let Some(first) = rows.first() {
                     last_close_ms = first.close_ms;
                 }
@@ -953,39 +903,24 @@ fn build_runtime_config() -> Result<RuntimeConfig, SdkError> {
     })
 }
 
-fn pair_from_latest_response(out: &LatestBarsResponse) -> Option<&str> {
-    match out {
-        LatestBarsResponse::Min(out) => out.rows.first().map(|row| row.bar.pair.as_str()),
-        LatestBarsResponse::Full(out) => out.rows.first().map(|row| row.bar.pair.as_str()),
-    }
+fn pair_from_latest_response(out: &LatestResponse) -> Option<&str> {
+    out.rows.first().map(|row| row.pair.as_str())
 }
 
-fn close_end_from_latest_response(out: &LatestBarsResponse) -> i64 {
-    match out {
-        LatestBarsResponse::Min(out) => out.close_end_ms,
-        LatestBarsResponse::Full(out) => out.close_end_ms,
-    }
+fn close_end_from_latest_response(out: &LatestResponse) -> i64 {
+    out.close_end_ms
 }
 
-fn range_rows_len(out: &RangeBarsResponse) -> usize {
-    match out {
-        RangeBarsResponse::Min(out) => out.rows.len(),
-        RangeBarsResponse::Full(out) => out.rows.len(),
-    }
+fn range_rows_len(out: &RangeResponse) -> usize {
+    out.rows.len()
 }
 
-fn search_hits_len(out: &SearchBarsResponse) -> usize {
-    match out {
-        SearchBarsResponse::Min(out) => out.hits.len(),
-        SearchBarsResponse::Full(out) => out.hits.len(),
-    }
+fn search_hits_len(out: &SearchResponse) -> usize {
+    out.hits.len()
 }
 
-fn time_machine_rows_len(out: &TimeMachineBarsResponse) -> usize {
-    match out {
-        TimeMachineBarsResponse::Min(out) => out.rows.len(),
-        TimeMachineBarsResponse::Full(out) => out.rows.len(),
-    }
+fn time_machine_rows_len(out: &TimeMachineResponse) -> usize {
+    out.rows.len()
 }
 
 fn json_str<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
@@ -1431,7 +1366,7 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
         Err(error) => record_fail(report, "files_downloads", error.to_string()),
     }
 
-    let latest_http_min_request = LatestBarsRequest {
+    let latest_http_min_request = LatestRequest {
         pairs: vec![target_pair.clone()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
@@ -1439,7 +1374,7 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
         format: Some(HttpFormat::Json),
     };
 
-    let latest_http_full_request = LatestBarsRequest {
+    let latest_http_full_request = LatestRequest {
         metadata: Some(true),
         ..latest_http_min_request.clone()
     };
@@ -1483,7 +1418,7 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
         record_fail(report, "search", "latest anchor was not established");
         record_fail(report, "time_machine", "latest anchor was not established");
     } else {
-        let range_min_request = RangeBarsRequest {
+        let range_min_request = RangeRequest {
             pairs: vec![target_pair.clone()],
             tf: Timeframe::M1,
             align_mode: Some(AlignMode::Exact),
@@ -1494,7 +1429,7 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             metadata: Some(false),
             format: Some(HttpFormat::Json),
         };
-        let range_full_request = RangeBarsRequest {
+        let range_full_request = RangeRequest {
             metadata: Some(true),
             ..range_min_request.clone()
         };
@@ -1529,7 +1464,7 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
         }
 
         let predicate = format!("{target_pair}.close > 0");
-        let search_min_request = SearchBarsRequest {
+        let search_min_request = SearchRequest {
             tf: Timeframe::M1,
             close_start: TimeInput::Ms(anchor_close_ms - 60 * 60_000),
             close_end: Some(TimeInput::Ms(anchor_close_ms)),
@@ -1540,7 +1475,7 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             max_hits: Some(20),
             format: Some(HttpFormat::Json),
         };
-        let search_full_request = SearchBarsRequest {
+        let search_full_request = SearchRequest {
             metadata: Some(true),
             ..search_min_request.clone()
         };
@@ -1571,7 +1506,7 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             (_, Err(error)) => record_fail(report, "search", error.to_string()),
         }
 
-        let time_machine_min_request = TimeMachineBarsRequest {
+        let time_machine_min_request = TimeMachineRequest {
             tf: Timeframe::M1,
             close_start: TimeInput::Ms(anchor_close_ms - 20 * 60_000),
             close_end: Some(TimeInput::Ms(anchor_close_ms)),
@@ -1586,7 +1521,7 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             overlap_mode: Some("clip".to_string()),
             format: Some(HttpFormat::Json),
         };
-        let time_machine_full_request = TimeMachineBarsRequest {
+        let time_machine_full_request = TimeMachineRequest {
             metadata: Some(true),
             ..time_machine_min_request.clone()
         };
@@ -1640,8 +1575,8 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
                 format!("missing required environment variable `{GRPC_ENV}`"),
             );
         } else {
-            let latest_grpc_min_request = LatestBarsGrpcRequest::from(&latest_http_min_request);
-            let latest_grpc_full_request = LatestBarsGrpcRequest::from(&latest_http_full_request);
+            let latest_grpc_min_request = LatestGrpcRequest::from(&latest_http_min_request);
+            let latest_grpc_full_request = LatestGrpcRequest::from(&latest_http_full_request);
 
             match (
                 client.latest_grpc(&latest_grpc_min_request).await,
@@ -1668,8 +1603,8 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
                 (_, Err(error)) => record_fail(report, "latest_grpc", error.to_string()),
             }
 
-            let range_grpc_min_request = RangeBarsGrpcRequest::from(&range_min_request);
-            let range_grpc_full_request = RangeBarsGrpcRequest::from(&range_full_request);
+            let range_grpc_min_request = RangeGrpcRequest::from(&range_min_request);
+            let range_grpc_full_request = RangeGrpcRequest::from(&range_full_request);
             match (
                 client.range_grpc(&range_grpc_min_request).await,
                 client.range_grpc(&range_grpc_full_request).await,
@@ -1697,8 +1632,8 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
                 (_, Err(error)) => record_fail(report, "range_grpc", error.to_string()),
             }
 
-            let search_grpc_min_request = SearchBarsGrpcRequest::from(&search_min_request);
-            let search_grpc_full_request = SearchBarsGrpcRequest::from(&search_full_request);
+            let search_grpc_min_request = SearchGrpcRequest::from(&search_min_request);
+            let search_grpc_full_request = SearchGrpcRequest::from(&search_full_request);
             match (
                 client.search_grpc(&search_grpc_min_request).await,
                 client.search_grpc(&search_grpc_full_request).await,
@@ -1727,9 +1662,9 @@ async fn run_live_checks(runtime: &RuntimeConfig, report: &mut Report) {
             }
 
             let time_machine_grpc_min_request =
-                TimeMachineBarsGrpcRequest::from(&time_machine_min_request);
+                TimeMachineGrpcRequest::from(&time_machine_min_request);
             let time_machine_grpc_full_request =
-                TimeMachineBarsGrpcRequest::from(&time_machine_full_request);
+                TimeMachineGrpcRequest::from(&time_machine_full_request);
             match (
                 client
                     .time_machine_grpc(&time_machine_grpc_min_request)

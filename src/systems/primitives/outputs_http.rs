@@ -1,14 +1,10 @@
 use crate::core::error::SdkError;
-use crate::generated::primitives::{
-    ProcessorOutputMin, ProcessorOutputWithMeta, ProcessorProjectedOutputMin,
-    ProcessorProjectedOutputWithMeta, outputs_proto::mathilde::feed::outputs::v1 as proto,
-};
+use crate::generated::primitives::outputs_proto::mathilde::feed::outputs::v1 as proto;
 use crate::systems::primitives::types::{
-    LatestOutputsHttpResponseWire, LatestOutputsRequest, LatestOutputsResponse,
-    PrimitiveOutputMode, RangeOutputsRequest, RangeOutputsResponse, RangeOutputsResponseWire,
-    SearchOutputsRequest, SearchOutputsResponse, SearchOutputsResponseWire,
-    TimeMachineOutputsRequest, TimeMachineOutputsResponse, TimeMachineOutputsResponseWire,
-    diagnostics_enabled,
+    LatestOutputsHttpResponseWire, LatestRequest, LatestResponse, PrimitiveOutputMode,
+    RangeOutputsResponseWire, RangeRequest, RangeResponse, SearchOutputsResponseWire,
+    SearchRequest, SearchResponse, TimeMachineOutputsResponseWire, TimeMachineRequest,
+    TimeMachineResponse, diagnostics_enabled,
 };
 use crate::systems::types::HttpFormat;
 use crate::transport::http::HttpTransport;
@@ -17,8 +13,8 @@ use reqwest::Method;
 
 pub async fn latest_outputs(
     transport: &HttpTransport,
-    request_body: &LatestOutputsRequest,
-) -> Result<LatestOutputsResponse, SdkError> {
+    request_body: &LatestRequest,
+) -> Result<LatestResponse, SdkError> {
     let output_mode = request_body.output_mode()?;
     let normalized_request = request_body.normalize_http()?;
     ensure_http_format_supported(output_mode, normalized_request.format, "latest outputs")?;
@@ -37,41 +33,20 @@ pub async fn latest_outputs(
         let proto = proto::OutputsLatestResponseV1::decode(body.as_ref()).map_err(|source| {
             SdkError::contract_drift(format!("latest outputs protobuf decode failed: {source}"))
         })?;
-        return LatestOutputsResponse::from_proto(proto, output_mode, diagnostics_enabled);
+        return LatestResponse::from_proto(proto, output_mode, diagnostics_enabled);
     }
 
-    match output_mode {
-        PrimitiveOutputMode::Min => response
-            .json::<LatestOutputsHttpResponseWire<ProcessorOutputMin>>()
-            .await
-            .map_err(|source| SdkError::Decode { source })
-            .and_then(|wire| LatestOutputsResponse::from_http_min(wire, diagnostics_enabled)),
-        PrimitiveOutputMode::WithMeta => response
-            .json::<LatestOutputsHttpResponseWire<ProcessorOutputWithMeta>>()
-            .await
-            .map_err(|source| SdkError::Decode { source })
-            .and_then(|wire| LatestOutputsResponse::from_http_with_meta(wire, diagnostics_enabled)),
-        PrimitiveOutputMode::ProjectedMin => response
-            .json::<LatestOutputsHttpResponseWire<ProcessorProjectedOutputMin>>()
-            .await
-            .map_err(|source| SdkError::Decode { source })
-            .and_then(|wire| {
-                LatestOutputsResponse::from_http_projected_min(wire, diagnostics_enabled)
-            }),
-        PrimitiveOutputMode::ProjectedWithMeta => response
-            .json::<LatestOutputsHttpResponseWire<ProcessorProjectedOutputWithMeta>>()
-            .await
-            .map_err(|source| SdkError::Decode { source })
-            .and_then(|wire| {
-                LatestOutputsResponse::from_http_projected_with_meta(wire, diagnostics_enabled)
-            }),
-    }
+    response
+        .json::<LatestOutputsHttpResponseWire>()
+        .await
+        .map_err(|source| SdkError::Decode { source })
+        .and_then(|wire| LatestResponse::from_http(wire, output_mode, diagnostics_enabled))
 }
 
 pub async fn range_outputs(
     transport: &HttpTransport,
-    request_body: &RangeOutputsRequest,
-) -> Result<RangeOutputsResponse, SdkError> {
+    request_body: &RangeRequest,
+) -> Result<RangeResponse, SdkError> {
     let output_mode = request_body.output_mode()?;
     let normalized_request = request_body.normalize_http()?;
     ensure_http_format_supported(output_mode, normalized_request.format, "range outputs")?;
@@ -90,47 +65,20 @@ pub async fn range_outputs(
         let proto = proto::OutputsRangeResponseV1::decode(body.as_ref()).map_err(|source| {
             SdkError::contract_drift(format!("range outputs protobuf decode failed: {source}"))
         })?;
-        return RangeOutputsResponse::from_proto(proto, output_mode, diagnostics_enabled);
+        return RangeResponse::from_proto(proto, output_mode, diagnostics_enabled);
     }
 
-    Ok(match output_mode {
-        PrimitiveOutputMode::Min => RangeOutputsResponse::from_http_min(
-            response
-                .json::<RangeOutputsResponseWire<ProcessorOutputMin>>()
-                .await
-                .map_err(|source| SdkError::Decode { source })?,
-            diagnostics_enabled,
-        ),
-        PrimitiveOutputMode::WithMeta => RangeOutputsResponse::from_http_with_meta(
-            response
-                .json::<RangeOutputsResponseWire<ProcessorOutputWithMeta>>()
-                .await
-                .map_err(|source| SdkError::Decode { source })?,
-            diagnostics_enabled,
-        ),
-        PrimitiveOutputMode::ProjectedMin => RangeOutputsResponse::from_http_projected_min(
-            response
-                .json::<RangeOutputsResponseWire<ProcessorProjectedOutputMin>>()
-                .await
-                .map_err(|source| SdkError::Decode { source })?,
-            diagnostics_enabled,
-        ),
-        PrimitiveOutputMode::ProjectedWithMeta => {
-            RangeOutputsResponse::from_http_projected_with_meta(
-                response
-                    .json::<RangeOutputsResponseWire<ProcessorProjectedOutputWithMeta>>()
-                    .await
-                    .map_err(|source| SdkError::Decode { source })?,
-                diagnostics_enabled,
-            )
-        }
-    })
+    response
+        .json::<RangeOutputsResponseWire>()
+        .await
+        .map_err(|source| SdkError::Decode { source })
+        .and_then(|wire| RangeResponse::from_http(wire, output_mode, diagnostics_enabled))
 }
 
 pub async fn search_outputs(
     transport: &HttpTransport,
-    request_body: &SearchOutputsRequest,
-) -> Result<SearchOutputsResponse, SdkError> {
+    request_body: &SearchRequest,
+) -> Result<SearchResponse, SdkError> {
     let output_mode = request_body.output_mode()?;
     let normalized_request = request_body.normalize_http()?;
     ensure_http_format_supported(output_mode, normalized_request.format, "search outputs")?;
@@ -149,7 +97,7 @@ pub async fn search_outputs(
         let proto = proto::OutputsSearchResponseV1::decode(body.as_ref()).map_err(|source| {
             SdkError::contract_drift(format!("search outputs protobuf decode failed: {source}"))
         })?;
-        return SearchOutputsResponse::from_proto(
+        return SearchResponse::from_proto(
             proto,
             output_mode,
             diagnostics_enabled,
@@ -157,44 +105,17 @@ pub async fn search_outputs(
         );
     }
 
-    Ok(match output_mode {
-        PrimitiveOutputMode::Min => SearchOutputsResponse::from_http_min(
-            response
-                .json::<SearchOutputsResponseWire<ProcessorOutputMin>>()
-                .await
-                .map_err(|source| SdkError::Decode { source })?,
-            diagnostics_enabled,
-        ),
-        PrimitiveOutputMode::WithMeta => SearchOutputsResponse::from_http_with_meta(
-            response
-                .json::<SearchOutputsResponseWire<ProcessorOutputWithMeta>>()
-                .await
-                .map_err(|source| SdkError::Decode { source })?,
-            diagnostics_enabled,
-        ),
-        PrimitiveOutputMode::ProjectedMin => SearchOutputsResponse::from_http_projected_min(
-            response
-                .json::<SearchOutputsResponseWire<ProcessorProjectedOutputMin>>()
-                .await
-                .map_err(|source| SdkError::Decode { source })?,
-            diagnostics_enabled,
-        ),
-        PrimitiveOutputMode::ProjectedWithMeta => {
-            SearchOutputsResponse::from_http_projected_with_meta(
-                response
-                    .json::<SearchOutputsResponseWire<ProcessorProjectedOutputWithMeta>>()
-                    .await
-                    .map_err(|source| SdkError::Decode { source })?,
-                diagnostics_enabled,
-            )
-        }
-    })
+    response
+        .json::<SearchOutputsResponseWire>()
+        .await
+        .map_err(|source| SdkError::Decode { source })
+        .and_then(|wire| SearchResponse::from_http(wire, output_mode, diagnostics_enabled))
 }
 
 pub async fn time_machine_outputs(
     transport: &HttpTransport,
-    request_body: &TimeMachineOutputsRequest,
-) -> Result<TimeMachineOutputsResponse, SdkError> {
+    request_body: &TimeMachineRequest,
+) -> Result<TimeMachineResponse, SdkError> {
     let output_mode = request_body.output_mode()?;
     let normalized_request = request_body.normalize_http()?;
     ensure_http_format_supported(
@@ -220,41 +141,14 @@ pub async fn time_machine_outputs(
                     "time machine outputs protobuf decode failed: {source}"
                 ))
             })?;
-        return TimeMachineOutputsResponse::from_proto(proto, output_mode, diagnostics_enabled);
+        return TimeMachineResponse::from_proto(proto, output_mode, diagnostics_enabled);
     }
 
-    Ok(match output_mode {
-        PrimitiveOutputMode::Min => TimeMachineOutputsResponse::from_http_min(
-            response
-                .json::<TimeMachineOutputsResponseWire<ProcessorOutputMin>>()
-                .await
-                .map_err(|source| SdkError::Decode { source })?,
-            diagnostics_enabled,
-        ),
-        PrimitiveOutputMode::WithMeta => TimeMachineOutputsResponse::from_http_with_meta(
-            response
-                .json::<TimeMachineOutputsResponseWire<ProcessorOutputWithMeta>>()
-                .await
-                .map_err(|source| SdkError::Decode { source })?,
-            diagnostics_enabled,
-        ),
-        PrimitiveOutputMode::ProjectedMin => TimeMachineOutputsResponse::from_http_projected_min(
-            response
-                .json::<TimeMachineOutputsResponseWire<ProcessorProjectedOutputMin>>()
-                .await
-                .map_err(|source| SdkError::Decode { source })?,
-            diagnostics_enabled,
-        ),
-        PrimitiveOutputMode::ProjectedWithMeta => {
-            TimeMachineOutputsResponse::from_http_projected_with_meta(
-                response
-                    .json::<TimeMachineOutputsResponseWire<ProcessorProjectedOutputWithMeta>>()
-                    .await
-                    .map_err(|source| SdkError::Decode { source })?,
-                diagnostics_enabled,
-            )
-        }
-    })
+    response
+        .json::<TimeMachineOutputsResponseWire>()
+        .await
+        .map_err(|source| SdkError::Decode { source })
+        .and_then(|wire| TimeMachineResponse::from_http(wire, output_mode, diagnostics_enabled))
 }
 
 fn ensure_http_format_supported(

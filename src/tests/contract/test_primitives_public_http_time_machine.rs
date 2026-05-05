@@ -1,7 +1,7 @@
 use crate::core::config::{HttpTransportConfig, PrimitivesConfig};
 use crate::core::time::TimeInput;
-use crate::generated::primitives::{ProcessorFamily, ProcessorGroup, ProjectedValue};
-use crate::systems::primitives::{PrimitiveOutput, Primitives, TimeMachineOutputsRequest};
+use crate::generated::primitives::{ProcessorFamily, ProcessorGroup};
+use crate::systems::primitives::{Primitives, TimeMachineRequest};
 use crate::systems::types::{HttpFormat, Timeframe};
 use wiremock::matchers::{body_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -18,7 +18,7 @@ fn config_for_http(base_url: &str) -> PrimitivesConfig {
 #[tokio::test]
 async fn test_time_machine_outputs_uses_post_and_decodes_projected_with_meta_response() {
     let server = MockServer::start().await;
-    let request = TimeMachineOutputsRequest {
+    let request = TimeMachineRequest {
         tf: Timeframe::M1,
         close_start: TimeInput::from(1_770_000_000_000_i64),
         close_end: Some(TimeInput::from(1_770_000_360_000_i64)),
@@ -89,15 +89,13 @@ async fn test_time_machine_outputs_uses_post_and_decodes_projected_with_meta_res
 
     assert_eq!(out.rows.len(), 1);
     assert_eq!(out.rows[0].offset, 0);
-    match &out.rows[0].output {
-        PrimitiveOutput::ProjectedWithMeta(output) => {
-            assert_eq!(output.metadata.source, "feed");
-            assert_eq!(
-                output.bs_close_window_min,
-                ProjectedValue::Included(Some(1.5))
-            );
-            assert!(output.diagnostics.is_none());
-        }
-        other => panic!("expected projected with-meta output, got {other:?}"),
-    }
+    assert_eq!(
+        out.rows[0].row.metadata.as_ref().expect("metadata").source,
+        "feed"
+    );
+    assert_eq!(
+        out.rows[0].row.computed.f64("bs_close_window_min"),
+        Some(1.5)
+    );
+    assert!(out.rows[0].row.diagnostics.is_none());
 }

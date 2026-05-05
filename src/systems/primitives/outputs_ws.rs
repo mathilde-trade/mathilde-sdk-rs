@@ -3,7 +3,7 @@ use crate::core::time::TimeInput;
 use crate::streaming::make_before_break::MakeBeforeBreakConfig;
 use crate::streaming::subscription::{ExponentialBackoffConfig, ReconnectBackoff};
 use crate::systems::primitives::types::{
-    LatestOutputsPresentRow, PrimitiveOutputMode, decode_latest_outputs_ws_json,
+    LatestPresentRow, PrimitiveOutputMode, decode_latest_outputs_ws_json,
     decode_latest_outputs_ws_proto, diagnostics_enabled, infer_output_mode,
     normalize_family_selectors, normalize_group_selectors, normalize_pair_values,
     selector_family_names, selector_group_names,
@@ -99,8 +99,8 @@ pub struct OutputsWsErrorFrame {
 pub enum OutputsWsInboundFrame {
     Meta(OutputsWsMetaFrame),
     Error(OutputsWsErrorFrame),
-    JsonRows(Vec<LatestOutputsPresentRow>),
-    ProtobufRows(Vec<LatestOutputsPresentRow>),
+    JsonRows(Vec<LatestPresentRow>),
+    ProtobufRows(Vec<LatestPresentRow>),
 }
 
 #[derive(Debug)]

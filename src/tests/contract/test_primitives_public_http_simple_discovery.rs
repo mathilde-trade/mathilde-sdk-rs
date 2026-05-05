@@ -85,14 +85,14 @@ async fn test_docs_registry_serializes_typed_selectors_and_decodes_payload() {
     let request = DocsRegistryRequest {
         family: Some(vec![
             ProcessorFamily::MovingAverages,
-            ProcessorFamily::Metadata,
+            ProcessorFamily::VolumeFlow,
         ]),
         group: Some(vec![ProcessorGroup::Ema]),
     };
 
     Mock::given(method("GET"))
         .and(path("/v1/docs/registry"))
-        .and(query_param("family", "moving_averages,metadata"))
+        .and(query_param("family", "moving_averages,volume_flow"))
         .and(query_param("group", "ema"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "rows": [{

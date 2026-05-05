@@ -1,6 +1,6 @@
 use crate::core::config::{HttpTransportConfig, RegimeConfig};
 use crate::core::time::TimeInput;
-use crate::systems::regime::{Regime, RegimeOutput, SearchOutputsRequest};
+use crate::systems::regime::{Regime, SearchRequest};
 use crate::systems::types::{HttpFormat, Timeframe};
 use wiremock::matchers::{body_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -17,7 +17,7 @@ fn config_for_http(base_url: &str) -> RegimeConfig {
 #[tokio::test]
 async fn test_regime_search_outputs_uses_post_and_decodes_with_meta_response() {
     let server = MockServer::start().await;
-    let request = SearchOutputsRequest {
+    let request = SearchRequest {
         tf: Timeframe::H1,
         close_start: TimeInput::from(1_770_000_000_000_i64),
         close_end: Some(TimeInput::from(1_770_021_600_000_i64)),
@@ -84,11 +84,7 @@ async fn test_regime_search_outputs_uses_post_and_decodes_with_meta_response() {
 
     assert_eq!(out.hits, vec![1_770_003_600_000_i64]);
     assert_eq!(out.evaluated_rows.as_ref().map(Vec::len), Some(1));
-    match &out.evaluated_rows.as_ref().expect("evaluated rows")[0] {
-        RegimeOutput::WithMeta(output) => {
-            assert_eq!(output.metadata.source, "feed");
-            assert_eq!(output.diagnostics.as_ref().map(Vec::len), Some(1));
-        }
-        other => panic!("expected with-meta output, got {other:?}"),
-    }
+    let row = &out.evaluated_rows.as_ref().expect("evaluated rows")[0];
+    assert_eq!(row.metadata.as_ref().expect("metadata").source, "feed");
+    assert_eq!(row.diagnostics.as_ref().map(Vec::len), Some(1));
 }

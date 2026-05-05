@@ -6,8 +6,7 @@ use crate::streaming::subscription::ExponentialBackoffConfig;
 use crate::systems::aggregator::bars_grpc;
 use crate::systems::aggregator::bars_http;
 use crate::systems::aggregator::bars_pagination::{
-    RangeBarsCall, RangeBarsGrpcCall, SearchBarsCall, SearchBarsGrpcCall, TimeMachineBarsCall,
-    TimeMachineBarsGrpcCall,
+    RangeCall, RangeGrpcCall, SearchCall, SearchGrpcCall, TimeMachineCall, TimeMachineGrpcCall,
 };
 use crate::systems::aggregator::bars_ws;
 use crate::systems::aggregator::docs;
@@ -16,11 +15,10 @@ use crate::systems::aggregator::messages_ws;
 use crate::systems::aggregator::pairs;
 use crate::systems::aggregator::types::{
     DownloadedFile, FilesDownloadsRequest, FilesDownloadsResponse, FilesDownloadsRow,
-    LatestBarsGrpcRequest, LatestBarsRequest, LatestBarsResponse, PairsListRequest,
-    PairsListResponse, PairsStatusRequest, PairsStatusResponse, PublicOpenApiDocument,
-    RangeBarsGrpcRequest, RangeBarsRequest, RangeBarsResponse, SearchBarsGrpcRequest,
-    SearchBarsRequest, SearchBarsResponse, TimeMachineBarsGrpcRequest, TimeMachineBarsRequest,
-    TimeMachineBarsResponse,
+    LatestGrpcRequest, LatestRequest, LatestResponse, PairsListRequest, PairsListResponse,
+    PairsStatusRequest, PairsStatusResponse, PublicOpenApiDocument, RangeGrpcRequest, RangeRequest,
+    RangeResponse, SearchGrpcRequest, SearchRequest, SearchResponse, TimeMachineGrpcRequest,
+    TimeMachineRequest, TimeMachineResponse,
 };
 use crate::systems::aggregator::{
     BarsWsConnection, BarsWsMakeBeforeBreak, BarsWsSubscribeRequest, MessagesWsConnection,
@@ -82,17 +80,14 @@ impl Aggregator {
         docs::openapi(&self.http).await
     }
 
-    pub async fn latest(
-        &self,
-        request: &LatestBarsRequest,
-    ) -> Result<LatestBarsResponse, SdkError> {
+    pub async fn latest(&self, request: &LatestRequest) -> Result<LatestResponse, SdkError> {
         bars_http::latest_bars(&self.http, request).await
     }
 
     pub async fn latest_grpc(
         &self,
-        request: &LatestBarsGrpcRequest,
-    ) -> Result<LatestBarsResponse, SdkError> {
+        request: &LatestGrpcRequest,
+    ) -> Result<LatestResponse, SdkError> {
         let grpc = self
             .grpc
             .as_ref()
@@ -100,14 +95,11 @@ impl Aggregator {
         bars_grpc::latest_bars_grpc(grpc, request).await
     }
 
-    pub async fn range(&self, request: &RangeBarsRequest) -> Result<RangeBarsResponse, SdkError> {
+    pub async fn range(&self, request: &RangeRequest) -> Result<RangeResponse, SdkError> {
         bars_http::range_bars(&self.http, request).await
     }
 
-    pub async fn range_grpc(
-        &self,
-        request: &RangeBarsGrpcRequest,
-    ) -> Result<RangeBarsResponse, SdkError> {
+    pub async fn range_grpc(&self, request: &RangeGrpcRequest) -> Result<RangeResponse, SdkError> {
         let grpc = self
             .grpc
             .as_ref()
@@ -115,25 +107,22 @@ impl Aggregator {
         bars_grpc::range_bars_grpc(grpc, request).await
     }
 
-    pub fn range_call(&self, request: RangeBarsRequest) -> RangeBarsCall<'_> {
-        RangeBarsCall::new(self, request)
+    pub fn range_call(&self, request: RangeRequest) -> RangeCall<'_> {
+        RangeCall::new(self, request)
     }
 
-    pub fn range_grpc_call(&self, request: RangeBarsGrpcRequest) -> RangeBarsGrpcCall<'_> {
-        RangeBarsGrpcCall::new(self, request)
+    pub fn range_grpc_call(&self, request: RangeGrpcRequest) -> RangeGrpcCall<'_> {
+        RangeGrpcCall::new(self, request)
     }
 
-    pub async fn search(
-        &self,
-        request: &SearchBarsRequest,
-    ) -> Result<SearchBarsResponse, SdkError> {
+    pub async fn search(&self, request: &SearchRequest) -> Result<SearchResponse, SdkError> {
         bars_http::search_bars(&self.http, request).await
     }
 
     pub async fn search_grpc(
         &self,
-        request: &SearchBarsGrpcRequest,
-    ) -> Result<SearchBarsResponse, SdkError> {
+        request: &SearchGrpcRequest,
+    ) -> Result<SearchResponse, SdkError> {
         let grpc = self
             .grpc
             .as_ref()
@@ -141,25 +130,25 @@ impl Aggregator {
         bars_grpc::search_bars_grpc(grpc, request).await
     }
 
-    pub fn search_call(&self, request: SearchBarsRequest) -> SearchBarsCall<'_> {
-        SearchBarsCall::new(self, request)
+    pub fn search_call(&self, request: SearchRequest) -> SearchCall<'_> {
+        SearchCall::new(self, request)
     }
 
-    pub fn search_grpc_call(&self, request: SearchBarsGrpcRequest) -> SearchBarsGrpcCall<'_> {
-        SearchBarsGrpcCall::new(self, request)
+    pub fn search_grpc_call(&self, request: SearchGrpcRequest) -> SearchGrpcCall<'_> {
+        SearchGrpcCall::new(self, request)
     }
 
     pub async fn time_machine(
         &self,
-        request: &TimeMachineBarsRequest,
-    ) -> Result<TimeMachineBarsResponse, SdkError> {
+        request: &TimeMachineRequest,
+    ) -> Result<TimeMachineResponse, SdkError> {
         bars_http::time_machine_bars(&self.http, request).await
     }
 
     pub async fn time_machine_grpc(
         &self,
-        request: &TimeMachineBarsGrpcRequest,
-    ) -> Result<TimeMachineBarsResponse, SdkError> {
+        request: &TimeMachineGrpcRequest,
+    ) -> Result<TimeMachineResponse, SdkError> {
         let grpc = self
             .grpc
             .as_ref()
@@ -167,15 +156,15 @@ impl Aggregator {
         bars_grpc::time_machine_bars_grpc(grpc, request).await
     }
 
-    pub fn time_machine_call(&self, request: TimeMachineBarsRequest) -> TimeMachineBarsCall<'_> {
-        TimeMachineBarsCall::new(self, request)
+    pub fn time_machine_call(&self, request: TimeMachineRequest) -> TimeMachineCall<'_> {
+        TimeMachineCall::new(self, request)
     }
 
     pub fn time_machine_grpc_call(
         &self,
-        request: TimeMachineBarsGrpcRequest,
-    ) -> TimeMachineBarsGrpcCall<'_> {
-        TimeMachineBarsGrpcCall::new(self, request)
+        request: TimeMachineGrpcRequest,
+    ) -> TimeMachineGrpcCall<'_> {
+        TimeMachineGrpcCall::new(self, request)
     }
 
     pub async fn connect_bars_ws(

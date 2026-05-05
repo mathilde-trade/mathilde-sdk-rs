@@ -17,28 +17,26 @@ use mathilde_sdk_rs::generated::regime::outputs_proto::mathilde::feed::outputs::
 use mathilde_sdk_rs::streaming::subscription::ExponentialBackoffConfig;
 use mathilde_sdk_rs::systems::aggregator::{
     Aggregator, BarsWsInboundFrame, BarsWsSubscribeRequest, FilesDownloadsRequest,
-    LatestBarsGrpcRequest, LatestBarsRequest, LatestBarsResponse,
+    LatestGrpcRequest, LatestRequest, LatestResponse,
     MessagesWsServerFrame as AggregatorMessagesWsServerFrame,
     MessagesWsSubscribeFrame as AggregatorMessagesWsSubscribeFrame,
     MessagesWsUnsubscribeFrame as AggregatorMessagesWsUnsubscribeFrame, PairsListRequest,
-    PairsStatusRequest, RangeBarsGrpcRequest, RangeBarsRequest, RangeBarsResponse,
-    SearchBarsGrpcRequest, SearchBarsRequest, SearchBarsResponse, TimeMachineBarsGrpcRequest,
-    TimeMachineBarsRequest, TimeMachineBarsResponse,
+    PairsStatusRequest, RangeGrpcRequest, RangeRequest, RangeResponse, SearchGrpcRequest,
+    SearchRequest, SearchResponse, TimeMachineGrpcRequest, TimeMachineRequest, TimeMachineResponse,
 };
 use mathilde_sdk_rs::systems::intro::Intro;
 use mathilde_sdk_rs::systems::primitives::{
     self as primitives_system, MessagesWsServerFrame as PrimitiveMessagesWsServerFrame,
     MessagesWsSubscribeFrame as PrimitiveMessagesWsSubscribeFrame,
     MessagesWsUnsubscribeFrame as PrimitiveMessagesWsUnsubscribeFrame, OutputsWsFormat,
-    OutputsWsInboundFrame as PrimitiveOutputsWsInboundFrame, OutputsWsSubscribeRequest,
-    PrimitiveOutput, Primitives,
+    OutputsWsInboundFrame as PrimitiveOutputsWsInboundFrame, OutputsWsSubscribeRequest, Primitives,
 };
 use mathilde_sdk_rs::systems::regime::{
     self as regime_system, MessagesWsServerFrame as RegimeMessagesWsServerFrame,
     MessagesWsSubscribeFrame as RegimeMessagesWsSubscribeFrame,
     MessagesWsUnsubscribeFrame as RegimeMessagesWsUnsubscribeFrame,
     OutputsWsFormat as RegimeOutputsWsFormat, OutputsWsInboundFrame as RegimeOutputsWsInboundFrame,
-    OutputsWsSubscribeRequest as RegimeOutputsWsSubscribeRequest, Regime, RegimeOutput,
+    OutputsWsSubscribeRequest as RegimeOutputsWsSubscribeRequest, Regime,
 };
 use mathilde_sdk_rs::systems::types::{AlignMode, HttpFormat, LatestMode, Timeframe};
 use serde_json::{Value, json};
@@ -564,57 +562,28 @@ fn build_runtime_config() -> Result<RuntimeConfig, SdkError> {
     })
 }
 
-fn pair_from_latest_response(out: &LatestBarsResponse) -> Option<&str> {
-    match out {
-        LatestBarsResponse::Min(out) => out.rows.first().map(|row| row.bar.pair.as_str()),
-        LatestBarsResponse::Full(out) => out.rows.first().map(|row| row.bar.pair.as_str()),
-    }
+fn pair_from_latest_response(out: &LatestResponse) -> Option<&str> {
+    out.rows.first().map(|row| row.pair.as_str())
 }
 
-fn close_end_from_latest_response(out: &LatestBarsResponse) -> i64 {
-    match out {
-        LatestBarsResponse::Min(out) => out.close_end_ms,
-        LatestBarsResponse::Full(out) => out.close_end_ms,
-    }
+fn close_end_from_latest_response(out: &LatestResponse) -> i64 {
+    out.close_end_ms
 }
 
-fn range_rows_len(out: &RangeBarsResponse) -> usize {
-    match out {
-        RangeBarsResponse::Min(out) => out.rows.len(),
-        RangeBarsResponse::Full(out) => out.rows.len(),
-    }
+fn range_rows_len(out: &RangeResponse) -> usize {
+    out.rows.len()
 }
 
-fn search_hits_len(out: &SearchBarsResponse) -> usize {
-    match out {
-        SearchBarsResponse::Min(out) => out.hits.len(),
-        SearchBarsResponse::Full(out) => out.hits.len(),
-    }
+fn search_hits_len(out: &SearchResponse) -> usize {
+    out.hits.len()
 }
 
-fn time_machine_rows_len(out: &TimeMachineBarsResponse) -> usize {
-    match out {
-        TimeMachineBarsResponse::Min(out) => out.rows.len(),
-        TimeMachineBarsResponse::Full(out) => out.rows.len(),
-    }
+fn time_machine_rows_len(out: &TimeMachineResponse) -> usize {
+    out.rows.len()
 }
 
-fn primitive_output_kind(output: &PrimitiveOutput) -> &'static str {
-    match output {
-        PrimitiveOutput::Min(_) => "min",
-        PrimitiveOutput::WithMeta(_) => "with_meta",
-        PrimitiveOutput::ProjectedMin(_) => "projected_min",
-        PrimitiveOutput::ProjectedWithMeta(_) => "projected_with_meta",
-    }
-}
-
-fn regime_output_kind(output: &RegimeOutput) -> &'static str {
-    match output {
-        RegimeOutput::Min(_) => "min",
-        RegimeOutput::WithMeta(_) => "with_meta",
-        RegimeOutput::ProjectedMin(_) => "projected_min",
-        RegimeOutput::ProjectedWithMeta(_) => "projected_with_meta",
-    }
+fn regime_output_kind(mode: LocalOutputMode) -> &'static str {
+    mode.label()
 }
 
 fn json_str<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
@@ -862,6 +831,46 @@ fn canonical_output_wrapper(payload: Value, mode: LocalOutputMode) -> Value {
     })
 }
 
+fn canonical_primitive_row_sdk(
+    row: &primitives_system::OutputRow,
+    mode: LocalOutputMode,
+) -> Result<Value, String> {
+    let mut payload = json_value(row, "primitive output row")?;
+    let object = payload
+        .as_object_mut()
+        .ok_or_else(|| "primitive output row did not serialize as an object".to_string())?;
+    let computed = object
+        .remove("computed")
+        .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
+    let computed = computed
+        .as_object()
+        .ok_or_else(|| "primitive output row computed bag was not an object".to_string())?;
+    for (key, value) in computed {
+        object.insert(key.clone(), value.clone());
+    }
+    Ok(canonical_output_wrapper(payload, mode))
+}
+
+fn canonical_regime_row_sdk(
+    row: &regime_system::OutputRow,
+    mode: LocalOutputMode,
+) -> Result<Value, String> {
+    let mut payload = json_value(row, "regime output row")?;
+    let object = payload
+        .as_object_mut()
+        .ok_or_else(|| "regime output row did not serialize as an object".to_string())?;
+    let computed = object
+        .remove("computed")
+        .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
+    let computed = computed
+        .as_object()
+        .ok_or_else(|| "regime output row computed bag was not an object".to_string())?;
+    for (key, value) in computed {
+        object.insert(key.clone(), value.clone());
+    }
+    Ok(canonical_output_wrapper(payload, mode))
+}
+
 fn strip_volatile_fields(value: &mut Value) {
     match value {
         Value::Object(object) => {
@@ -1065,50 +1074,132 @@ fn canonical_compute_time_machine_raw(
     }))
 }
 
-fn canonical_primitive_output_sdk(output: &PrimitiveOutput) -> Result<Value, String> {
-    Ok(match output {
-        PrimitiveOutput::Min(output) => canonical_output_wrapper(
-            json_value(output, "primitive min output")?,
-            LocalOutputMode::Min,
-        ),
-        PrimitiveOutput::WithMeta(output) => canonical_output_wrapper(
-            json_value(output, "primitive output with metadata")?,
-            LocalOutputMode::WithMeta,
-        ),
-        PrimitiveOutput::ProjectedMin(output) => canonical_output_wrapper(
-            json_value(output, "primitive projected min output")?,
-            LocalOutputMode::ProjectedMin,
-        ),
-        PrimitiveOutput::ProjectedWithMeta(output) => canonical_output_wrapper(
-            json_value(output, "primitive projected output with metadata")?,
-            LocalOutputMode::ProjectedWithMeta,
-        ),
-    })
+fn mode_has_metadata(mode: LocalOutputMode) -> bool {
+    matches!(
+        mode,
+        LocalOutputMode::WithMeta | LocalOutputMode::ProjectedWithMeta
+    )
 }
 
-fn canonical_regime_output_sdk(output: &RegimeOutput) -> Result<Value, String> {
-    Ok(match output {
-        RegimeOutput::Min(output) => canonical_output_wrapper(
-            json_value(output, "regime min output")?,
-            LocalOutputMode::Min,
-        ),
-        RegimeOutput::WithMeta(output) => canonical_output_wrapper(
-            json_value(output, "regime output with metadata")?,
-            LocalOutputMode::WithMeta,
-        ),
-        RegimeOutput::ProjectedMin(output) => canonical_output_wrapper(
-            json_value(output, "regime projected min output")?,
-            LocalOutputMode::ProjectedMin,
-        ),
-        RegimeOutput::ProjectedWithMeta(output) => canonical_output_wrapper(
-            json_value(output, "regime projected output with metadata")?,
-            LocalOutputMode::ProjectedWithMeta,
-        ),
-    })
+fn canonical_primitive_latest_grpc_raw(
+    value: &primitives_proto::OutputsLatestResponseV1,
+    mode: LocalOutputMode,
+    diagnostics_enabled: bool,
+) -> Result<Value, String> {
+    let value = primitives_system::LatestResponse::from_grpc_proto(
+        value.clone(),
+        mode_has_metadata(mode),
+        diagnostics_enabled,
+    )
+    .map_err(|error| error.to_string())?;
+    canonical_primitive_latest_sdk(&value, mode)
+}
+
+fn canonical_primitive_range_grpc_raw(
+    value: &primitives_proto::OutputsRangeResponseV1,
+    mode: LocalOutputMode,
+    diagnostics_enabled: bool,
+) -> Result<Value, String> {
+    let value = primitives_system::RangeResponse::from_grpc_proto(
+        value.clone(),
+        mode_has_metadata(mode),
+        diagnostics_enabled,
+    )
+    .map_err(|error| error.to_string())?;
+    canonical_primitive_range_sdk(&value, mode)
+}
+
+fn canonical_primitive_search_grpc_raw(
+    value: &primitives_proto::OutputsSearchResponseV1,
+    mode: LocalOutputMode,
+    diagnostics_enabled: bool,
+    evaluated_rows_enabled: bool,
+) -> Result<Value, String> {
+    let value = primitives_system::SearchResponse::from_grpc_proto(
+        value.clone(),
+        mode_has_metadata(mode),
+        diagnostics_enabled,
+        evaluated_rows_enabled,
+    )
+    .map_err(|error| error.to_string())?;
+    canonical_primitive_search_sdk(&value, mode)
+}
+
+fn canonical_primitive_time_machine_grpc_raw(
+    value: &primitives_proto::OutputsTimeMachineResponseV1,
+    mode: LocalOutputMode,
+    diagnostics_enabled: bool,
+) -> Result<Value, String> {
+    let value = primitives_system::TimeMachineResponse::from_grpc_proto(
+        value.clone(),
+        mode_has_metadata(mode),
+        diagnostics_enabled,
+    )
+    .map_err(|error| error.to_string())?;
+    canonical_primitive_time_machine_sdk(&value, mode)
+}
+
+fn canonical_regime_latest_grpc_raw(
+    value: &regime_proto::OutputsLatestResponseV1,
+    mode: LocalOutputMode,
+    diagnostics_enabled: bool,
+) -> Result<Value, String> {
+    let value = regime_system::LatestResponse::from_grpc_proto(
+        value.clone(),
+        mode_has_metadata(mode),
+        diagnostics_enabled,
+    )
+    .map_err(|error| error.to_string())?;
+    canonical_regime_latest_sdk(&value, mode)
+}
+
+fn canonical_regime_range_grpc_raw(
+    value: &regime_proto::OutputsRangeResponseV1,
+    mode: LocalOutputMode,
+    diagnostics_enabled: bool,
+) -> Result<Value, String> {
+    let value = regime_system::RangeResponse::from_grpc_proto(
+        value.clone(),
+        mode_has_metadata(mode),
+        diagnostics_enabled,
+    )
+    .map_err(|error| error.to_string())?;
+    canonical_regime_range_sdk(&value, mode)
+}
+
+fn canonical_regime_search_grpc_raw(
+    value: &regime_proto::OutputsSearchResponseV1,
+    mode: LocalOutputMode,
+    diagnostics_enabled: bool,
+    evaluated_rows_enabled: bool,
+) -> Result<Value, String> {
+    let value = regime_system::SearchResponse::from_grpc_proto(
+        value.clone(),
+        mode_has_metadata(mode),
+        diagnostics_enabled,
+        evaluated_rows_enabled,
+    )
+    .map_err(|error| error.to_string())?;
+    canonical_regime_search_sdk(&value, mode)
+}
+
+fn canonical_regime_time_machine_grpc_raw(
+    value: &regime_proto::OutputsTimeMachineResponseV1,
+    mode: LocalOutputMode,
+    diagnostics_enabled: bool,
+) -> Result<Value, String> {
+    let value = regime_system::TimeMachineResponse::from_grpc_proto(
+        value.clone(),
+        mode_has_metadata(mode),
+        diagnostics_enabled,
+    )
+    .map_err(|error| error.to_string())?;
+    canonical_regime_time_machine_sdk(&value, mode)
 }
 
 fn canonical_primitive_latest_sdk(
-    value: &primitives_system::LatestOutputsResponse,
+    value: &primitives_system::LatestResponse,
+    mode: LocalOutputMode,
 ) -> Result<Value, String> {
     Ok(json!({
         "watermark_end_ms": value.watermark_end_ms,
@@ -1117,7 +1208,7 @@ fn canonical_primitive_latest_sdk(
         "view": json_value(&value.view, "primitive output view")?,
         "rows": value.rows.iter().map(|row| {
             Ok(json!({
-                "output": canonical_primitive_output_sdk(&row.output)?,
+                "output": canonical_primitive_row_sdk(&row.row, mode)?,
             }))
         }).collect::<Result<Vec<_>, String>>()?,
         "missing_pairs": value.missing_pairs,
@@ -1125,7 +1216,8 @@ fn canonical_primitive_latest_sdk(
 }
 
 fn canonical_regime_latest_sdk(
-    value: &regime_system::LatestOutputsResponse,
+    value: &regime_system::LatestResponse,
+    mode: LocalOutputMode,
 ) -> Result<Value, String> {
     Ok(json!({
         "watermark_end_ms": value.watermark_end_ms,
@@ -1134,7 +1226,7 @@ fn canonical_regime_latest_sdk(
         "view": json_value(&value.view, "regime output view")?,
         "rows": value.rows.iter().map(|row| {
             Ok(json!({
-                "output": canonical_regime_output_sdk(&row.output)?,
+                "output": canonical_regime_row_sdk(&row.row, mode)?,
             }))
         }).collect::<Result<Vec<_>, String>>()?,
         "missing_pairs": value.missing_pairs,
@@ -1142,31 +1234,34 @@ fn canonical_regime_latest_sdk(
 }
 
 fn canonical_primitive_range_sdk(
-    value: &primitives_system::RangeOutputsResponse,
+    value: &primitives_system::RangeResponse,
+    mode: LocalOutputMode,
 ) -> Result<Value, String> {
     Ok(json!({
-        "rows": value.rows.iter().map(canonical_primitive_output_sdk).collect::<Result<Vec<_>, String>>()?,
+        "rows": value.rows.iter().map(|row| canonical_primitive_row_sdk(row, mode)).collect::<Result<Vec<_>, String>>()?,
         "close_end_ms": value.close_end_ms,
         "next_cursor": value.next_cursor,
     }))
 }
 
 fn canonical_regime_range_sdk(
-    value: &regime_system::RangeOutputsResponse,
+    value: &regime_system::RangeResponse,
+    mode: LocalOutputMode,
 ) -> Result<Value, String> {
     Ok(json!({
-        "rows": value.rows.iter().map(canonical_regime_output_sdk).collect::<Result<Vec<_>, String>>()?,
+        "rows": value.rows.iter().map(|row| canonical_regime_row_sdk(row, mode)).collect::<Result<Vec<_>, String>>()?,
         "close_end_ms": value.close_end_ms,
         "next_cursor": value.next_cursor,
     }))
 }
 
 fn canonical_primitive_search_sdk(
-    value: &primitives_system::SearchOutputsResponse,
+    value: &primitives_system::SearchResponse,
+    mode: LocalOutputMode,
 ) -> Result<Value, String> {
     Ok(json!({
         "hits": value.hits,
-        "evaluated_rows": value.evaluated_rows.as_ref().map(|rows| rows.iter().map(canonical_primitive_output_sdk).collect::<Result<Vec<_>, String>>()).transpose()?,
+        "evaluated_rows": value.evaluated_rows.as_ref().map(|rows| rows.iter().map(|row| canonical_primitive_row_sdk(row, mode)).collect::<Result<Vec<_>, String>>()).transpose()?,
         "next_cursor": value.next_cursor,
         "done": value.done,
         "returned_hits": value.returned_hits,
@@ -1178,11 +1273,12 @@ fn canonical_primitive_search_sdk(
 }
 
 fn canonical_regime_search_sdk(
-    value: &regime_system::SearchOutputsResponse,
+    value: &regime_system::SearchResponse,
+    mode: LocalOutputMode,
 ) -> Result<Value, String> {
     Ok(json!({
         "hits": value.hits,
-        "evaluated_rows": value.evaluated_rows.as_ref().map(|rows| rows.iter().map(canonical_regime_output_sdk).collect::<Result<Vec<_>, String>>()).transpose()?,
+        "evaluated_rows": value.evaluated_rows.as_ref().map(|rows| rows.iter().map(|row| canonical_regime_row_sdk(row, mode)).collect::<Result<Vec<_>, String>>()).transpose()?,
         "next_cursor": value.next_cursor,
         "done": value.done,
         "returned_hits": value.returned_hits,
@@ -1194,14 +1290,15 @@ fn canonical_regime_search_sdk(
 }
 
 fn canonical_primitive_time_machine_sdk(
-    value: &primitives_system::TimeMachineOutputsResponse,
+    value: &primitives_system::TimeMachineResponse,
+    mode: LocalOutputMode,
 ) -> Result<Value, String> {
     Ok(json!({
         "rows": value.rows.iter().map(|row| {
             Ok(json!({
                 "hit_close_ms": row.hit_close_ms,
                 "offset": row.offset,
-                "output": canonical_primitive_output_sdk(&row.output)?,
+                "output": canonical_primitive_row_sdk(&row.row, mode)?,
             }))
         }).collect::<Result<Vec<_>, String>>()?,
         "next_cursor": value.next_cursor,
@@ -1215,14 +1312,15 @@ fn canonical_primitive_time_machine_sdk(
 }
 
 fn canonical_regime_time_machine_sdk(
-    value: &regime_system::TimeMachineOutputsResponse,
+    value: &regime_system::TimeMachineResponse,
+    mode: LocalOutputMode,
 ) -> Result<Value, String> {
     Ok(json!({
         "rows": value.rows.iter().map(|row| {
             Ok(json!({
                 "hit_close_ms": row.hit_close_ms,
                 "offset": row.offset,
-                "output": canonical_regime_output_sdk(&row.output)?,
+                "output": canonical_regime_row_sdk(&row.row, mode)?,
             }))
         }).collect::<Result<Vec<_>, String>>()?,
         "next_cursor": value.next_cursor,
@@ -1238,7 +1336,7 @@ fn canonical_regime_time_machine_sdk(
 fn canonical_aggregator_latest_grpc_raw(
     value: &aggregator_proto::BarsLatestResponseV1,
 ) -> Result<Value, String> {
-    let value = LatestBarsResponse::from_proto(value.clone()).map_err(|error| error.to_string())?;
+    let value = LatestResponse::from_proto(value.clone()).map_err(|error| error.to_string())?;
     canonical_aggregator_latest_sdk(&value)
 }
 
@@ -1246,8 +1344,8 @@ fn canonical_aggregator_range_grpc_raw(
     value: &aggregator_proto::BarsRangeResponseV1,
     metadata: bool,
 ) -> Result<Value, String> {
-    let value = RangeBarsResponse::from_proto(value.clone(), metadata)
-        .map_err(|error| error.to_string())?;
+    let value =
+        RangeResponse::from_proto(value.clone(), metadata).map_err(|error| error.to_string())?;
     canonical_aggregator_range_sdk(&value)
 }
 
@@ -1255,8 +1353,8 @@ fn canonical_aggregator_search_grpc_raw(
     value: &aggregator_proto::BarsSearchResponseV1,
     metadata: bool,
 ) -> Result<Value, String> {
-    let value = SearchBarsResponse::from_proto(value.clone(), metadata)
-        .map_err(|error| error.to_string())?;
+    let value =
+        SearchResponse::from_proto(value.clone(), metadata).map_err(|error| error.to_string())?;
     canonical_aggregator_search_sdk(&value)
 }
 
@@ -1264,16 +1362,13 @@ fn canonical_aggregator_time_machine_grpc_raw(
     value: &aggregator_proto::BarsTimeMachineResponseV1,
     metadata: bool,
 ) -> Result<Value, String> {
-    let value = TimeMachineBarsResponse::from_proto(value.clone(), metadata)
+    let value = TimeMachineResponse::from_proto(value.clone(), metadata)
         .map_err(|error| error.to_string())?;
     canonical_aggregator_time_machine_sdk(&value)
 }
 
-fn canonical_aggregator_latest_sdk(value: &LatestBarsResponse) -> Result<Value, String> {
-    let mut value = match value {
-        LatestBarsResponse::Min(value) => json_value(value, "aggregator latest min sdk"),
-        LatestBarsResponse::Full(value) => json_value(value, "aggregator latest full sdk"),
-    }?;
+fn canonical_aggregator_latest_sdk(value: &LatestResponse) -> Result<Value, String> {
+    let mut value = json_value(value, "aggregator latest sdk")?;
     strip_volatile_fields(&mut value);
     Ok(value)
 }
@@ -1283,30 +1378,19 @@ fn canonical_aggregator_latest_http_raw(mut value: Value) -> Value {
     value
 }
 
-fn canonical_aggregator_range_sdk(value: &RangeBarsResponse) -> Result<Value, String> {
-    match value {
-        RangeBarsResponse::Min(value) => json_value(value, "aggregator range min sdk"),
-        RangeBarsResponse::Full(value) => json_value(value, "aggregator range full sdk"),
-    }
+fn canonical_aggregator_range_sdk(value: &RangeResponse) -> Result<Value, String> {
+    json_value(value, "aggregator range sdk")
 }
 
-fn canonical_aggregator_search_sdk(value: &SearchBarsResponse) -> Result<Value, String> {
-    match value {
-        SearchBarsResponse::Min(value) => json_value(value, "aggregator search min sdk"),
-        SearchBarsResponse::Full(value) => json_value(value, "aggregator search full sdk"),
-    }
+fn canonical_aggregator_search_sdk(value: &SearchResponse) -> Result<Value, String> {
+    json_value(value, "aggregator search sdk")
 }
 
-fn canonical_aggregator_time_machine_sdk(value: &TimeMachineBarsResponse) -> Result<Value, String> {
-    match value {
-        TimeMachineBarsResponse::Min(value) => json_value(value, "aggregator time-machine min sdk"),
-        TimeMachineBarsResponse::Full(value) => {
-            json_value(value, "aggregator time-machine full sdk")
-        }
-    }
+fn canonical_aggregator_time_machine_sdk(value: &TimeMachineResponse) -> Result<Value, String> {
+    json_value(value, "aggregator time-machine sdk")
 }
 
-fn aggregator_latest_http_body(request: &LatestBarsRequest) -> Result<Value, String> {
+fn aggregator_latest_http_body(request: &LatestRequest) -> Result<Value, String> {
     Ok(json!({
         "pairs": normalize_required_pairs(&request.pairs, "aggregator latest bars")?,
         "tf": request.tf,
@@ -1317,7 +1401,7 @@ fn aggregator_latest_http_body(request: &LatestBarsRequest) -> Result<Value, Str
 }
 
 fn aggregator_latest_grpc_proto(
-    request: &LatestBarsGrpcRequest,
+    request: &LatestGrpcRequest,
 ) -> Result<aggregator_proto::LatestBarsRequestV1, String> {
     Ok(aggregator_proto::LatestBarsRequestV1 {
         pairs: normalize_required_pairs(&request.pairs, "aggregator latest bars gRPC")?,
@@ -1327,7 +1411,7 @@ fn aggregator_latest_grpc_proto(
     })
 }
 
-fn aggregator_range_http_body(request: &RangeBarsRequest) -> Result<Value, String> {
+fn aggregator_range_http_body(request: &RangeRequest) -> Result<Value, String> {
     Ok(json!({
         "pairs": normalize_required_pairs(&request.pairs, "aggregator range bars")?,
         "tf": request.tf,
@@ -1342,7 +1426,7 @@ fn aggregator_range_http_body(request: &RangeBarsRequest) -> Result<Value, Strin
 }
 
 fn aggregator_range_grpc_proto(
-    request: &RangeBarsGrpcRequest,
+    request: &RangeGrpcRequest,
 ) -> Result<aggregator_proto::RangeBarsRequestV1, String> {
     Ok(aggregator_proto::RangeBarsRequestV1 {
         pairs: normalize_required_pairs(&request.pairs, "aggregator range bars gRPC")?,
@@ -1372,7 +1456,7 @@ fn aggregator_range_grpc_proto(
     })
 }
 
-fn aggregator_search_http_body(request: &SearchBarsRequest) -> Result<Value, String> {
+fn aggregator_search_http_body(request: &SearchRequest) -> Result<Value, String> {
     Ok(json!({
         "tf": request.tf,
         "close_start_ms": request.close_start.to_utc_ms().map_err(|error| error.to_string())?,
@@ -1387,7 +1471,7 @@ fn aggregator_search_http_body(request: &SearchBarsRequest) -> Result<Value, Str
 }
 
 fn aggregator_search_grpc_proto(
-    request: &SearchBarsGrpcRequest,
+    request: &SearchGrpcRequest,
 ) -> Result<aggregator_proto::SearchBarsRequestV1, String> {
     Ok(aggregator_proto::SearchBarsRequestV1 {
         tf: json_string(&request.tf, "aggregator search gRPC tf")?,
@@ -1413,7 +1497,7 @@ fn aggregator_search_grpc_proto(
     })
 }
 
-fn aggregator_time_machine_http_body(request: &TimeMachineBarsRequest) -> Result<Value, String> {
+fn aggregator_time_machine_http_body(request: &TimeMachineRequest) -> Result<Value, String> {
     Ok(json!({
         "tf": request.tf,
         "close_start_ms": request.close_start.to_utc_ms().map_err(|error| error.to_string())?,
@@ -1432,7 +1516,7 @@ fn aggregator_time_machine_http_body(request: &TimeMachineBarsRequest) -> Result
 }
 
 fn aggregator_time_machine_grpc_proto(
-    request: &TimeMachineBarsGrpcRequest,
+    request: &TimeMachineGrpcRequest,
 ) -> Result<aggregator_proto::TimeMachineBarsRequestV1, String> {
     Ok(aggregator_proto::TimeMachineBarsRequestV1 {
         tf: json_string(&request.tf, "aggregator time-machine gRPC tf")?,
@@ -1464,7 +1548,7 @@ fn aggregator_time_machine_grpc_proto(
 }
 
 fn primitives_latest_http_body(
-    request: &primitives_system::LatestOutputsRequest,
+    request: &primitives_system::LatestRequest,
 ) -> Result<Value, String> {
     Ok(json!({
         "pairs": normalize_required_pairs(&request.pairs, "primitives latest outputs")?,
@@ -1479,7 +1563,7 @@ fn primitives_latest_http_body(
 }
 
 fn primitives_latest_grpc_proto(
-    request: &primitives_system::LatestOutputsGrpcRequest,
+    request: &primitives_system::LatestGrpcRequest,
 ) -> Result<primitives_proto::LatestOutputsRequestV1, String> {
     Ok(primitives_proto::LatestOutputsRequestV1 {
         pairs: normalize_required_pairs(&request.pairs, "primitives latest outputs gRPC")?,
@@ -1506,9 +1590,7 @@ fn primitives_latest_grpc_proto(
     })
 }
 
-fn primitives_range_http_body(
-    request: &primitives_system::RangeOutputsRequest,
-) -> Result<Value, String> {
+fn primitives_range_http_body(request: &primitives_system::RangeRequest) -> Result<Value, String> {
     Ok(json!({
         "pairs": normalize_required_pairs(&request.pairs, "primitives range outputs")?,
         "tf": request.tf,
@@ -1526,7 +1608,7 @@ fn primitives_range_http_body(
 }
 
 fn primitives_range_grpc_proto(
-    request: &primitives_system::RangeOutputsGrpcRequest,
+    request: &primitives_system::RangeGrpcRequest,
 ) -> Result<primitives_proto::RangeOutputsRequestV1, String> {
     Ok(primitives_proto::RangeOutputsRequestV1 {
         pairs: normalize_required_pairs(&request.pairs, "primitives range outputs gRPC")?,
@@ -1571,7 +1653,7 @@ fn primitives_range_grpc_proto(
 }
 
 fn primitives_search_http_body(
-    request: &primitives_system::SearchOutputsRequest,
+    request: &primitives_system::SearchRequest,
 ) -> Result<Value, String> {
     Ok(json!({
         "tf": request.tf,
@@ -1590,7 +1672,7 @@ fn primitives_search_http_body(
 }
 
 fn primitives_search_grpc_proto(
-    request: &primitives_system::SearchOutputsGrpcRequest,
+    request: &primitives_system::SearchGrpcRequest,
 ) -> Result<primitives_proto::SearchOutputsRequestV1, String> {
     Ok(primitives_proto::SearchOutputsRequestV1 {
         tf: json_string(&request.tf, "primitives search gRPC tf")?,
@@ -1631,7 +1713,7 @@ fn primitives_search_grpc_proto(
 }
 
 fn primitives_time_machine_http_body(
-    request: &primitives_system::TimeMachineOutputsRequest,
+    request: &primitives_system::TimeMachineRequest,
 ) -> Result<Value, String> {
     Ok(json!({
         "tf": request.tf,
@@ -1654,7 +1736,7 @@ fn primitives_time_machine_http_body(
 }
 
 fn primitives_time_machine_grpc_proto(
-    request: &primitives_system::TimeMachineOutputsGrpcRequest,
+    request: &primitives_system::TimeMachineGrpcRequest,
 ) -> Result<primitives_proto::TimeMachineOutputsRequestV1, String> {
     Ok(primitives_proto::TimeMachineOutputsRequestV1 {
         tf: json_string(&request.tf, "primitives time-machine gRPC tf")?,
@@ -1699,7 +1781,7 @@ fn primitives_time_machine_grpc_proto(
     })
 }
 
-fn regime_latest_http_body(request: &regime_system::LatestOutputsRequest) -> Result<Value, String> {
+fn regime_latest_http_body(request: &regime_system::LatestRequest) -> Result<Value, String> {
     Ok(json!({
         "pairs": normalize_required_pairs(&request.pairs, "regime latest outputs")?,
         "tf": request.tf,
@@ -1714,7 +1796,7 @@ fn regime_latest_http_body(request: &regime_system::LatestOutputsRequest) -> Res
 }
 
 fn regime_latest_grpc_proto(
-    request: &regime_system::LatestOutputsGrpcRequest,
+    request: &regime_system::LatestGrpcRequest,
 ) -> Result<regime_proto::LatestOutputsRequestV1, String> {
     Ok(regime_proto::LatestOutputsRequestV1 {
         pairs: normalize_required_pairs(&request.pairs, "regime latest outputs gRPC")?,
@@ -1742,7 +1824,7 @@ fn regime_latest_grpc_proto(
     })
 }
 
-fn regime_range_http_body(request: &regime_system::RangeOutputsRequest) -> Result<Value, String> {
+fn regime_range_http_body(request: &regime_system::RangeRequest) -> Result<Value, String> {
     Ok(json!({
         "pairs": normalize_required_pairs(&request.pairs, "regime range outputs")?,
         "tf": request.tf,
@@ -1761,7 +1843,7 @@ fn regime_range_http_body(request: &regime_system::RangeOutputsRequest) -> Resul
 }
 
 fn regime_range_grpc_proto(
-    request: &regime_system::RangeOutputsGrpcRequest,
+    request: &regime_system::RangeGrpcRequest,
 ) -> Result<regime_proto::RangeOutputsRequestV1, String> {
     Ok(regime_proto::RangeOutputsRequestV1 {
         pairs: normalize_required_pairs(&request.pairs, "regime range outputs gRPC")?,
@@ -1806,7 +1888,7 @@ fn regime_range_grpc_proto(
     })
 }
 
-fn regime_search_http_body(request: &regime_system::SearchOutputsRequest) -> Result<Value, String> {
+fn regime_search_http_body(request: &regime_system::SearchRequest) -> Result<Value, String> {
     Ok(json!({
         "tf": request.tf,
         "close_start_ms": request.close_start.to_utc_ms().map_err(|error| error.to_string())?,
@@ -1825,7 +1907,7 @@ fn regime_search_http_body(request: &regime_system::SearchOutputsRequest) -> Res
 }
 
 fn regime_search_grpc_proto(
-    request: &regime_system::SearchOutputsGrpcRequest,
+    request: &regime_system::SearchGrpcRequest,
 ) -> Result<regime_proto::SearchOutputsRequestV1, String> {
     Ok(regime_proto::SearchOutputsRequestV1 {
         tf: json_string(&request.tf, "regime search gRPC tf")?,
@@ -1864,7 +1946,7 @@ fn regime_search_grpc_proto(
 }
 
 fn regime_time_machine_http_body(
-    request: &regime_system::TimeMachineOutputsRequest,
+    request: &regime_system::TimeMachineRequest,
 ) -> Result<Value, String> {
     Ok(json!({
         "tf": request.tf,
@@ -1888,7 +1970,7 @@ fn regime_time_machine_http_body(
 }
 
 fn regime_time_machine_grpc_proto(
-    request: &regime_system::TimeMachineOutputsGrpcRequest,
+    request: &regime_system::TimeMachineGrpcRequest,
 ) -> Result<regime_proto::TimeMachineOutputsRequestV1, String> {
     Ok(regime_proto::TimeMachineOutputsRequestV1 {
         tf: json_string(&request.tf, "regime time-machine gRPC tf")?,
@@ -1944,10 +2026,8 @@ fn download_root_for(system: &str) -> PathBuf {
 fn aggregator_bars_ws_frame_kind(frame: &BarsWsInboundFrame) -> &'static str {
     match frame {
         BarsWsInboundFrame::Meta(_) => "meta",
-        BarsWsInboundFrame::JsonRowsMin(_) => "json_rows_min",
-        BarsWsInboundFrame::JsonRowsFull(_) => "json_rows_full",
-        BarsWsInboundFrame::ProtobufRowsMin(_) => "protobuf_rows_min",
-        BarsWsInboundFrame::ProtobufRowsFull(_) => "protobuf_rows_full",
+        BarsWsInboundFrame::JsonRows(_) => "json_rows",
+        BarsWsInboundFrame::ProtobufRows(_) => "protobuf_rows",
         BarsWsInboundFrame::Error(_) => "error",
     }
 }
@@ -1955,10 +2035,7 @@ fn aggregator_bars_ws_frame_kind(frame: &BarsWsInboundFrame) -> &'static str {
 fn aggregator_bars_ws_is_payload(frame: &BarsWsInboundFrame) -> bool {
     matches!(
         frame,
-        BarsWsInboundFrame::JsonRowsMin(_)
-            | BarsWsInboundFrame::JsonRowsFull(_)
-            | BarsWsInboundFrame::ProtobufRowsMin(_)
-            | BarsWsInboundFrame::ProtobufRowsFull(_)
+        BarsWsInboundFrame::JsonRows(_) | BarsWsInboundFrame::ProtobufRows(_)
     )
 }
 
@@ -2232,14 +2309,14 @@ async fn run_phase_4_intro_and_aggregator(runtime: &RuntimeConfig, report: &mut 
         Err(error) => record_fail(report, "aggregator.files_downloads", error.to_string()),
     }
 
-    let latest_http_min_request = LatestBarsRequest {
+    let latest_http_min_request = LatestRequest {
         pairs: vec![target_pair.clone()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
         metadata: Some(false),
         format: Some(HttpFormat::Json),
     };
-    let latest_http_full_request = LatestBarsRequest {
+    let latest_http_full_request = LatestRequest {
         metadata: Some(true),
         ..latest_http_min_request.clone()
     };
@@ -2336,8 +2413,8 @@ async fn run_phase_4_intro_and_aggregator(runtime: &RuntimeConfig, report: &mut 
 
     let grpc_available = runtime.summary.aggregator_grpc_base_url.is_some();
     if grpc_available {
-        let latest_grpc_min_request = LatestBarsGrpcRequest::from(&latest_http_min_request);
-        let latest_grpc_full_request = LatestBarsGrpcRequest::from(&latest_http_full_request);
+        let latest_grpc_min_request = LatestGrpcRequest::from(&latest_http_min_request);
+        let latest_grpc_full_request = LatestGrpcRequest::from(&latest_http_full_request);
         match (
             client.latest_grpc(&latest_grpc_min_request).await,
             client.latest_grpc(&latest_grpc_full_request).await,
@@ -2453,7 +2530,7 @@ async fn run_phase_4_intro_and_aggregator(runtime: &RuntimeConfig, report: &mut 
         return;
     }
 
-    let range_min_request = RangeBarsRequest {
+    let range_min_request = RangeRequest {
         pairs: vec![target_pair.clone()],
         tf: Timeframe::M1,
         align_mode: Some(AlignMode::Exact),
@@ -2464,7 +2541,7 @@ async fn run_phase_4_intro_and_aggregator(runtime: &RuntimeConfig, report: &mut 
         metadata: Some(false),
         format: Some(HttpFormat::Json),
     };
-    let range_full_request = RangeBarsRequest {
+    let range_full_request = RangeRequest {
         metadata: Some(true),
         ..range_min_request.clone()
     };
@@ -2535,7 +2612,7 @@ async fn run_phase_4_intro_and_aggregator(runtime: &RuntimeConfig, report: &mut 
     }
 
     let predicate = format!("{target_pair}.close > 0");
-    let search_min_request = SearchBarsRequest {
+    let search_min_request = SearchRequest {
         tf: Timeframe::M1,
         close_start: TimeInput::Ms(anchor_close_ms - 60 * 60_000),
         close_end: Some(TimeInput::Ms(anchor_close_ms)),
@@ -2546,7 +2623,7 @@ async fn run_phase_4_intro_and_aggregator(runtime: &RuntimeConfig, report: &mut 
         max_hits: Some(20),
         format: Some(HttpFormat::Json),
     };
-    let search_full_request = SearchBarsRequest {
+    let search_full_request = SearchRequest {
         metadata: Some(true),
         ..search_min_request.clone()
     };
@@ -2616,7 +2693,7 @@ async fn run_phase_4_intro_and_aggregator(runtime: &RuntimeConfig, report: &mut 
         (_, Err(error)) => record_fail(report, "aggregator.search", error.to_string()),
     }
 
-    let time_machine_min_request = TimeMachineBarsRequest {
+    let time_machine_min_request = TimeMachineRequest {
         tf: Timeframe::M1,
         close_start: TimeInput::Ms(anchor_close_ms - 20 * 60_000),
         close_end: Some(TimeInput::Ms(anchor_close_ms)),
@@ -2631,7 +2708,7 @@ async fn run_phase_4_intro_and_aggregator(runtime: &RuntimeConfig, report: &mut 
         overlap_mode: Some("clip".to_string()),
         format: Some(HttpFormat::Json),
     };
-    let time_machine_full_request = TimeMachineBarsRequest {
+    let time_machine_full_request = TimeMachineRequest {
         metadata: Some(true),
         ..time_machine_min_request.clone()
     };
@@ -2701,12 +2778,12 @@ async fn run_phase_4_intro_and_aggregator(runtime: &RuntimeConfig, report: &mut 
         (_, Err(error)) => record_fail(report, "aggregator.time_machine", error.to_string()),
     }
 
-    let range_grpc_min_request = RangeBarsGrpcRequest::from(&range_min_request);
-    let search_grpc_min_request = SearchBarsGrpcRequest::from(&search_min_request);
-    let time_machine_grpc_min_request = TimeMachineBarsGrpcRequest::from(&time_machine_min_request);
+    let range_grpc_min_request = RangeGrpcRequest::from(&range_min_request);
+    let search_grpc_min_request = SearchGrpcRequest::from(&search_min_request);
+    let time_machine_grpc_min_request = TimeMachineGrpcRequest::from(&time_machine_min_request);
 
     if grpc_available {
-        let range_grpc_full_request = RangeBarsGrpcRequest::from(&range_full_request);
+        let range_grpc_full_request = RangeGrpcRequest::from(&range_full_request);
         match (
             client.range_grpc(&range_grpc_min_request).await,
             client.range_grpc(&range_grpc_full_request).await,
@@ -2789,7 +2866,7 @@ async fn run_phase_4_intro_and_aggregator(runtime: &RuntimeConfig, report: &mut 
             (_, Err(error)) => record_fail(report, "aggregator.range_grpc", error.to_string()),
         }
 
-        let search_grpc_full_request = SearchBarsGrpcRequest::from(&search_full_request);
+        let search_grpc_full_request = SearchGrpcRequest::from(&search_full_request);
         match (
             client.search_grpc(&search_grpc_min_request).await,
             client.search_grpc(&search_grpc_full_request).await,
@@ -2873,7 +2950,7 @@ async fn run_phase_4_intro_and_aggregator(runtime: &RuntimeConfig, report: &mut 
         }
 
         let time_machine_grpc_full_request =
-            TimeMachineBarsGrpcRequest::from(&time_machine_full_request);
+            TimeMachineGrpcRequest::from(&time_machine_full_request);
         match (
             client
                 .time_machine_grpc(&time_machine_grpc_min_request)
@@ -3339,7 +3416,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
         Err(error) => record_fail(report, "primitives.files_downloads", error.to_string()),
     }
 
-    let primitives_latest_request = primitives_system::LatestOutputsRequest {
+    let primitives_latest_request = primitives_system::LatestRequest {
         pairs: vec![primitives_target_pair.clone(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: Some(LatestMode::ExactWatermark),
@@ -3352,7 +3429,6 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
 
     let primitives_anchor_close_ms = match primitives.latest(&primitives_latest_request).await {
         Ok(out) if !out.rows.is_empty() => {
-            let first = &out.rows[0].output;
             let mode = primitive_mode_from_selectors_and_metadata(
                 primitives_latest_request.family.as_deref(),
                 primitives_latest_request.group.as_deref(),
@@ -3368,7 +3444,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                 .await?;
                 compare_semantic_values(
                     "primitives.latest",
-                    &canonical_primitive_latest_sdk(&out)?,
+                    &canonical_primitive_latest_sdk(&out, mode)?,
                     &canonical_compute_latest_raw(direct, mode)?,
                 )?;
                 Ok::<i64, String>(out.close_end_ms)
@@ -3383,7 +3459,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                             "rows={} missing_pairs={} kind={} close_end_ms={} direct_http_semantic_match=true",
                             out.rows.len(),
                             out.missing_pairs.len(),
-                            primitive_output_kind(first),
+                            mode.label(),
                             close_end_ms
                         ),
                     );
@@ -3409,7 +3485,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
         }
     };
 
-    let primitives_projected_http_protobuf_request = primitives_system::LatestOutputsRequest {
+    let primitives_projected_http_protobuf_request = primitives_system::LatestRequest {
         pairs: vec![primitives_target_pair.clone()],
         tf: Timeframe::M1,
         latest_mode: Some(LatestMode::ExactWatermark),
@@ -3440,7 +3516,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
         ),
     }
 
-    let primitives_projected_grpc_request = primitives_system::LatestOutputsGrpcRequest {
+    let primitives_projected_grpc_request = primitives_system::LatestGrpcRequest {
         pairs: vec![primitives_target_pair.clone()],
         tf: Timeframe::M1,
         latest_mode: Some(LatestMode::ExactWatermark),
@@ -3471,7 +3547,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
     }
 
     let primitives_latest_grpc_request =
-        primitives_system::LatestOutputsGrpcRequest::from(&primitives_latest_request);
+        primitives_system::LatestGrpcRequest::from(&primitives_latest_request);
     match primitives
         .latest_grpc(&primitives_latest_grpc_request)
         .await
@@ -3495,10 +3571,11 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                 .await?;
                 compare_semantic_values(
                     "primitives.latest_grpc",
-                    &canonical_primitive_latest_sdk(&out)?,
-                    &canonical_compute_latest_raw(
-                        json_value(&direct, "primitives latest gRPC direct response")?,
+                    &canonical_primitive_latest_sdk(&out, mode)?,
+                    &canonical_primitive_latest_grpc_raw(
+                        &direct,
                         mode,
+                        primitives_latest_grpc_request.diagnostics.unwrap_or(false),
                     )?,
                 )?;
                 Ok::<(), String>(())
@@ -3512,7 +3589,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                         "rows={} missing_pairs={} kind={} close_end_ms={} direct_grpc_semantic_match=true",
                         out.rows.len(),
                         out.missing_pairs.len(),
-                        primitive_output_kind(&out.rows[0].output),
+                        mode.label(),
                         out.close_end_ms
                     ),
                 ),
@@ -3528,7 +3605,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
     }
 
     if primitives_anchor_close_ms > 0 {
-        let primitives_range_request = primitives_system::RangeOutputsRequest {
+        let primitives_range_request = primitives_system::RangeRequest {
             pairs: vec![primitives_target_pair.clone()],
             tf: Timeframe::M1,
             align_mode: Some(AlignMode::Exact),
@@ -3559,7 +3636,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                     .await?;
                     compare_semantic_values(
                         "primitives.range",
-                        &canonical_primitive_range_sdk(&out)?,
+                        &canonical_primitive_range_sdk(&out, mode)?,
                         &canonical_compute_range_raw(direct, mode)?,
                     )?;
                     Ok::<(), String>(())
@@ -3572,7 +3649,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                         format!(
                             "rows={} kind={} next_cursor={} direct_http_semantic_match=true",
                             out.rows.len(),
-                            primitive_output_kind(&out.rows[0]),
+                            mode.label(),
                             out.next_cursor().unwrap_or("")
                         ),
                     ),
@@ -3587,7 +3664,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
             Err(error) => record_fail(report, "primitives.range", error.to_string()),
         }
 
-        let primitives_range_grpc_request = primitives_system::RangeOutputsGrpcRequest {
+        let primitives_range_grpc_request = primitives_system::RangeGrpcRequest {
             pairs: vec![primitives_target_pair.clone()],
             tf: Timeframe::M1,
             align_mode: Some(AlignMode::Exact),
@@ -3620,10 +3697,11 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                     .await?;
                     compare_semantic_values(
                         "primitives.range_grpc",
-                        &canonical_primitive_range_sdk(&out)?,
-                        &canonical_compute_range_raw(
-                            json_value(&direct, "primitives range gRPC direct response")?,
+                        &canonical_primitive_range_sdk(&out, mode)?,
+                        &canonical_primitive_range_grpc_raw(
+                            &direct,
                             mode,
+                            primitives_range_grpc_request.diagnostics.unwrap_or(false),
                         )?,
                     )?;
                     Ok::<(), String>(())
@@ -3636,7 +3714,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                         format!(
                             "rows={} kind={} next_cursor={} direct_grpc_semantic_match=true",
                             out.rows.len(),
-                            primitive_output_kind(&out.rows[0]),
+                            mode.label(),
                             out.next_cursor().unwrap_or("")
                         ),
                     ),
@@ -3652,7 +3730,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
         }
 
         let primitives_predicate = format!("{primitives_target_pair}.c > 0");
-        let primitives_search_request = primitives_system::SearchOutputsRequest {
+        let primitives_search_request = primitives_system::SearchRequest {
             tf: Timeframe::M1,
             close_start: TimeInput::Ms(primitives_anchor_close_ms - 60 * 60_000),
             close_end: Some(TimeInput::Ms(primitives_anchor_close_ms)),
@@ -3674,7 +3752,6 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                         .as_ref()
                         .is_some_and(|rows| !rows.is_empty()) =>
             {
-                let first = &out.evaluated_rows.as_ref().expect("evaluated rows")[0];
                 let mode = primitive_mode_from_selectors_and_metadata(
                     primitives_search_request.family.as_deref(),
                     primitives_search_request.group.as_deref(),
@@ -3690,7 +3767,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                     .await?;
                     compare_semantic_values(
                         "primitives.search",
-                        &canonical_primitive_search_sdk(&out)?,
+                        &canonical_primitive_search_sdk(&out, mode)?,
                         &canonical_compute_search_raw(direct, mode)?,
                     )?;
                     Ok::<(), String>(())
@@ -3707,7 +3784,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                                 .as_ref()
                                 .map(|rows| rows.len())
                                 .unwrap_or(0),
-                            primitive_output_kind(first)
+                            mode.label()
                         ),
                     ),
                     Err(error) => record_fail(report, "primitives.search", error),
@@ -3728,7 +3805,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
             Err(error) => record_fail(report, "primitives.search", error.to_string()),
         }
 
-        let primitives_search_grpc_request = primitives_system::SearchOutputsGrpcRequest {
+        let primitives_search_grpc_request = primitives_system::SearchGrpcRequest {
             tf: Timeframe::M1,
             close_start: TimeInput::Ms(primitives_anchor_close_ms - 60 * 60_000),
             close_end: Some(TimeInput::Ms(primitives_anchor_close_ms)),
@@ -3752,7 +3829,6 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                         .as_ref()
                         .is_some_and(|rows| !rows.is_empty()) =>
             {
-                let first = &out.evaluated_rows.as_ref().expect("evaluated rows")[0];
                 let mode = primitive_mode_from_selectors_and_metadata(
                     primitives_search_grpc_request.family.as_deref(),
                     primitives_search_grpc_request.group.as_deref(),
@@ -3771,10 +3847,12 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                     .await?;
                     compare_semantic_values(
                         "primitives.search_grpc",
-                        &canonical_primitive_search_sdk(&out)?,
-                        &canonical_compute_search_raw(
-                            json_value(&direct, "primitives search gRPC direct response")?,
+                        &canonical_primitive_search_sdk(&out, mode)?,
+                        &canonical_primitive_search_grpc_raw(
+                            &direct,
                             mode,
+                            primitives_search_grpc_request.diagnostics.unwrap_or(false),
+                            primitives_search_grpc_request.evaluate_pair.is_some(),
                         )?,
                     )?;
                     Ok::<(), String>(())
@@ -3791,7 +3869,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                                 .as_ref()
                                 .map(|rows| rows.len())
                                 .unwrap_or(0),
-                            primitive_output_kind(first)
+                            mode.label()
                         ),
                     ),
                     Err(error) => record_fail(report, "primitives.search_grpc", error),
@@ -3812,7 +3890,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
             Err(error) => record_fail(report, "primitives.search_grpc", error.to_string()),
         }
 
-        let primitives_time_machine_request = primitives_system::TimeMachineOutputsRequest {
+        let primitives_time_machine_request = primitives_system::TimeMachineRequest {
             tf: Timeframe::M1,
             close_start: TimeInput::Ms(primitives_anchor_close_ms - 20 * 60_000),
             close_end: Some(TimeInput::Ms(primitives_anchor_close_ms)),
@@ -3850,7 +3928,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                     .await?;
                     compare_semantic_values(
                         "primitives.time_machine",
-                        &canonical_primitive_time_machine_sdk(&out)?,
+                        &canonical_primitive_time_machine_sdk(&out, mode)?,
                         &canonical_compute_time_machine_raw(direct, mode)?,
                     )?;
                     Ok::<(), String>(())
@@ -3863,7 +3941,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                         format!(
                             "rows={} kind={} done={} direct_http_semantic_match=true",
                             out.rows.len(),
-                            primitive_output_kind(&out.rows[0].output),
+                            mode.label(),
                             out.done()
                         ),
                     ),
@@ -3878,24 +3956,23 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
             Err(error) => record_fail(report, "primitives.time_machine", error.to_string()),
         }
 
-        let primitives_time_machine_grpc_request =
-            primitives_system::TimeMachineOutputsGrpcRequest {
-                tf: Timeframe::M1,
-                close_start: TimeInput::Ms(primitives_anchor_close_ms - 20 * 60_000),
-                close_end: Some(TimeInput::Ms(primitives_anchor_close_ms)),
-                cursor: None,
-                predicate: Some(format!("{primitives_target_pair}.c > 0")),
-                hits: None,
-                output_pairs: Some(vec![primitives_target_pair.clone()]),
-                family: None,
-                group: None,
-                metadata: Some(true),
-                diagnostics: Some(false),
-                before_bars: Some(2),
-                after_bars: Some(2),
-                max_hits: Some(10),
-                overlap_mode: Some("merge".to_string()),
-            };
+        let primitives_time_machine_grpc_request = primitives_system::TimeMachineGrpcRequest {
+            tf: Timeframe::M1,
+            close_start: TimeInput::Ms(primitives_anchor_close_ms - 20 * 60_000),
+            close_end: Some(TimeInput::Ms(primitives_anchor_close_ms)),
+            cursor: None,
+            predicate: Some(format!("{primitives_target_pair}.c > 0")),
+            hits: None,
+            output_pairs: Some(vec![primitives_target_pair.clone()]),
+            family: None,
+            group: None,
+            metadata: Some(true),
+            diagnostics: Some(false),
+            before_bars: Some(2),
+            after_bars: Some(2),
+            max_hits: Some(10),
+            overlap_mode: Some("merge".to_string()),
+        };
         match primitives
             .time_machine_grpc(&primitives_time_machine_grpc_request)
             .await
@@ -3919,10 +3996,13 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                     .await?;
                     compare_semantic_values(
                         "primitives.time_machine_grpc",
-                        &canonical_primitive_time_machine_sdk(&out)?,
-                        &canonical_compute_time_machine_raw(
-                            json_value(&direct, "primitives time-machine gRPC direct response")?,
+                        &canonical_primitive_time_machine_sdk(&out, mode)?,
+                        &canonical_primitive_time_machine_grpc_raw(
+                            &direct,
                             mode,
+                            primitives_time_machine_grpc_request
+                                .diagnostics
+                                .unwrap_or(false),
                         )?,
                     )?;
                     Ok::<(), String>(())
@@ -3935,7 +4015,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                         format!(
                             "rows={} kind={} done={} direct_grpc_semantic_match=true",
                             out.rows.len(),
-                            primitive_output_kind(&out.rows[0].output),
+                            mode.label(),
                             out.done()
                         ),
                     ),
@@ -4176,7 +4256,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
         Err(error) => record_fail(report, "regime.files_downloads", error.to_string()),
     }
 
-    let regime_latest_request = regime_system::LatestOutputsRequest {
+    let regime_latest_request = regime_system::LatestRequest {
         pairs: vec![regime_target_pair.clone(), "ETHUSDT".to_string()],
         tf: Timeframe::H1,
         latest_mode: Some(LatestMode::ExactWatermark),
@@ -4205,7 +4285,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                 .await?;
                 compare_semantic_values(
                     "regime.latest",
-                    &canonical_regime_latest_sdk(&out)?,
+                    &canonical_regime_latest_sdk(&out, mode)?,
                     &canonical_compute_latest_raw(direct, mode)?,
                 )?;
                 Ok::<i64, String>(out.close_end_ms)
@@ -4220,7 +4300,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                             "rows={} missing_pairs={} kind={} close_end_ms={} direct_http_semantic_match=true",
                             out.rows.len(),
                             out.missing_pairs.len(),
-                            regime_output_kind(&out.rows[0].output),
+                            regime_output_kind(mode),
                             close_end_ms
                         ),
                     );
@@ -4246,7 +4326,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
         }
     };
 
-    let regime_projected_http_protobuf_request = regime_system::LatestOutputsRequest {
+    let regime_projected_http_protobuf_request = regime_system::LatestRequest {
         pairs: vec![regime_target_pair.clone()],
         tf: Timeframe::H1,
         latest_mode: Some(LatestMode::ExactWatermark),
@@ -4275,7 +4355,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
         ),
     }
 
-    let regime_projected_grpc_request = regime_system::LatestOutputsGrpcRequest {
+    let regime_projected_grpc_request = regime_system::LatestGrpcRequest {
         pairs: vec![regime_target_pair.clone()],
         tf: Timeframe::H1,
         latest_mode: Some(LatestMode::ExactWatermark),
@@ -4299,7 +4379,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
         ),
     }
 
-    let regime_non_h1_http_request = regime_system::LatestOutputsRequest {
+    let regime_non_h1_http_request = regime_system::LatestRequest {
         pairs: vec![regime_target_pair.clone()],
         tf: Timeframe::M1,
         latest_mode: Some(LatestMode::ExactWatermark),
@@ -4326,7 +4406,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
         ),
     }
 
-    let regime_non_h1_grpc_request = regime_system::LatestOutputsGrpcRequest {
+    let regime_non_h1_grpc_request = regime_system::LatestGrpcRequest {
         pairs: vec![regime_target_pair.clone()],
         tf: Timeframe::M1,
         latest_mode: Some(LatestMode::ExactWatermark),
@@ -4352,7 +4432,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
         ),
     }
 
-    let regime_latest_grpc_request = regime_system::LatestOutputsGrpcRequest {
+    let regime_latest_grpc_request = regime_system::LatestGrpcRequest {
         pairs: vec![regime_target_pair.clone(), "ETHUSDT".to_string()],
         tf: Timeframe::H1,
         latest_mode: Some(LatestMode::ExactWatermark),
@@ -4383,10 +4463,11 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                 .await?;
                 compare_semantic_values(
                     "regime.latest_grpc",
-                    &canonical_regime_latest_sdk(&out)?,
-                    &canonical_compute_latest_raw(
-                        json_value(&direct, "regime latest gRPC direct response")?,
+                    &canonical_regime_latest_sdk(&out, mode)?,
+                    &canonical_regime_latest_grpc_raw(
+                        &direct,
                         mode,
+                        regime_latest_grpc_request.diagnostics.unwrap_or(false),
                     )?,
                 )?;
                 Ok::<(), String>(())
@@ -4400,7 +4481,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                         "rows={} missing_pairs={} kind={} close_end_ms={} direct_grpc_semantic_match=true",
                         out.rows.len(),
                         out.missing_pairs.len(),
-                        regime_output_kind(&out.rows[0].output),
+                        regime_output_kind(mode),
                         out.close_end_ms
                     ),
                 ),
@@ -4416,7 +4497,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
     }
 
     if regime_anchor_close_ms > 0 {
-        let regime_range_request = regime_system::RangeOutputsRequest {
+        let regime_range_request = regime_system::RangeRequest {
             pairs: vec![regime_target_pair.clone()],
             tf: Timeframe::H1,
             align_mode: Some(AlignMode::Exact),
@@ -4449,7 +4530,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                     .await?;
                     compare_semantic_values(
                         "regime.range",
-                        &canonical_regime_range_sdk(&out)?,
+                        &canonical_regime_range_sdk(&out, mode)?,
                         &canonical_compute_range_raw(direct, mode)?,
                     )?;
                     Ok::<(), String>(())
@@ -4462,7 +4543,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                         format!(
                             "rows={} kind={} next_cursor={} direct_http_semantic_match=true",
                             out.rows.len(),
-                            regime_output_kind(&out.rows[0]),
+                            regime_output_kind(mode),
                             out.next_cursor().unwrap_or("")
                         ),
                     ),
@@ -4477,7 +4558,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
             Err(error) => record_fail(report, "regime.range", error.to_string()),
         }
 
-        let regime_range_grpc_request = regime_system::RangeOutputsGrpcRequest {
+        let regime_range_grpc_request = regime_system::RangeGrpcRequest {
             pairs: vec![regime_target_pair.clone()],
             tf: Timeframe::H1,
             align_mode: Some(AlignMode::Exact),
@@ -4512,10 +4593,11 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                     .await?;
                     compare_semantic_values(
                         "regime.range_grpc",
-                        &canonical_regime_range_sdk(&out)?,
-                        &canonical_compute_range_raw(
-                            json_value(&direct, "regime range gRPC direct response")?,
+                        &canonical_regime_range_sdk(&out, mode)?,
+                        &canonical_regime_range_grpc_raw(
+                            &direct,
                             mode,
+                            regime_range_grpc_request.diagnostics.unwrap_or(false),
                         )?,
                     )?;
                     Ok::<(), String>(())
@@ -4528,7 +4610,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                         format!(
                             "rows={} kind={} next_cursor={} direct_grpc_semantic_match=true",
                             out.rows.len(),
-                            regime_output_kind(&out.rows[0]),
+                            regime_output_kind(mode),
                             out.next_cursor().unwrap_or("")
                         ),
                     ),
@@ -4544,7 +4626,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
         }
 
         let regime_predicate = format!("{regime_target_pair}.c > 0");
-        let regime_search_request = regime_system::SearchOutputsRequest {
+        let regime_search_request = regime_system::SearchRequest {
             tf: Timeframe::H1,
             close_start: TimeInput::Ms(regime_anchor_close_ms - 24 * 3_600_000),
             close_end: Some(TimeInput::Ms(regime_anchor_close_ms)),
@@ -4567,7 +4649,6 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                         .as_ref()
                         .is_some_and(|rows| !rows.is_empty()) =>
             {
-                let first = &out.evaluated_rows.as_ref().expect("evaluated rows")[0];
                 let mode = regime_mode_from_selectors_secondary_and_metadata(
                     regime_search_request.family.as_deref(),
                     regime_search_request.group.as_deref(),
@@ -4584,7 +4665,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                     .await?;
                     compare_semantic_values(
                         "regime.search",
-                        &canonical_regime_search_sdk(&out)?,
+                        &canonical_regime_search_sdk(&out, mode)?,
                         &canonical_compute_search_raw(direct, mode)?,
                     )?;
                     Ok::<(), String>(())
@@ -4601,7 +4682,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                                 .as_ref()
                                 .map(|rows| rows.len())
                                 .unwrap_or(0),
-                            regime_output_kind(first)
+                            regime_output_kind(mode)
                         ),
                     ),
                     Err(error) => record_fail(report, "regime.search", error),
@@ -4622,7 +4703,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
             Err(error) => record_fail(report, "regime.search", error.to_string()),
         }
 
-        let regime_search_grpc_request = regime_system::SearchOutputsGrpcRequest {
+        let regime_search_grpc_request = regime_system::SearchGrpcRequest {
             tf: Timeframe::H1,
             close_start: TimeInput::Ms(regime_anchor_close_ms - 24 * 3_600_000),
             close_end: Some(TimeInput::Ms(regime_anchor_close_ms)),
@@ -4644,7 +4725,6 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                         .as_ref()
                         .is_some_and(|rows| !rows.is_empty()) =>
             {
-                let first = &out.evaluated_rows.as_ref().expect("evaluated rows")[0];
                 let mode = regime_mode_from_selectors_secondary_and_metadata(
                     regime_search_grpc_request.family.as_deref(),
                     regime_search_grpc_request.group.as_deref(),
@@ -4664,10 +4744,12 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                     .await?;
                     compare_semantic_values(
                         "regime.search_grpc",
-                        &canonical_regime_search_sdk(&out)?,
-                        &canonical_compute_search_raw(
-                            json_value(&direct, "regime search gRPC direct response")?,
+                        &canonical_regime_search_sdk(&out, mode)?,
+                        &canonical_regime_search_grpc_raw(
+                            &direct,
                             mode,
+                            regime_search_grpc_request.diagnostics.unwrap_or(false),
+                            regime_search_grpc_request.evaluate_pair.is_some(),
                         )?,
                     )?;
                     Ok::<(), String>(())
@@ -4684,7 +4766,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                                 .as_ref()
                                 .map(|rows| rows.len())
                                 .unwrap_or(0),
-                            regime_output_kind(first)
+                            regime_output_kind(mode)
                         ),
                     ),
                     Err(error) => record_fail(report, "regime.search_grpc", error),
@@ -4705,7 +4787,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
             Err(error) => record_fail(report, "regime.search_grpc", error.to_string()),
         }
 
-        let regime_time_machine_request = regime_system::TimeMachineOutputsRequest {
+        let regime_time_machine_request = regime_system::TimeMachineRequest {
             tf: Timeframe::H1,
             close_start: TimeInput::Ms(regime_anchor_close_ms - 24 * 3_600_000),
             close_end: Some(TimeInput::Ms(regime_anchor_close_ms)),
@@ -4742,7 +4824,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                     .await?;
                     compare_semantic_values(
                         "regime.time_machine",
-                        &canonical_regime_time_machine_sdk(&out)?,
+                        &canonical_regime_time_machine_sdk(&out, mode)?,
                         &canonical_compute_time_machine_raw(direct, mode)?,
                     )?;
                     Ok::<(), String>(())
@@ -4755,7 +4837,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                         format!(
                             "rows={} kind={} done={} direct_http_semantic_match=true",
                             out.rows.len(),
-                            regime_output_kind(&out.rows[0].output),
+                            regime_output_kind(mode),
                             out.done()
                         ),
                     ),
@@ -4770,7 +4852,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
             Err(error) => record_fail(report, "regime.time_machine", error.to_string()),
         }
 
-        let regime_time_machine_grpc_request = regime_system::TimeMachineOutputsGrpcRequest {
+        let regime_time_machine_grpc_request = regime_system::TimeMachineGrpcRequest {
             tf: Timeframe::H1,
             close_start: TimeInput::Ms(regime_anchor_close_ms - 24 * 3_600_000),
             close_end: Some(TimeInput::Ms(regime_anchor_close_ms)),
@@ -4812,10 +4894,13 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                     .await?;
                     compare_semantic_values(
                         "regime.time_machine_grpc",
-                        &canonical_regime_time_machine_sdk(&out)?,
-                        &canonical_compute_time_machine_raw(
-                            json_value(&direct, "regime time-machine gRPC direct response")?,
+                        &canonical_regime_time_machine_sdk(&out, mode)?,
+                        &canonical_regime_time_machine_grpc_raw(
+                            &direct,
                             mode,
+                            regime_time_machine_grpc_request
+                                .diagnostics
+                                .unwrap_or(false),
                         )?,
                     )?;
                     Ok::<(), String>(())
@@ -4828,7 +4913,7 @@ async fn run_phase_5_primitives_and_regime(runtime: &RuntimeConfig, report: &mut
                         format!(
                             "rows={} kind={} done={} direct_grpc_semantic_match=true",
                             out.rows.len(),
-                            regime_output_kind(&out.rows[0].output),
+                            regime_output_kind(mode),
                             out.done()
                         ),
                     ),
@@ -5228,7 +5313,7 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
     }
 
     if runtime.summary.aggregator_grpc_base_url.is_some() {
-        let aggregator_latest_http_request = LatestBarsRequest {
+        let aggregator_latest_http_request = LatestRequest {
             pairs: vec![aggregator_target_pair.clone()],
             tf: Timeframe::M1,
             latest_mode: LatestMode::ExactWatermark,
@@ -5236,7 +5321,7 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
             format: Some(HttpFormat::Json),
         };
         let aggregator_latest_grpc_request =
-            LatestBarsGrpcRequest::from(&aggregator_latest_http_request);
+            LatestGrpcRequest::from(&aggregator_latest_http_request);
         match (
             aggregator.latest(&aggregator_latest_http_request).await,
             aggregator
@@ -5679,7 +5764,7 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
         ),
     }
 
-    let primitives_latest_http_request = primitives_system::LatestOutputsRequest {
+    let primitives_latest_http_request = primitives_system::LatestRequest {
         pairs: vec![primitives_target_pair.clone()],
         tf: Timeframe::M1,
         latest_mode: Some(LatestMode::ExactWatermark),
@@ -5690,7 +5775,7 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
         format: Some(HttpFormat::Json),
     };
     let primitives_latest_grpc_request =
-        primitives_system::LatestOutputsGrpcRequest::from(&primitives_latest_http_request);
+        primitives_system::LatestGrpcRequest::from(&primitives_latest_http_request);
     match (
         primitives.latest(&primitives_latest_http_request).await,
         primitives
@@ -5749,7 +5834,7 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
         _ => 0,
     };
     if primitives_anchor_close_ms > 0 {
-        let primitives_range_request = primitives_system::RangeOutputsRequest {
+        let primitives_range_request = primitives_system::RangeRequest {
             pairs: vec![primitives_target_pair.clone()],
             tf: Timeframe::M1,
             align_mode: Some(AlignMode::Exact),
@@ -5789,7 +5874,7 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
             Err(error) => record_fail(report, "primitives.range_call", error.to_string()),
         }
 
-        let primitives_range_grpc_request = primitives_system::RangeOutputsGrpcRequest {
+        let primitives_range_grpc_request = primitives_system::RangeGrpcRequest {
             pairs: vec![primitives_target_pair.clone()],
             tf: Timeframe::M1,
             align_mode: Some(AlignMode::Exact),
@@ -5828,7 +5913,7 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
             Err(error) => record_fail(report, "primitives.range_grpc_call", error.to_string()),
         }
 
-        let primitives_search_request = primitives_system::SearchOutputsRequest {
+        let primitives_search_request = primitives_system::SearchRequest {
             tf: Timeframe::M1,
             close_start: TimeInput::Ms(primitives_anchor_close_ms - 60 * 60_000),
             close_end: Some(TimeInput::Ms(primitives_anchor_close_ms)),
@@ -5868,7 +5953,7 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
             Err(error) => record_fail(report, "primitives.search_call", error.to_string()),
         }
 
-        let primitives_search_grpc_request = primitives_system::SearchOutputsGrpcRequest {
+        let primitives_search_grpc_request = primitives_system::SearchGrpcRequest {
             tf: Timeframe::M1,
             close_start: TimeInput::Ms(primitives_anchor_close_ms - 60 * 60_000),
             close_end: Some(TimeInput::Ms(primitives_anchor_close_ms)),
@@ -5907,7 +5992,7 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
             Err(error) => record_fail(report, "primitives.search_grpc_call", error.to_string()),
         }
 
-        let primitives_time_machine_request = primitives_system::TimeMachineOutputsRequest {
+        let primitives_time_machine_request = primitives_system::TimeMachineRequest {
             tf: Timeframe::M1,
             close_start: TimeInput::Ms(primitives_anchor_close_ms - 20 * 60_000),
             close_end: Some(TimeInput::Ms(primitives_anchor_close_ms)),
@@ -5951,24 +6036,23 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
             Err(error) => record_fail(report, "primitives.time_machine_call", error.to_string()),
         }
 
-        let primitives_time_machine_grpc_request =
-            primitives_system::TimeMachineOutputsGrpcRequest {
-                tf: Timeframe::M1,
-                close_start: TimeInput::Ms(primitives_anchor_close_ms - 20 * 60_000),
-                close_end: Some(TimeInput::Ms(primitives_anchor_close_ms)),
-                cursor: None,
-                predicate: Some(format!("{primitives_target_pair}.c > 0")),
-                hits: None,
-                output_pairs: Some(vec![primitives_target_pair.clone()]),
-                family: None,
-                group: None,
-                metadata: Some(true),
-                diagnostics: Some(false),
-                before_bars: Some(2),
-                after_bars: Some(2),
-                max_hits: Some(10),
-                overlap_mode: Some("merge".to_string()),
-            };
+        let primitives_time_machine_grpc_request = primitives_system::TimeMachineGrpcRequest {
+            tf: Timeframe::M1,
+            close_start: TimeInput::Ms(primitives_anchor_close_ms - 20 * 60_000),
+            close_end: Some(TimeInput::Ms(primitives_anchor_close_ms)),
+            cursor: None,
+            predicate: Some(format!("{primitives_target_pair}.c > 0")),
+            hits: None,
+            output_pairs: Some(vec![primitives_target_pair.clone()]),
+            family: None,
+            group: None,
+            metadata: Some(true),
+            diagnostics: Some(false),
+            before_bars: Some(2),
+            after_bars: Some(2),
+            max_hits: Some(10),
+            overlap_mode: Some("merge".to_string()),
+        };
         match primitives
             .time_machine_grpc_call(primitives_time_machine_grpc_request)
             .traverse()
@@ -6382,7 +6466,7 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
         ),
     }
 
-    let regime_latest_http_request = regime_system::LatestOutputsRequest {
+    let regime_latest_http_request = regime_system::LatestRequest {
         pairs: vec![regime_target_pair.clone()],
         tf: Timeframe::H1,
         latest_mode: Some(LatestMode::ExactWatermark),
@@ -6393,7 +6477,7 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
         diagnostics: Some(false),
         format: Some(HttpFormat::Json),
     };
-    let regime_latest_grpc_request = regime_system::LatestOutputsGrpcRequest {
+    let regime_latest_grpc_request = regime_system::LatestGrpcRequest {
         pairs: vec![regime_target_pair.clone()],
         tf: Timeframe::H1,
         latest_mode: Some(LatestMode::ExactWatermark),
@@ -6458,7 +6542,7 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
         _ => 0,
     };
     if regime_anchor_close_ms > 0 {
-        let regime_range_request = regime_system::RangeOutputsRequest {
+        let regime_range_request = regime_system::RangeRequest {
             pairs: vec![regime_target_pair.clone()],
             tf: Timeframe::H1,
             align_mode: Some(AlignMode::Exact),
@@ -6499,7 +6583,7 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
             Err(error) => record_fail(report, "regime.range_call", error.to_string()),
         }
 
-        let regime_range_grpc_request = regime_system::RangeOutputsGrpcRequest {
+        let regime_range_grpc_request = regime_system::RangeGrpcRequest {
             pairs: vec![regime_target_pair.clone()],
             tf: Timeframe::H1,
             align_mode: Some(AlignMode::Exact),
@@ -6539,7 +6623,7 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
             Err(error) => record_fail(report, "regime.range_grpc_call", error.to_string()),
         }
 
-        let regime_search_request = regime_system::SearchOutputsRequest {
+        let regime_search_request = regime_system::SearchRequest {
             tf: Timeframe::H1,
             close_start: TimeInput::Ms(regime_anchor_close_ms - 24 * 3_600_000),
             close_end: Some(TimeInput::Ms(regime_anchor_close_ms)),
@@ -6580,7 +6664,7 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
             Err(error) => record_fail(report, "regime.search_call", error.to_string()),
         }
 
-        let regime_search_grpc_request = regime_system::SearchOutputsGrpcRequest {
+        let regime_search_grpc_request = regime_system::SearchGrpcRequest {
             tf: Timeframe::H1,
             close_start: TimeInput::Ms(regime_anchor_close_ms - 24 * 3_600_000),
             close_end: Some(TimeInput::Ms(regime_anchor_close_ms)),
@@ -6620,7 +6704,7 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
             Err(error) => record_fail(report, "regime.search_grpc_call", error.to_string()),
         }
 
-        let regime_time_machine_request = regime_system::TimeMachineOutputsRequest {
+        let regime_time_machine_request = regime_system::TimeMachineRequest {
             tf: Timeframe::H1,
             close_start: TimeInput::Ms(regime_anchor_close_ms - 24 * 3_600_000),
             close_end: Some(TimeInput::Ms(regime_anchor_close_ms)),
@@ -6665,7 +6749,7 @@ async fn run_phase_6_ws_downloads_pagination_and_parity(
             Err(error) => record_fail(report, "regime.time_machine_call", error.to_string()),
         }
 
-        let regime_time_machine_grpc_request = regime_system::TimeMachineOutputsGrpcRequest {
+        let regime_time_machine_grpc_request = regime_system::TimeMachineGrpcRequest {
             tf: Timeframe::H1,
             close_start: TimeInput::Ms(regime_anchor_close_ms - 24 * 3_600_000),
             close_end: Some(TimeInput::Ms(regime_anchor_close_ms)),

@@ -4,7 +4,7 @@ use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
 use crate::streaming::make_before_break::MakeBeforeBreakConfig;
 use crate::streaming::subscription::ExponentialBackoffConfig;
-use crate::systems::aggregator::bars_ws::BarsWsMakeBeforeBreak;
+use crate::systems::aggregator::BarsWsMakeBeforeBreak;
 use crate::systems::aggregator::{
     Aggregator, BarsWsInboundFrame, BarsWsMetaFrame, BarsWsPhase, BarsWsSubscribeRequest,
 };
@@ -111,8 +111,8 @@ fn proto_full_payload(pair: &str) -> Vec<u8> {
                 taker_signed_n: None,
                 vw: None,
                 n: Some(1),
-                coverage_ratio: Some(0.95),
-                at_ms: Some(1770000060005),
+                coverage_ratio: None,
+                at_ms: None,
                 metadata: Some(proto::BarMetadataV1 {
                     source: "frontier".to_string(),
                     process: None,
@@ -133,7 +133,7 @@ fn proto_full_payload(pair: &str) -> Vec<u8> {
                     recomputed_reason: None,
                     covered_1m_count: None,
                     expected_1m_count: None,
-                    coverage_ratio: None,
+                    coverage_ratio: Some(0.95),
                     inputs_source_counts_frontier: None,
                     inputs_source_counts_api: None,
                     inputs_source_counts_synthetic: None,
@@ -144,7 +144,6 @@ fn proto_full_payload(pair: &str) -> Vec<u8> {
                     frontier_5s_synth_ratio: None,
                     frontier_5s_trade_n: None,
                     frontier_5s_trade_ratio: None,
-                    age_ms: Some(202),
                 }),
             }),
             age_ms: Some(10),
@@ -425,10 +424,11 @@ async fn test_connect_bars_ws_sends_auth_and_subscribe_and_decodes_json_min() {
         .expect("rows frame")
         .expect("some rows frame");
     match rows {
-        BarsWsInboundFrame::JsonRowsMin(rows) => {
+        BarsWsInboundFrame::JsonRows(rows) => {
             assert_eq!(rows.len(), 1);
             assert_eq!(rows[0].pair, "BTCUSDT");
             assert_eq!(rows[0].close_ms, 1770000060000);
+            assert!(rows[0].metadata.is_none());
         }
         other => panic!("expected json min rows, got {other:?}"),
     }
@@ -460,13 +460,13 @@ async fn test_connect_bars_ws_decodes_protobuf_full_rows() {
         .expect("some protobuf frame");
 
     match frame {
-        BarsWsInboundFrame::ProtobufRowsFull(rows) => {
+        BarsWsInboundFrame::ProtobufRows(rows) => {
             assert_eq!(rows.len(), 1);
             assert_eq!(rows[0].pair, "BTCUSDT");
-            assert_eq!(rows[0].coverage_ratio, Some(0.95));
-            assert_eq!(rows[0].at_ms, Some(1770000060005));
-            assert_eq!(rows[0].metadata.source, "frontier");
-            assert_eq!(rows[0].metadata.age_ms, Some(202));
+            assert_eq!(rows[0].age_ms, Some(10));
+            let metadata = rows[0].metadata.as_ref().expect("metadata");
+            assert_eq!(metadata.source, "frontier");
+            assert_eq!(metadata.coverage_ratio, Some(0.95));
         }
         other => panic!("expected protobuf full rows, got {other:?}"),
     }
@@ -510,7 +510,7 @@ async fn test_connect_bars_ws_replay_last_n_bars_yields_rows_then_replay_done() 
         .expect("replay rows")
         .expect("some frame")
     {
-        BarsWsInboundFrame::JsonRowsMin(rows) => {
+        BarsWsInboundFrame::JsonRows(rows) => {
             assert_eq!(rows.len(), 1);
             assert_eq!(rows[0].pair, "BTCUSDT");
             assert_eq!(rows[0].close_ms, 1770000060000);
@@ -572,7 +572,7 @@ async fn test_bars_ws_make_before_break_keeps_old_until_new_is_stable_then_swaps
         .expect("old frame during validation")
         .expect("some frame");
     match first {
-        BarsWsInboundFrame::JsonRowsMin(rows) => {
+        BarsWsInboundFrame::JsonRows(rows) => {
             assert_eq!(rows.len(), 1);
             assert_eq!(rows[0].pair, "BTCUSDT");
             assert_eq!(rows[0].close_ms, 1);
@@ -589,7 +589,7 @@ async fn test_bars_ws_make_before_break_keeps_old_until_new_is_stable_then_swaps
         .expect("new frame after promotion")
         .expect("some frame");
     match second {
-        BarsWsInboundFrame::JsonRowsMin(rows) => {
+        BarsWsInboundFrame::JsonRows(rows) => {
             assert_eq!(rows.len(), 1);
             assert_eq!(rows[0].pair, "ETHUSDT");
             assert_eq!(rows[0].close_ms, 2);
@@ -633,7 +633,7 @@ async fn test_connect_bars_ws_recovering_reconnects_with_same_request_after_clos
         .expect("first recovering bars frame")
         .expect("some frame")
     {
-        BarsWsInboundFrame::JsonRowsMin(rows) => {
+        BarsWsInboundFrame::JsonRows(rows) => {
             assert_eq!(rows.len(), 1);
             assert_eq!(rows[0].pair, "BTCUSDT");
             assert_eq!(rows[0].close_ms, 10);
@@ -647,7 +647,7 @@ async fn test_connect_bars_ws_recovering_reconnects_with_same_request_after_clos
         .expect("second recovering bars frame")
         .expect("some frame")
     {
-        BarsWsInboundFrame::JsonRowsMin(rows) => {
+        BarsWsInboundFrame::JsonRows(rows) => {
             assert_eq!(rows.len(), 1);
             assert_eq!(rows[0].pair, "BTCUSDT");
             assert_eq!(rows[0].close_ms, 20);

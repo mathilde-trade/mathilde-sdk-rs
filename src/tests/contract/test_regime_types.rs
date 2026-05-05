@@ -1,34 +1,25 @@
 use crate::core::time::TimeInput;
 use crate::generated::regime::outputs_proto::mathilde::feed::outputs::v1 as proto;
 use crate::generated::regime::{ProcessorFamily, ProcessorGroup};
-use crate::systems::regime::types::{RegimeOutputMode, diagnostics_enabled};
 use crate::systems::regime::{
-    LatestOutputsGrpcRequest, LatestOutputsRequest, LatestOutputsResponse, OutputView,
-    RangeOutputsRequest, RegimeOutput, SearchOutputsRequest, TimeMachineOutputsRequest,
+    LatestGrpcRequest, LatestRequest, LatestResponse, OutputView, RangeRequest, RegimeOutputMode,
+    SearchRequest, TimeMachineRequest, diagnostics_enabled,
 };
 use crate::systems::types::{HttpFormat, LatestMode, Timeframe};
 
 #[test]
-fn test_regime_latest_outputs_request_rejects_metadata_family_without_metadata() {
-    let request = LatestOutputsRequest {
-        pairs: vec!["BTCUSDT".to_string()],
-        tf: Timeframe::H1,
-        latest_mode: Some(LatestMode::ExactWatermark),
-        family: Some(vec![ProcessorFamily::Metadata]),
-        group: None,
-        secondary: Some(true),
-        metadata: Some(false),
-        diagnostics: None,
-        format: Some(HttpFormat::Json),
-    };
-
-    let error = request.validate().expect_err("metadata family must fail");
-    assert!(error.to_string().contains("family=metadata"));
+fn test_regime_processor_family_surface_excludes_metadata() {
+    assert!(ProcessorFamily::parse("metadata").is_none());
+    assert!(
+        ProcessorFamily::ALL
+            .iter()
+            .all(|family| family.canonical_name() != "metadata")
+    );
 }
 
 #[test]
 fn test_regime_range_outputs_request_infers_projected_min_mode_when_secondary_is_false() {
-    let request = RangeOutputsRequest {
+    let request = RangeRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::H1,
         align_mode: None,
@@ -52,7 +43,7 @@ fn test_regime_range_outputs_request_infers_projected_min_mode_when_secondary_is
 
 #[test]
 fn test_regime_search_outputs_request_infers_with_meta_mode_when_secondary_is_true() {
-    let request = SearchOutputsRequest {
+    let request = SearchRequest {
         tf: Timeframe::H1,
         close_start: TimeInput::from(1_700_000_000_000_i64),
         close_end: None,
@@ -76,7 +67,7 @@ fn test_regime_search_outputs_request_infers_with_meta_mode_when_secondary_is_tr
 
 #[test]
 fn test_regime_time_machine_outputs_request_rejects_non_h1() {
-    let request = TimeMachineOutputsRequest {
+    let request = TimeMachineRequest {
         tf: Timeframe::M1,
         close_start: TimeInput::from(1_700_000_000_000_i64),
         close_end: None,
@@ -104,7 +95,7 @@ fn test_regime_time_machine_outputs_request_rejects_non_h1() {
 
 #[test]
 fn test_regime_latest_outputs_grpc_request_from_http_request_preserves_secondary_and_selectors() {
-    let request = LatestOutputsRequest {
+    let request = LatestRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::H1,
         latest_mode: Some(LatestMode::LatestAvailableLeWatermark),
@@ -116,7 +107,7 @@ fn test_regime_latest_outputs_grpc_request_from_http_request_preserves_secondary
         format: Some(HttpFormat::Protobuf),
     };
 
-    let grpc = LatestOutputsGrpcRequest::from(&request);
+    let grpc = LatestGrpcRequest::from(&request);
 
     assert_eq!(grpc.pairs, request.pairs);
     assert_eq!(grpc.tf, request.tf);
@@ -129,7 +120,7 @@ fn test_regime_latest_outputs_grpc_request_from_http_request_preserves_secondary
 #[test]
 fn test_regime_latest_outputs_grpc_to_proto_uses_canonical_selectors_secondary_and_empty_excludes()
 {
-    let request = LatestOutputsGrpcRequest {
+    let request = LatestGrpcRequest {
         pairs: vec![" BTCUSDT ".to_string(), "".to_string()],
         tf: Timeframe::H1,
         latest_mode: None,
@@ -171,6 +162,7 @@ fn test_regime_latest_outputs_proto_min_decode_preserves_required_fields() {
                 l: 0.5,
                 c: 1.5,
                 v: 3.0,
+                tr_klts_score: Some(0.75),
                 diagnostics: Vec::new(),
                 ..Default::default()
             }),
@@ -179,7 +171,7 @@ fn test_regime_latest_outputs_proto_min_decode_preserves_required_fields() {
         missing_pairs: vec!["ETHUSDT".to_string()],
     };
 
-    let decoded = LatestOutputsResponse::from_proto(
+    let decoded = LatestResponse::from_proto(
         response,
         RegimeOutputMode::Min,
         diagnostics_enabled(Some(false)),
@@ -189,14 +181,14 @@ fn test_regime_latest_outputs_proto_min_decode_preserves_required_fields() {
     assert_eq!(decoded.view, OutputView::Min);
     assert_eq!(decoded.rows.len(), 1);
     assert_eq!(decoded.missing_pairs, vec!["ETHUSDT".to_string()]);
-    match &decoded.rows[0].output {
-        RegimeOutput::Min(output) => {
-            assert_eq!(output.pair, "BTCUSDT");
-            assert_eq!(output.tf, "1h");
-            assert_eq!(output.open_utc, "2023-11-14T22:12:20Z");
-            assert_eq!(output.close_utc, "2023-11-14T22:13:20Z");
-            assert_eq!(output.diagnostics, None);
-        }
-        other => panic!("unexpected output variant: {other:?}"),
-    }
+    assert_eq!(decoded.rows[0].age_ms, 123);
+    assert_eq!(decoded.rows[0].row.pair, "BTCUSDT");
+    assert_eq!(decoded.rows[0].row.tf, "1h");
+    assert_eq!(decoded.rows[0].row.open_utc, "2023-11-14T22:12:20Z");
+    assert_eq!(decoded.rows[0].row.close_utc, "2023-11-14T22:13:20Z");
+    assert_eq!(decoded.rows[0].row.diagnostics, None);
+    assert_eq!(
+        decoded.rows[0].row.computed.f64("tr_klts_score"),
+        Some(0.75)
+    );
 }

@@ -1,12 +1,12 @@
 use crate::core::error::SdkError;
 use crate::core::time::TimeInput;
-use crate::generated::regime::{ProcessorFamily, ProcessorGroup};
 use crate::streaming::make_before_break::MakeBeforeBreakConfig;
 use crate::streaming::subscription::{ExponentialBackoffConfig, ReconnectBackoff};
 use crate::systems::regime::types::{
-    LatestOutputsPresentRow, decode_latest_outputs_ws_json, decode_latest_outputs_ws_proto,
-    diagnostics_enabled, ensure_supported_regime_tf, infer_output_mode, normalize_family_selectors,
-    normalize_group_selectors, normalize_pair_values, selector_family_names, selector_group_names,
+    LatestPresentRow, RegimeOutputMode, decode_latest_outputs_ws_json,
+    decode_latest_outputs_ws_proto, diagnostics_enabled, ensure_supported_regime_tf,
+    infer_output_mode, normalize_family_selectors, normalize_group_selectors,
+    normalize_pair_values, selector_family_names, selector_group_names,
 };
 use crate::systems::types::Timeframe;
 use crate::transport::ws::WsTransport;
@@ -51,8 +51,8 @@ pub struct OutputsWsSubscribeRequest {
     pub tfs: Vec<Timeframe>,
     pub metadata: Option<bool>,
     pub diagnostics: Option<bool>,
-    pub family: Option<Vec<ProcessorFamily>>,
-    pub group: Option<Vec<ProcessorGroup>>,
+    pub family: Option<Vec<crate::generated::regime::ProcessorFamily>>,
+    pub group: Option<Vec<crate::generated::regime::ProcessorGroup>>,
     pub secondary: Option<bool>,
     pub from_close: Option<TimeInput>,
     pub last_n_bars: Option<i64>,
@@ -102,8 +102,8 @@ pub struct OutputsWsErrorFrame {
 pub enum OutputsWsInboundFrame {
     Meta(OutputsWsMetaFrame),
     Error(OutputsWsErrorFrame),
-    JsonRows(Vec<LatestOutputsPresentRow>),
-    ProtobufRows(Vec<LatestOutputsPresentRow>),
+    JsonRows(Vec<LatestPresentRow>),
+    ProtobufRows(Vec<LatestPresentRow>),
 }
 
 #[derive(Debug)]
@@ -148,9 +148,7 @@ impl OutputsWsMetaFrame {
 }
 
 impl OutputsWsSubscribeRequest {
-    pub(crate) fn output_mode(
-        &self,
-    ) -> Result<crate::systems::regime::types::RegimeOutputMode, SdkError> {
+    pub(crate) fn output_mode(&self) -> Result<RegimeOutputMode, SdkError> {
         infer_output_mode(
             self.family.as_deref(),
             self.group.as_deref(),

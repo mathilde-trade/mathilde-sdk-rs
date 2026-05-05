@@ -1,11 +1,9 @@
 use crate::core::auth::BearerToken;
 use crate::core::config::{HttpTransportConfig, PrimitivesConfig};
 use crate::core::time::TimeInput;
-use crate::systems::primitives::outputs_pagination::{
-    RangeOutputsCall, SearchOutputsCall, TimeMachineOutputsCall,
-};
 use crate::systems::primitives::{
-    Primitives, RangeOutputsRequest, SearchOutputsRequest, TimeMachineOutputsRequest,
+    Primitives, RangeCall, RangeRequest, SearchCall, SearchRequest, TimeMachineCall,
+    TimeMachineRequest,
 };
 use crate::systems::types::Timeframe;
 
@@ -23,9 +21,9 @@ fn test_client() -> Primitives {
 #[test]
 fn test_range_outputs_pager_allows_implicit_close_end() {
     let client = test_client();
-    let call = RangeOutputsCall::new(
+    let call = RangeCall::new(
         &client,
-        RangeOutputsRequest {
+        RangeRequest {
             pairs: vec!["BTCUSDT".to_string()],
             tf: Timeframe::M1,
             align_mode: None,
@@ -47,9 +45,9 @@ fn test_range_outputs_pager_allows_implicit_close_end() {
 #[test]
 fn test_search_outputs_pager_requires_explicit_close_end() {
     let client = test_client();
-    let call = SearchOutputsCall::new(
+    let call = SearchCall::new(
         &client,
-        SearchOutputsRequest {
+        SearchRequest {
             tf: Timeframe::M1,
             close_start: TimeInput::from(1_700_000_000_000_i64),
             close_end: None,
@@ -77,9 +75,9 @@ fn test_search_outputs_pager_requires_explicit_close_end() {
 #[test]
 fn test_time_machine_outputs_pager_requires_explicit_close_end() {
     let client = test_client();
-    let call = TimeMachineOutputsCall::new(
+    let call = TimeMachineCall::new(
         &client,
-        TimeMachineOutputsRequest {
+        TimeMachineRequest {
             tf: Timeframe::M1,
             close_start: TimeInput::from(1_700_000_000_000_i64),
             close_end: None,

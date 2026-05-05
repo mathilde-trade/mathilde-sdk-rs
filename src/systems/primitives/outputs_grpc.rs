@@ -1,11 +1,12 @@
 use crate::core::error::SdkError;
 use crate::systems::primitives::types::{
-    LatestOutputsGrpcRequest, LatestOutputsResponse, PrimitiveOutputMode, RangeOutputsGrpcRequest,
-    RangeOutputsResponse, SearchOutputsGrpcRequest, SearchOutputsResponse,
-    TimeMachineOutputsGrpcRequest, TimeMachineOutputsResponse, diagnostics_enabled,
+    LatestGrpcRequest, LatestResponse, PrimitiveOutputMode, RangeGrpcRequest, RangeResponse,
+    SearchGrpcRequest, SearchResponse, TimeMachineGrpcRequest, TimeMachineResponse,
+    diagnostics_enabled,
 };
 use crate::transport::grpc::GrpcTransport;
 use tonic::client::Grpc;
+use tonic::codec::CompressionEncoding;
 use tonic::codec::ProstCodec;
 use tonic::codegen::http::uri::PathAndQuery;
 
@@ -17,14 +18,18 @@ const TIME_MACHINE_OUTPUTS_PATH: &str =
 
 pub async fn latest_outputs_grpc(
     transport: &GrpcTransport,
-    request: &LatestOutputsGrpcRequest,
-) -> Result<LatestOutputsResponse, SdkError> {
+    request: &LatestGrpcRequest,
+) -> Result<LatestResponse, SdkError> {
     let output_mode = request.output_mode()?;
     ensure_grpc_mode_supported(output_mode, "latest outputs")?;
     let diagnostics_enabled = diagnostics_enabled(request.diagnostics);
     let path = PathAndQuery::from_static(LATEST_OUTPUTS_PATH);
     let codec = ProstCodec::default();
-    let mut grpc = Grpc::new(transport.channel());
+    let mut grpc = Grpc::new(transport.channel())
+        .accept_compressed(CompressionEncoding::Gzip)
+        .accept_compressed(CompressionEncoding::Zstd)
+        .send_compressed(CompressionEncoding::Zstd)
+        .send_compressed(CompressionEncoding::Gzip);
     grpc.ready().await.map_err(SdkError::grpc_transport)?;
     let request = transport.apply_bearer(tonic::Request::new(request.to_proto()?))?;
 
@@ -33,19 +38,23 @@ pub async fn latest_outputs_grpc(
         .await
         .map_err(SdkError::grpc_status)?;
 
-    LatestOutputsResponse::from_proto(response.into_inner(), output_mode, diagnostics_enabled)
+    LatestResponse::from_proto(response.into_inner(), output_mode, diagnostics_enabled)
 }
 
 pub async fn range_outputs_grpc(
     transport: &GrpcTransport,
-    request: &RangeOutputsGrpcRequest,
-) -> Result<RangeOutputsResponse, SdkError> {
+    request: &RangeGrpcRequest,
+) -> Result<RangeResponse, SdkError> {
     let output_mode = request.output_mode()?;
     ensure_grpc_mode_supported(output_mode, "range outputs")?;
     let diagnostics_enabled = diagnostics_enabled(request.diagnostics);
     let path = PathAndQuery::from_static(RANGE_OUTPUTS_PATH);
     let codec = ProstCodec::default();
-    let mut grpc = Grpc::new(transport.channel());
+    let mut grpc = Grpc::new(transport.channel())
+        .accept_compressed(CompressionEncoding::Gzip)
+        .accept_compressed(CompressionEncoding::Zstd)
+        .send_compressed(CompressionEncoding::Zstd)
+        .send_compressed(CompressionEncoding::Gzip);
     grpc.ready().await.map_err(SdkError::grpc_transport)?;
     let request = transport.apply_bearer(tonic::Request::new(request.to_proto()?))?;
 
@@ -54,20 +63,24 @@ pub async fn range_outputs_grpc(
         .await
         .map_err(SdkError::grpc_status)?;
 
-    RangeOutputsResponse::from_proto(response.into_inner(), output_mode, diagnostics_enabled)
+    RangeResponse::from_proto(response.into_inner(), output_mode, diagnostics_enabled)
 }
 
 pub async fn search_outputs_grpc(
     transport: &GrpcTransport,
-    request: &SearchOutputsGrpcRequest,
-) -> Result<SearchOutputsResponse, SdkError> {
+    request: &SearchGrpcRequest,
+) -> Result<SearchResponse, SdkError> {
     let output_mode = request.output_mode()?;
     ensure_grpc_mode_supported(output_mode, "search outputs")?;
     let diagnostics_enabled = diagnostics_enabled(request.diagnostics);
     let evaluated_rows_enabled = request.evaluate_pair.is_some();
     let path = PathAndQuery::from_static(SEARCH_OUTPUTS_PATH);
     let codec = ProstCodec::default();
-    let mut grpc = Grpc::new(transport.channel());
+    let mut grpc = Grpc::new(transport.channel())
+        .accept_compressed(CompressionEncoding::Gzip)
+        .accept_compressed(CompressionEncoding::Zstd)
+        .send_compressed(CompressionEncoding::Zstd)
+        .send_compressed(CompressionEncoding::Gzip);
     grpc.ready().await.map_err(SdkError::grpc_transport)?;
     let request = transport.apply_bearer(tonic::Request::new(request.to_proto()?))?;
 
@@ -76,7 +89,7 @@ pub async fn search_outputs_grpc(
         .await
         .map_err(SdkError::grpc_status)?;
 
-    SearchOutputsResponse::from_proto(
+    SearchResponse::from_proto(
         response.into_inner(),
         output_mode,
         diagnostics_enabled,
@@ -86,14 +99,18 @@ pub async fn search_outputs_grpc(
 
 pub async fn time_machine_outputs_grpc(
     transport: &GrpcTransport,
-    request: &TimeMachineOutputsGrpcRequest,
-) -> Result<TimeMachineOutputsResponse, SdkError> {
+    request: &TimeMachineGrpcRequest,
+) -> Result<TimeMachineResponse, SdkError> {
     let output_mode = request.output_mode()?;
     ensure_grpc_mode_supported(output_mode, "time machine outputs")?;
     let diagnostics_enabled = diagnostics_enabled(request.diagnostics);
     let path = PathAndQuery::from_static(TIME_MACHINE_OUTPUTS_PATH);
     let codec = ProstCodec::default();
-    let mut grpc = Grpc::new(transport.channel());
+    let mut grpc = Grpc::new(transport.channel())
+        .accept_compressed(CompressionEncoding::Gzip)
+        .accept_compressed(CompressionEncoding::Zstd)
+        .send_compressed(CompressionEncoding::Zstd)
+        .send_compressed(CompressionEncoding::Gzip);
     grpc.ready().await.map_err(SdkError::grpc_transport)?;
     let request = transport.apply_bearer(tonic::Request::new(request.to_proto()?))?;
 
@@ -102,7 +119,7 @@ pub async fn time_machine_outputs_grpc(
         .await
         .map_err(SdkError::grpc_status)?;
 
-    TimeMachineOutputsResponse::from_proto(response.into_inner(), output_mode, diagnostics_enabled)
+    TimeMachineResponse::from_proto(response.into_inner(), output_mode, diagnostics_enabled)
 }
 
 fn ensure_grpc_mode_supported(

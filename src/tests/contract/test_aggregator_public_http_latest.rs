@@ -2,7 +2,7 @@ use crate::core::auth::{BearerToken, apply_bearer_auth};
 use crate::core::config::{AggregatorConfig, HttpTransportConfig, MathildePublicHosts};
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
-use crate::systems::aggregator::{Aggregator, LatestBarsRequest, LatestBarsResponse};
+use crate::systems::aggregator::{Aggregator, LatestRequest};
 use crate::systems::types::{BarsView, HttpFormat, LatestMode, Timeframe};
 use prost::Message;
 use reqwest::header::{AUTHORIZATION, HeaderMap};
@@ -40,8 +40,8 @@ fn proto_bar_min(pair: &str) -> proto::BarRowV1 {
         taker_signed_n: Some(3),
         vw: Some(100.21),
         n: None,
-        coverage_ratio: Some(0.95),
-        at_ms: Some(1770000060005),
+        coverage_ratio: None,
+        at_ms: None,
         metadata: None,
     }
 }
@@ -71,7 +71,7 @@ fn proto_metadata() -> proto::BarMetadataV1 {
         recomputed_reason: None,
         covered_1m_count: None,
         expected_1m_count: None,
-        coverage_ratio: None,
+        coverage_ratio: Some(0.95),
         inputs_source_counts_frontier: None,
         inputs_source_counts_api: None,
         inputs_source_counts_synthetic: None,
@@ -82,7 +82,6 @@ fn proto_metadata() -> proto::BarMetadataV1 {
         frontier_5s_synth_ratio: Some(0.0),
         frontier_5s_trade_n: Some(12),
         frontier_5s_trade_ratio: Some(1.0),
-        age_ms: Some(202),
     }
 }
 
@@ -231,7 +230,7 @@ async fn test_docs_system_forms_correct_path_and_decodes_payload() {
 #[tokio::test]
 async fn test_latest_bars_uses_post_and_serializes_body_and_decodes_response() {
     let server = MockServer::start().await;
-    let request = LatestBarsRequest {
+    let request = LatestRequest {
         pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
@@ -288,23 +287,18 @@ async fn test_latest_bars_uses_post_and_serializes_body_and_decodes_response() {
     let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client.latest(&request).await.expect("latest bars success");
 
-    match out {
-        LatestBarsResponse::Min(out) => {
-            assert_eq!(out.latest_mode, LatestMode::ExactWatermark);
-            assert_eq!(out.view, BarsView::Min);
-            assert_eq!(out.rows.len(), 1);
-            assert_eq!(out.rows[0].bar.pair, "BTCUSDT");
-        }
-        LatestBarsResponse::Full(other) => {
-            panic!("expected min latest bars response, got full: {other:?}")
-        }
-    }
+    assert_eq!(out.latest_mode, LatestMode::ExactWatermark);
+    assert_eq!(out.view, BarsView::Min);
+    assert_eq!(out.rows.len(), 1);
+    assert_eq!(out.rows[0].pair, "BTCUSDT");
+    assert_eq!(out.rows[0].age_ms, Some(101));
+    assert!(out.rows[0].metadata.is_none());
 }
 
 #[tokio::test]
 async fn test_latest_bars_metadata_true_decodes_full_response() {
     let server = MockServer::start().await;
-    let request = LatestBarsRequest {
+    let request = LatestRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
@@ -361,7 +355,7 @@ async fn test_latest_bars_metadata_true_decodes_full_response() {
                         "recomputed_reason": null,
                         "covered_1m_count": null,
                         "expected_1m_count": null,
-                        "coverage_ratio": null,
+                        "coverage_ratio": 0.95,
                         "inputs_source_counts_frontier": null,
                         "inputs_source_counts_api": null,
                         "inputs_source_counts_synthetic": null,
@@ -400,33 +394,29 @@ async fn test_latest_bars_metadata_true_decodes_full_response() {
         .await
         .expect("latest bars full success");
 
-    match out {
-        LatestBarsResponse::Full(out) => {
-            assert_eq!(out.latest_mode, LatestMode::ExactWatermark);
-            assert_eq!(out.view, BarsView::Full);
-            assert_eq!(out.rows.len(), 1);
-            assert_eq!(out.rows[0].bar.pair, "BTCUSDT");
-            assert_eq!(out.rows[0].bar.metadata.source, "frontier");
-            assert_eq!(
-                out.rows[0].bar.metadata.venues_expected,
-                Some(vec![
-                    "binance".to_string(),
-                    "bybit".to_string(),
-                    "okx".to_string()
-                ])
-            );
-            assert_eq!(out.rows[0].bar.metadata.frontier_5s_expected, Some(12));
-        }
-        LatestBarsResponse::Min(other) => {
-            panic!("expected full latest bars response, got min: {other:?}")
-        }
-    }
+    assert_eq!(out.latest_mode, LatestMode::ExactWatermark);
+    assert_eq!(out.view, BarsView::Full);
+    assert_eq!(out.rows.len(), 1);
+    assert_eq!(out.rows[0].pair, "BTCUSDT");
+    assert_eq!(out.rows[0].age_ms, Some(101));
+    let metadata = out.rows[0].metadata.as_ref().expect("metadata");
+    assert_eq!(metadata.source, "frontier");
+    assert_eq!(metadata.coverage_ratio, Some(0.95));
+    assert_eq!(
+        metadata.venues_expected,
+        Some(vec![
+            "binance".to_string(),
+            "bybit".to_string(),
+            "okx".to_string()
+        ])
+    );
+    assert_eq!(metadata.frontier_5s_expected, Some(12));
 }
 
 #[tokio::test]
 async fn test_latest_bars_omitted_format_still_uses_json_branch() {
     let server = MockServer::start().await;
-    let request = LatestBarsRequest {
+    let request = LatestRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
@@ -461,21 +451,14 @@ async fn test_latest_bars_omitted_format_still_uses_json_branch() {
     let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client.latest(&request).await.expect("latest bars success");
 
-    match out {
-        LatestBarsResponse::Min(out) => {
-            assert_eq!(out.view, BarsView::Min);
-            assert_eq!(out.missing_pairs, vec!["BTCUSDT".to_string()]);
-        }
-        LatestBarsResponse::Full(other) => {
-            panic!("expected min latest bars response, got full: {other:?}")
-        }
-    }
+    assert_eq!(out.view, BarsView::Min);
+    assert_eq!(out.missing_pairs, vec!["BTCUSDT".to_string()]);
 }
 
 #[tokio::test]
 async fn test_latest_bars_format_protobuf_decodes_min_response() {
     let server = MockServer::start().await;
-    let request = LatestBarsRequest {
+    let request = LatestRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
@@ -510,25 +493,17 @@ async fn test_latest_bars_format_protobuf_decodes_min_response() {
         .await
         .expect("protobuf latest bars min success");
 
-    match out {
-        LatestBarsResponse::Min(out) => {
-            assert_eq!(out.view, BarsView::Min);
-            assert_eq!(out.rows.len(), 1);
-            assert_eq!(out.rows[0].bar.pair, "BTCUSDT");
-            assert_eq!(out.rows[0].age_ms, 101);
-            assert_eq!(out.rows[0].bar.coverage_ratio, Some(0.95));
-            assert_eq!(out.rows[0].bar.at_ms, Some(1770000060005));
-        }
-        LatestBarsResponse::Full(other) => {
-            panic!("expected min latest bars protobuf response, got full: {other:?}")
-        }
-    }
+    assert_eq!(out.view, BarsView::Min);
+    assert_eq!(out.rows.len(), 1);
+    assert_eq!(out.rows[0].pair, "BTCUSDT");
+    assert_eq!(out.rows[0].age_ms, Some(101));
+    assert!(out.rows[0].metadata.is_none());
 }
 
 #[tokio::test]
 async fn test_latest_bars_format_protobuf_decodes_full_response() {
     let server = MockServer::start().await;
-    let request = LatestBarsRequest {
+    let request = LatestRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
@@ -563,25 +538,20 @@ async fn test_latest_bars_format_protobuf_decodes_full_response() {
         .await
         .expect("protobuf latest bars full success");
 
-    match out {
-        LatestBarsResponse::Full(out) => {
-            assert_eq!(out.view, BarsView::Full);
-            assert_eq!(out.rows.len(), 1);
-            assert_eq!(out.rows[0].bar.pair, "BTCUSDT");
-            assert_eq!(out.rows[0].bar.metadata.source, "frontier");
-            assert_eq!(out.rows[0].bar.metadata.frontier_5s_expected, Some(12));
-            assert_eq!(out.rows[0].bar.metadata.age_ms, Some(202));
-        }
-        LatestBarsResponse::Min(other) => {
-            panic!("expected full latest bars protobuf response, got min: {other:?}")
-        }
-    }
+    assert_eq!(out.view, BarsView::Full);
+    assert_eq!(out.rows.len(), 1);
+    assert_eq!(out.rows[0].pair, "BTCUSDT");
+    assert_eq!(out.rows[0].age_ms, Some(101));
+    let metadata = out.rows[0].metadata.as_ref().expect("metadata");
+    assert_eq!(metadata.source, "frontier");
+    assert_eq!(metadata.frontier_5s_expected, Some(12));
+    assert_eq!(metadata.coverage_ratio, Some(0.95));
 }
 
 #[tokio::test]
 async fn test_latest_bars_invalid_protobuf_is_contract_drift() {
     let server = MockServer::start().await;
-    let request = LatestBarsRequest {
+    let request = LatestRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,

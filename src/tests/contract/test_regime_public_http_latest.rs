@@ -1,7 +1,6 @@
 use crate::core::auth::BearerToken;
 use crate::core::config::{HttpTransportConfig, MathildePublicHosts, RegimeConfig};
-use crate::generated::regime::ProjectedValue;
-use crate::systems::regime::{LatestOutputsRequest, Regime, RegimeOutput};
+use crate::systems::regime::{LatestRequest, Regime};
 use crate::systems::types::{HttpFormat, LatestMode, Timeframe};
 use wiremock::matchers::{body_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -98,7 +97,7 @@ async fn test_regime_docs_system_forms_correct_path_and_preserves_json_key_order
 #[tokio::test]
 async fn test_regime_latest_uses_post_and_decodes_projected_min_response() {
     let server = MockServer::start().await;
-    let request = LatestOutputsRequest {
+    let request = LatestRequest {
         pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::H1,
         latest_mode: Some(LatestMode::ExactWatermark),
@@ -150,12 +149,8 @@ async fn test_regime_latest_uses_post_and_decodes_projected_min_response() {
         .expect("latest outputs success");
 
     assert_eq!(out.missing_pairs, vec!["ETHUSDT".to_string()]);
-    match &out.rows[0].output {
-        RegimeOutput::ProjectedMin(output) => {
-            assert_eq!(output.pair, "BTCUSDT");
-            assert_eq!(output.tr_klts_score, ProjectedValue::Included(Some(0.75)));
-            assert!(output.diagnostics.is_none());
-        }
-        other => panic!("expected projected min output, got {other:?}"),
-    }
+    assert_eq!(out.rows[0].age_ms, 101);
+    assert_eq!(out.rows[0].row.pair, "BTCUSDT");
+    assert_eq!(out.rows[0].row.computed.f64("tr_klts_score"), Some(0.75));
+    assert!(out.rows[0].row.diagnostics.is_none());
 }

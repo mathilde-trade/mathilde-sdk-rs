@@ -59,13 +59,13 @@ async fn test_regime_docs_taxonomy_forms_correct_path_and_decodes_payload() {
 async fn test_regime_docs_registry_serializes_typed_selectors_and_decodes_payload() {
     let server = MockServer::start().await;
     let request = DocsRegistryRequest {
-        family: Some(vec![ProcessorFamily::Trend, ProcessorFamily::Metadata]),
+        family: Some(vec![ProcessorFamily::Trend]),
         group: Some(vec![ProcessorGroup::TrendQ1]),
     };
 
     Mock::given(method("GET"))
         .and(path("/v1/docs/registry"))
-        .and(query_param("family", "trend,metadata"))
+        .and(query_param("family", "trend"))
         .and(query_param("group", "trend.q1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "rows": [{

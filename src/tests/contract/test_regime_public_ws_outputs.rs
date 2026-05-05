@@ -1,9 +1,7 @@
 use crate::core::auth::BearerToken;
 use crate::core::config::{HttpTransportConfig, RegimeConfig, WsTransportConfig};
-use crate::generated::regime::ProjectedValue;
 use crate::systems::regime::{
     OutputsWsFormat, OutputsWsInboundFrame, OutputsWsPhase, OutputsWsSubscribeRequest, Regime,
-    RegimeOutput,
 };
 use crate::systems::types::Timeframe;
 use futures_util::{SinkExt, StreamExt};
@@ -87,20 +85,18 @@ async fn spawn_outputs_ws_server() -> (String, oneshot::Receiver<CapturedOutputs
         .expect("send meta");
         ws.send(Message::Text(
             serde_json::json!([{
-                "output": {
-                    "pair": "BTCUSDT",
-                    "tf": "1h",
-                    "open_ms": 1770000000000_i64,
-                    "close_ms": 1770003600000_i64,
-                    "open_utc": "2026-02-02T00:00:00Z",
-                    "close_utc": "2026-02-02T01:00:00Z",
-                    "o": 100.0,
-                    "h": 101.0,
-                    "l": 99.5,
-                    "c": 100.5,
-                    "v": 12.34,
-                    "tr_klts_score": 0.75
-                },
+                "pair": "BTCUSDT",
+                "tf": "1h",
+                "open_ms": 1770000000000_i64,
+                "close_ms": 1770003600000_i64,
+                "open_utc": "2026-02-02T00:00:00Z",
+                "close_utc": "2026-02-02T01:00:00Z",
+                "o": 100.0,
+                "h": 101.0,
+                "l": 99.5,
+                "c": 100.5,
+                "v": 12.34,
+                "tr_klts_score": 0.75,
                 "age_ms": 10
             }])
             .to_string()
@@ -173,14 +169,11 @@ async fn test_regime_connect_outputs_ws_sends_auth_secondary_and_decodes_json_fr
     }
 
     match rows {
-        OutputsWsInboundFrame::JsonRows(rows) => match &rows[0].output {
-            RegimeOutput::ProjectedMin(output) => {
-                assert_eq!(output.pair, "BTCUSDT");
-                assert_eq!(output.tr_klts_score, ProjectedValue::Included(Some(0.75)));
-                assert_eq!(rows[0].age_ms, 10);
-            }
-            other => panic!("expected projected min output, got {other:?}"),
-        },
+        OutputsWsInboundFrame::JsonRows(rows) => {
+            assert_eq!(rows[0].row.pair, "BTCUSDT");
+            assert_eq!(rows[0].row.computed.f64("tr_klts_score"), Some(0.75));
+            assert_eq!(rows[0].age_ms, 10);
+        }
         other => panic!("expected json rows, got {other:?}"),
     }
 }

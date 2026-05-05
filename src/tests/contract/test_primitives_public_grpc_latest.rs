@@ -1,7 +1,7 @@
 use crate::core::auth::BearerToken;
 use crate::core::config::{GrpcTransportConfig, HttpTransportConfig, PrimitivesConfig};
 use crate::generated::primitives::outputs_proto::mathilde::feed::outputs::v1 as proto;
-use crate::systems::primitives::{LatestOutputsGrpcRequest, PrimitiveOutput, Primitives};
+use crate::systems::primitives::{LatestGrpcRequest, Primitives};
 use crate::systems::types::{LatestMode, Timeframe};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -60,11 +60,7 @@ fn encode_grpc_message<M: Message>(message: M) -> Vec<u8> {
 }
 
 fn decode_grpc_message<M: Message + Default>(body: &[u8]) -> M {
-    assert!(body.len() >= 5, "grpc frame too short");
-    assert_eq!(body[0], 0, "compressed grpc frame unsupported in test");
-    let len = u32::from_be_bytes([body[1], body[2], body[3], body[4]]) as usize;
-    assert_eq!(body.len(), 5 + len, "grpc frame length mismatch");
-    M::decode(&body[5..]).expect("decode grpc message")
+    crate::tests::contract::grpc_test_support::decode_test_grpc_message(body)
 }
 
 async fn spawn_latest_grpc_server() -> (String, oneshot::Receiver<CapturedLatestRequest>) {
@@ -140,7 +136,7 @@ async fn test_latest_outputs_grpc_uses_unary_path_and_decodes_min_response() {
     let (base_url, captured_rx) = spawn_latest_grpc_server().await;
     let token = BearerToken::new("feed_public_token").expect("valid token");
     let client = Primitives::new(config_for_grpc(&base_url, Some(token))).expect("client");
-    let request = LatestOutputsGrpcRequest {
+    let request = LatestGrpcRequest {
         pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: Some(LatestMode::ExactWatermark),
@@ -170,11 +166,9 @@ async fn test_latest_outputs_grpc_uses_unary_path_and_decodes_min_response() {
     assert!(captured.body.exclude_sources.is_empty());
 
     assert_eq!(out.missing_pairs, vec!["ETHUSDT".to_string()]);
-    match &out.rows[0].output {
-        PrimitiveOutput::Min(output) => {
-            assert_eq!(output.pair, "BTCUSDT");
-            assert_eq!(output.bs_close_window_min, Some(0.75));
-        }
-        other => panic!("expected min output, got {other:?}"),
-    }
+    assert_eq!(out.rows[0].row.pair, "BTCUSDT");
+    assert_eq!(
+        out.rows[0].row.computed.f64("bs_close_window_min"),
+        Some(0.75)
+    );
 }

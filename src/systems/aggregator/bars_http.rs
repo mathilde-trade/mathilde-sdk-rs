@@ -3,8 +3,8 @@ use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1::{
     BarsLatestResponseV1, BarsRangeResponseV1, BarsSearchResponseV1, BarsTimeMachineResponseV1,
 };
 use crate::systems::aggregator::types::{
-    LatestBarsRequest, LatestBarsResponse, RangeBarsRequest, RangeBarsResponse, SearchBarsRequest,
-    SearchBarsResponse, TimeMachineBarsRequest, TimeMachineBarsResponse,
+    LatestRequest, LatestResponse, RangeRequest, RangeResponse, SearchRequest, SearchResponse,
+    TimeMachineRequest, TimeMachineResponse,
 };
 use crate::systems::types::HttpFormat;
 use crate::transport::http::HttpTransport;
@@ -13,8 +13,8 @@ use reqwest::Method;
 
 pub async fn latest_bars(
     transport: &HttpTransport,
-    request_body: &LatestBarsRequest,
-) -> Result<LatestBarsResponse, SdkError> {
+    request_body: &LatestRequest,
+) -> Result<LatestResponse, SdkError> {
     let normalized_request = request_body.normalize()?;
     let request = transport
         .request(Method::POST, "/v1/bars/latest")?
@@ -30,19 +30,19 @@ pub async fn latest_bars(
         let proto = BarsLatestResponseV1::decode(body.as_ref()).map_err(|source| {
             SdkError::contract_drift(format!("protobuf decode failed: {source}"))
         })?;
-        return LatestBarsResponse::from_proto(proto);
+        return LatestResponse::from_proto(proto);
     }
 
     response
-        .json::<LatestBarsResponse>()
+        .json::<LatestResponse>()
         .await
         .map_err(|source| SdkError::Decode { source })
 }
 
 pub async fn range_bars(
     transport: &HttpTransport,
-    request_body: &RangeBarsRequest,
-) -> Result<RangeBarsResponse, SdkError> {
+    request_body: &RangeRequest,
+) -> Result<RangeResponse, SdkError> {
     let normalized_request = request_body.normalize()?;
     let request = transport
         .request(Method::POST, "/v1/bars/range")?
@@ -58,28 +58,21 @@ pub async fn range_bars(
         let proto = BarsRangeResponseV1::decode(body.as_ref()).map_err(|source| {
             SdkError::contract_drift(format!("protobuf decode failed: {source}"))
         })?;
-        return RangeBarsResponse::from_proto(proto, normalized_request.metadata.unwrap_or(false));
+        return RangeResponse::from_proto(proto, normalized_request.metadata.unwrap_or(false));
     }
 
-    if normalized_request.metadata.unwrap_or(false) {
-        return response
-            .json::<crate::systems::aggregator::types::RangeBarsFullResponse>()
-            .await
-            .map(RangeBarsResponse::Full)
-            .map_err(|source| SdkError::Decode { source });
-    }
-
-    response
-        .json::<crate::systems::aggregator::types::RangeBarsMinResponse>()
+    let response = response
+        .json::<RangeResponse>()
         .await
-        .map(RangeBarsResponse::Min)
-        .map_err(|source| SdkError::Decode { source })
+        .map_err(|source| SdkError::Decode { source })?;
+    response.validate_metadata(normalized_request.metadata.unwrap_or(false))?;
+    Ok(response)
 }
 
 pub async fn search_bars(
     transport: &HttpTransport,
-    request_body: &SearchBarsRequest,
-) -> Result<SearchBarsResponse, SdkError> {
+    request_body: &SearchRequest,
+) -> Result<SearchResponse, SdkError> {
     let normalized_request = request_body.normalize()?;
     let request = transport
         .request(Method::POST, "/v1/bars/search")?
@@ -95,28 +88,21 @@ pub async fn search_bars(
         let proto = BarsSearchResponseV1::decode(body.as_ref()).map_err(|source| {
             SdkError::contract_drift(format!("protobuf decode failed: {source}"))
         })?;
-        return SearchBarsResponse::from_proto(proto, normalized_request.metadata.unwrap_or(false));
+        return SearchResponse::from_proto(proto, normalized_request.metadata.unwrap_or(false));
     }
 
-    if normalized_request.metadata.unwrap_or(false) {
-        return response
-            .json::<crate::systems::aggregator::types::SearchBarsFullResponse>()
-            .await
-            .map(SearchBarsResponse::Full)
-            .map_err(|source| SdkError::Decode { source });
-    }
-
-    response
-        .json::<crate::systems::aggregator::types::SearchBarsMinResponse>()
+    let response = response
+        .json::<SearchResponse>()
         .await
-        .map(SearchBarsResponse::Min)
-        .map_err(|source| SdkError::Decode { source })
+        .map_err(|source| SdkError::Decode { source })?;
+    response.validate_metadata(normalized_request.metadata.unwrap_or(false))?;
+    Ok(response)
 }
 
 pub async fn time_machine_bars(
     transport: &HttpTransport,
-    request_body: &TimeMachineBarsRequest,
-) -> Result<TimeMachineBarsResponse, SdkError> {
+    request_body: &TimeMachineRequest,
+) -> Result<TimeMachineResponse, SdkError> {
     let normalized_request = request_body.normalize()?;
     let request = transport
         .request(Method::POST, "/v1/bars/time-machine")?
@@ -132,23 +118,16 @@ pub async fn time_machine_bars(
         let proto = BarsTimeMachineResponseV1::decode(body.as_ref()).map_err(|source| {
             SdkError::contract_drift(format!("protobuf decode failed: {source}"))
         })?;
-        return TimeMachineBarsResponse::from_proto(
+        return TimeMachineResponse::from_proto(
             proto,
             normalized_request.metadata.unwrap_or(false),
         );
     }
 
-    if normalized_request.metadata.unwrap_or(false) {
-        return response
-            .json::<crate::systems::aggregator::types::TimeMachineBarsFullResponse>()
-            .await
-            .map(TimeMachineBarsResponse::Full)
-            .map_err(|source| SdkError::Decode { source });
-    }
-
-    response
-        .json::<crate::systems::aggregator::types::TimeMachineBarsMinResponse>()
+    let response = response
+        .json::<TimeMachineResponse>()
         .await
-        .map(TimeMachineBarsResponse::Min)
-        .map_err(|source| SdkError::Decode { source })
+        .map_err(|source| SdkError::Decode { source })?;
+    response.validate_metadata(normalized_request.metadata.unwrap_or(false))?;
+    Ok(response)
 }

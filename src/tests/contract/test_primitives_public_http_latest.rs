@@ -1,6 +1,6 @@
 use crate::core::auth::BearerToken;
 use crate::core::config::{HttpTransportConfig, MathildePublicHosts, PrimitivesConfig};
-use crate::systems::primitives::{LatestOutputsRequest, PrimitiveOutput, Primitives};
+use crate::systems::primitives::{LatestRequest, Primitives};
 use crate::systems::types::{HttpFormat, LatestMode, Timeframe};
 use wiremock::matchers::{body_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -99,7 +99,7 @@ async fn test_primitives_docs_system_forms_correct_path_and_preserves_json_key_o
 #[tokio::test]
 async fn test_latest_outputs_uses_post_and_decodes_min_response() {
     let server = MockServer::start().await;
-    let request = LatestOutputsRequest {
+    let request = LatestRequest {
         pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: Some(LatestMode::ExactWatermark),
@@ -160,12 +160,11 @@ async fn test_latest_outputs_uses_post_and_decodes_min_response() {
 
     assert_eq!(out.missing_pairs, vec!["ETHUSDT".to_string()]);
     assert_eq!(out.rows.len(), 1);
-    match &out.rows[0].output {
-        PrimitiveOutput::Min(output) => {
-            assert_eq!(output.pair, "BTCUSDT");
-            assert_eq!(output.bs_close_window_min, Some(0.75));
-            assert!(output.diagnostics.is_none());
-        }
-        other => panic!("expected min output, got {other:?}"),
-    }
+    assert_eq!(out.rows[0].age_ms, 101);
+    assert_eq!(out.rows[0].row.pair, "BTCUSDT");
+    assert_eq!(
+        out.rows[0].row.computed.f64("bs_close_window_min"),
+        Some(0.75)
+    );
+    assert!(out.rows[0].row.diagnostics.is_none());
 }

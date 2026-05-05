@@ -1,7 +1,7 @@
 use crate::core::config::{HttpTransportConfig, RegimeConfig};
 use crate::core::time::TimeInput;
-use crate::generated::regime::{ProcessorFamily, ProcessorGroup, ProjectedValue};
-use crate::systems::regime::{Regime, RegimeOutput, TimeMachineOutputsRequest};
+use crate::generated::regime::{ProcessorFamily, ProcessorGroup};
+use crate::systems::regime::{Regime, TimeMachineRequest};
 use crate::systems::types::{HttpFormat, Timeframe};
 use wiremock::matchers::{body_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -18,7 +18,7 @@ fn config_for_http(base_url: &str) -> RegimeConfig {
 #[tokio::test]
 async fn test_regime_time_machine_outputs_uses_post_and_decodes_projected_with_meta_response() {
     let server = MockServer::start().await;
-    let request = TimeMachineOutputsRequest {
+    let request = TimeMachineRequest {
         tf: Timeframe::H1,
         close_start: TimeInput::from(1_770_000_000_000_i64),
         close_end: Some(TimeInput::from(1_770_021_600_000_i64)),
@@ -89,12 +89,10 @@ async fn test_regime_time_machine_outputs_uses_post_and_decodes_projected_with_m
         .expect("time-machine outputs success");
 
     assert_eq!(out.rows.len(), 1);
-    match &out.rows[0].output {
-        RegimeOutput::ProjectedWithMeta(output) => {
-            assert_eq!(output.metadata.source, "feed");
-            assert_eq!(output.tr_klts_score, ProjectedValue::Included(Some(1.5)));
-            assert!(output.diagnostics.is_none());
-        }
-        other => panic!("expected projected with-meta output, got {other:?}"),
-    }
+    assert_eq!(
+        out.rows[0].row.metadata.as_ref().expect("metadata").source,
+        "feed"
+    );
+    assert_eq!(out.rows[0].row.computed.f64("tr_klts_score"), Some(1.5));
+    assert!(out.rows[0].row.diagnostics.is_none());
 }

@@ -1,7 +1,7 @@
 use crate::core::config::{AggregatorConfig, HttpTransportConfig};
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
-use crate::systems::aggregator::{Aggregator, SearchBarsRequest, SearchBarsResponse};
+use crate::systems::aggregator::{Aggregator, SearchRequest};
 use crate::systems::types::{HttpFormat, Timeframe};
 use prost::Message;
 use wiremock::matchers::{body_json, method, path};
@@ -38,8 +38,8 @@ fn proto_bar_min(pair: &str) -> proto::BarRowV1 {
         taker_signed_n: Some(3),
         vw: Some(100.21),
         n: None,
-        coverage_ratio: Some(0.95),
-        at_ms: Some(1770000060005),
+        coverage_ratio: None,
+        at_ms: None,
         metadata: None,
     }
 }
@@ -69,7 +69,7 @@ fn proto_metadata() -> proto::BarMetadataV1 {
         recomputed_reason: None,
         covered_1m_count: None,
         expected_1m_count: None,
-        coverage_ratio: None,
+        coverage_ratio: Some(0.95),
         inputs_source_counts_frontier: None,
         inputs_source_counts_api: None,
         inputs_source_counts_synthetic: None,
@@ -80,7 +80,6 @@ fn proto_metadata() -> proto::BarMetadataV1 {
         frontier_5s_synth_ratio: Some(0.0),
         frontier_5s_trade_n: Some(12),
         frontier_5s_trade_ratio: Some(1.0),
-        age_ms: Some(202),
     }
 }
 
@@ -118,7 +117,7 @@ fn proto_search_response_full() -> proto::BarsSearchResponseV1 {
 #[tokio::test]
 async fn test_search_bars_uses_post_and_normalizes_time_inputs_and_decodes_min_json() {
     let server = MockServer::start().await;
-    let request = SearchBarsRequest {
+    let request = SearchRequest {
         tf: Timeframe::M1,
         close_start: "2026-02-02T00:00:00Z".into(),
         close_end: Some(1770003600000_i64.into()),
@@ -185,23 +184,21 @@ async fn test_search_bars_uses_post_and_normalizes_time_inputs_and_decodes_min_j
     let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client.search(&request).await.expect("search success");
 
-    match out {
-        SearchBarsResponse::Min(out) => {
-            assert_eq!(out.hits.len(), 2);
-            assert_eq!(out.evaluated_rows.as_ref().expect("rows").len(), 1);
-            assert_eq!(out.next_cursor.as_deref(), Some("cursor-1"));
-            assert!(!out.done);
-        }
-        SearchBarsResponse::Full(other) => {
-            panic!("expected min search response, got full: {other:?}")
-        }
-    }
+    assert_eq!(out.hits.len(), 2);
+    assert_eq!(out.evaluated_rows.as_ref().expect("rows").len(), 1);
+    assert!(
+        out.evaluated_rows.as_ref().expect("rows")[0]
+            .metadata
+            .is_none()
+    );
+    assert_eq!(out.next_cursor.as_deref(), Some("cursor-1"));
+    assert!(!out.done);
 }
 
 #[tokio::test]
 async fn test_search_bars_omitted_close_end_serializes_as_absent_and_decodes_full_json() {
     let server = MockServer::start().await;
-    let request = SearchBarsRequest {
+    let request = SearchRequest {
         tf: Timeframe::M1,
         close_start: "2026-02-02:00:00".into(),
         close_end: None,
@@ -271,7 +268,7 @@ async fn test_search_bars_omitted_close_end_serializes_as_absent_and_decodes_ful
                         "recomputed_reason": null,
                         "covered_1m_count": null,
                         "expected_1m_count": null,
-                        "coverage_ratio": null,
+                        "coverage_ratio": 0.95,
                         "inputs_source_counts_frontier": null,
                         "inputs_source_counts_api": null,
                         "inputs_source_counts_synthetic": null,
@@ -304,27 +301,22 @@ async fn test_search_bars_omitted_close_end_serializes_as_absent_and_decodes_ful
     let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client.search(&request).await.expect("search success");
 
-    match out {
-        SearchBarsResponse::Full(out) => {
-            assert_eq!(out.hits.len(), 1);
-            assert_eq!(
-                out.evaluated_rows.as_ref().expect("rows")[0]
-                    .metadata
-                    .source,
-                "frontier"
-            );
-            assert!(out.done);
-        }
-        SearchBarsResponse::Min(other) => {
-            panic!("expected full search response, got min: {other:?}")
-        }
-    }
+    assert_eq!(out.hits.len(), 1);
+    assert_eq!(
+        out.evaluated_rows.as_ref().expect("rows")[0]
+            .metadata
+            .as_ref()
+            .expect("metadata")
+            .source,
+        "frontier"
+    );
+    assert!(out.done);
 }
 
 #[tokio::test]
 async fn test_search_bars_protobuf_decodes_min_response() {
     let server = MockServer::start().await;
-    let request = SearchBarsRequest {
+    let request = SearchRequest {
         tf: Timeframe::M1,
         close_start: 1770000000000_i64.into(),
         close_end: Some(1770003600000_i64.into()),
@@ -353,33 +345,23 @@ async fn test_search_bars_protobuf_decodes_min_response() {
         .await
         .expect("protobuf search success");
 
-    match out {
-        SearchBarsResponse::Min(out) => {
-            assert_eq!(out.hits.len(), 2);
-            assert_eq!(
-                out.evaluated_rows.as_ref().expect("rows")[0].pair,
-                "BTCUSDT"
-            );
-            assert_eq!(
-                out.evaluated_rows.as_ref().expect("rows")[0].coverage_ratio,
-                Some(0.95)
-            );
-            assert_eq!(
-                out.evaluated_rows.as_ref().expect("rows")[0].at_ms,
-                Some(1770000060005)
-            );
-            assert_eq!(out.next_cursor.as_deref(), Some("cursor-1"));
-        }
-        SearchBarsResponse::Full(other) => {
-            panic!("expected min protobuf search response, got full: {other:?}")
-        }
-    }
+    assert_eq!(out.hits.len(), 2);
+    assert_eq!(
+        out.evaluated_rows.as_ref().expect("rows")[0].pair,
+        "BTCUSDT"
+    );
+    assert!(
+        out.evaluated_rows.as_ref().expect("rows")[0]
+            .metadata
+            .is_none()
+    );
+    assert_eq!(out.next_cursor.as_deref(), Some("cursor-1"));
 }
 
 #[tokio::test]
 async fn test_search_bars_protobuf_decodes_full_response() {
     let server = MockServer::start().await;
-    let request = SearchBarsRequest {
+    let request = SearchRequest {
         tf: Timeframe::M1,
         close_start: 1770000000000_i64.into(),
         close_end: Some(1770003600000_i64.into()),
@@ -408,32 +390,19 @@ async fn test_search_bars_protobuf_decodes_full_response() {
         .await
         .expect("protobuf full search success");
 
-    match out {
-        SearchBarsResponse::Full(out) => {
-            assert_eq!(out.hits.len(), 1);
-            assert_eq!(
-                out.evaluated_rows.as_ref().expect("rows")[0]
-                    .metadata
-                    .source,
-                "frontier"
-            );
-            assert_eq!(
-                out.evaluated_rows.as_ref().expect("rows")[0]
-                    .metadata
-                    .age_ms,
-                Some(202)
-            );
-        }
-        SearchBarsResponse::Min(other) => {
-            panic!("expected full protobuf search response, got min: {other:?}")
-        }
-    }
+    assert_eq!(out.hits.len(), 1);
+    let metadata = out.evaluated_rows.as_ref().expect("rows")[0]
+        .metadata
+        .as_ref()
+        .expect("metadata");
+    assert_eq!(metadata.source, "frontier");
+    assert_eq!(metadata.coverage_ratio, Some(0.95));
 }
 
 #[tokio::test]
 async fn test_search_bars_non_success_http_status_returns_typed_error() {
     let server = MockServer::start().await;
-    let request = SearchBarsRequest {
+    let request = SearchRequest {
         tf: Timeframe::M1,
         close_start: 1770000000000_i64.into(),
         close_end: Some(1770003600000_i64.into()),
@@ -469,7 +438,7 @@ async fn test_search_bars_non_success_http_status_returns_typed_error() {
 #[tokio::test]
 async fn test_search_bars_invalid_json_returns_decode_error() {
     let server = MockServer::start().await;
-    let request = SearchBarsRequest {
+    let request = SearchRequest {
         tf: Timeframe::M1,
         close_start: 1770000000000_i64.into(),
         close_end: Some(1770003600000_i64.into()),
@@ -506,7 +475,7 @@ async fn test_search_bars_invalid_json_returns_decode_error() {
 #[tokio::test]
 async fn test_search_bars_invalid_protobuf_returns_contract_drift() {
     let server = MockServer::start().await;
-    let request = SearchBarsRequest {
+    let request = SearchRequest {
         tf: Timeframe::M1,
         close_start: 1770000000000_i64.into(),
         close_end: Some(1770003600000_i64.into()),
@@ -545,7 +514,7 @@ async fn test_search_bars_invalid_protobuf_returns_contract_drift() {
 #[tokio::test]
 async fn test_search_bars_call_send_matches_one_page_method() {
     let server = MockServer::start().await;
-    let request = SearchBarsRequest {
+    let request = SearchRequest {
         tf: Timeframe::M1,
         close_start: "2026-02-02T00:00:00Z".into(),
         close_end: Some(1770003600000_i64.into()),
@@ -627,7 +596,7 @@ async fn test_search_bars_call_send_matches_one_page_method() {
 #[tokio::test]
 async fn test_search_bars_call_traverse_requires_explicit_close_end() {
     let client = Aggregator::new(config_for_http("http://127.0.0.1:1")).expect("dummy client");
-    let request = SearchBarsRequest {
+    let request = SearchRequest {
         tf: Timeframe::M1,
         close_start: "2026-02-02T00:00:00Z".into(),
         close_end: None,
@@ -656,7 +625,7 @@ async fn test_search_bars_call_traverse_requires_explicit_close_end() {
 #[tokio::test]
 async fn test_search_bars_pager_requires_explicit_close_end() {
     let client = Aggregator::new(config_for_http("http://127.0.0.1:1")).expect("dummy client");
-    let request = SearchBarsRequest {
+    let request = SearchRequest {
         tf: Timeframe::M1,
         close_start: "2026-02-02T00:00:00Z".into(),
         close_end: None,

@@ -49,7 +49,6 @@ message BarMetadataV1 {
   optional double frontier_5s_synth_ratio = 29;
   optional int64 frontier_5s_trade_n = 30;
   optional double frontier_5s_trade_ratio = 31;
-  optional int64 age_ms = 32;
 }
 
 message BarRowV1 {

@@ -1,8 +1,8 @@
 use crate::core::config::GrpcTransportConfig;
 use crate::core::error::SdkError;
 use crate::generated::primitives::ProcessorFamily;
-use crate::systems::primitives::LatestOutputsGrpcRequest;
-use crate::systems::primitives::outputs_grpc::latest_outputs_grpc;
+use crate::systems::primitives::LatestGrpcRequest;
+use crate::systems::primitives::latest_outputs_grpc;
 use crate::systems::types::Timeframe;
 use crate::transport::grpc::GrpcTransport;
 
@@ -13,7 +13,7 @@ async fn test_grpc_projected_latest_is_rejected_before_transport() {
         None,
     )
     .expect("transport");
-    let request = LatestOutputsGrpcRequest {
+    let request = LatestGrpcRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: None,

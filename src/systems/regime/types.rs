@@ -1,13 +1,14 @@
 use crate::core::error::SdkError;
 use crate::core::time::TimeInput;
 use crate::generated::regime::{
-    OutputMetadata, OutputProcessDiagnostic, ProcessorFamily, ProcessorGroup, ProcessorOutputMin,
-    ProcessorOutputWithMeta, ProcessorProjectedOutputMin, ProcessorProjectedOutputWithMeta,
-    outputs_proto::mathilde::feed::outputs::v1 as proto,
+    OutputBarsMetadata, OutputMetadata, OutputProcessDiagnostic, PROCESSOR_FIELD_NAMES,
+    ProcessorFamily, ProcessorGroup, outputs_proto::mathilde::feed::outputs::v1 as proto,
+};
+use crate::systems::compute_proto::{
+    OUTPUT_ROW_COMPUTED_FIRST_FIELD_NUMBER, extract_numeric_computed_fields_from_message,
 };
 use crate::systems::types::{AlignMode, HttpFormat, LatestMode, Timeframe};
 use prost::Message;
-use serde::de::DeserializeOwned;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RegimeOutputMode {
@@ -43,59 +44,102 @@ impl OutputView {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum RegimeOutput {
-    Min(ProcessorOutputMin),
-    WithMeta(ProcessorOutputWithMeta),
-    ProjectedMin(ProcessorProjectedOutputMin),
-    ProjectedWithMeta(ProcessorProjectedOutputWithMeta),
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize)]
+#[serde(transparent)]
+pub struct ComputedFields(pub(crate) serde_json::Map<String, serde_json::Value>);
+
+impl ComputedFields {
+    pub fn get(&self, key: &str) -> Option<&serde_json::Value> {
+        self.0.get(key)
+    }
+
+    pub fn f64(&self, key: &str) -> Option<f64> {
+        self.get(key)?.as_f64()
+    }
+
+    pub fn i64(&self, key: &str) -> Option<i64> {
+        self.get(key)?.as_i64()
+    }
+
+    pub fn bool(&self, key: &str) -> Option<bool> {
+        self.get(key)?.as_bool()
+    }
+
+    pub fn str_value(&self, key: &str) -> Option<&str> {
+        self.get(key)?.as_str()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &serde_json::Value)> {
+        self.0.iter().map(|(key, value)| (key.as_str(), value))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn into_inner(self) -> serde_json::Map<String, serde_json::Value> {
+        self.0
+    }
 }
 
-impl RegimeOutput {
-    pub fn is_projected(&self) -> bool {
-        self.mode().is_projected()
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct OutputRow {
+    pub pair: String,
+    pub tf: String,
+    pub open_ms: i64,
+    pub close_ms: i64,
+    pub open_utc: String,
+    pub close_utc: String,
+    pub o: f64,
+    pub h: f64,
+    pub l: f64,
+    pub c: f64,
+    pub v: f64,
+    pub quote_v: Option<f64>,
+    pub taker_known_v: Option<f64>,
+    pub taker_signed_v: Option<f64>,
+    pub taker_known_quote_v: Option<f64>,
+    pub taker_signed_quote_v: Option<f64>,
+    pub taker_known_n: Option<i64>,
+    pub taker_signed_n: Option<i64>,
+    pub vw: Option<f64>,
+    pub n: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<OutputMetadata>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<Vec<OutputProcessDiagnostic>>,
+    #[serde(skip_serializing_if = "ComputedFields::is_empty")]
+    pub computed: ComputedFields,
+}
+
+impl OutputRow {
+    pub fn computed(&self) -> &ComputedFields {
+        &self.computed
     }
 
-    pub fn has_metadata(&self) -> bool {
-        self.mode().has_metadata()
-    }
-
-    pub fn diagnostics(&self) -> Option<&[OutputProcessDiagnostic]> {
-        match self {
-            Self::Min(output) => output.diagnostics.as_deref(),
-            Self::WithMeta(output) => output.diagnostics.as_deref(),
-            Self::ProjectedMin(output) => output.diagnostics.as_deref(),
-            Self::ProjectedWithMeta(output) => output.diagnostics.as_deref(),
-        }
-    }
-
-    pub fn metadata(&self) -> Option<&OutputMetadata> {
-        match self {
-            Self::Min(_) | Self::ProjectedMin(_) => None,
-            Self::WithMeta(output) => Some(&output.metadata),
-            Self::ProjectedWithMeta(output) => Some(&output.metadata),
-        }
-    }
-
-    pub(crate) const fn mode(&self) -> RegimeOutputMode {
-        match self {
-            Self::Min(_) => RegimeOutputMode::Min,
-            Self::WithMeta(_) => RegimeOutputMode::WithMeta,
-            Self::ProjectedMin(_) => RegimeOutputMode::ProjectedMin,
-            Self::ProjectedWithMeta(_) => RegimeOutputMode::ProjectedWithMeta,
+    pub(crate) fn ensure_metadata_shape(
+        &self,
+        metadata_required: bool,
+        context: &'static str,
+    ) -> Result<(), SdkError> {
+        match (metadata_required, self.metadata.is_some()) {
+            (true, false) => Err(SdkError::contract_drift(format!(
+                "{context} missing `metadata`"
+            ))),
+            (false, true) => Err(SdkError::contract_drift(format!(
+                "{context} unexpectedly included `metadata`"
+            ))),
+            _ => Ok(()),
         }
     }
 
     pub(crate) fn apply_diagnostics_gate(mut self, enabled: bool) -> Self {
-        if enabled {
-            return self;
-        }
-
-        match &mut self {
-            Self::Min(output) => output.diagnostics = None,
-            Self::WithMeta(output) => output.diagnostics = None,
-            Self::ProjectedMin(output) => output.diagnostics = None,
-            Self::ProjectedWithMeta(output) => output.diagnostics = None,
+        if !enabled {
+            self.diagnostics = None;
         }
         self
     }
@@ -210,7 +254,7 @@ pub struct DownloadedFile {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct LatestOutputsRequest {
+pub struct LatestRequest {
     pub pairs: Vec<String>,
     pub tf: Timeframe,
     pub latest_mode: Option<LatestMode>,
@@ -222,7 +266,7 @@ pub struct LatestOutputsRequest {
     pub format: Option<HttpFormat>,
 }
 
-impl LatestOutputsRequest {
+impl LatestRequest {
     pub fn validate(&self) -> Result<(), SdkError> {
         ensure_supported_regime_tf(self.tf, "latest outputs")?;
         let _ = self.output_mode()?;
@@ -240,7 +284,7 @@ impl LatestOutputsRequest {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct LatestOutputsGrpcRequest {
+pub struct LatestGrpcRequest {
     pub pairs: Vec<String>,
     pub tf: Timeframe,
     pub latest_mode: Option<LatestMode>,
@@ -251,7 +295,7 @@ pub struct LatestOutputsGrpcRequest {
     pub diagnostics: Option<bool>,
 }
 
-impl LatestOutputsGrpcRequest {
+impl LatestGrpcRequest {
     pub fn validate(&self) -> Result<(), SdkError> {
         ensure_supported_regime_tf(self.tf, "latest outputs")?;
         let _ = self.output_mode()?;
@@ -268,8 +312,8 @@ impl LatestOutputsGrpcRequest {
     }
 }
 
-impl From<&LatestOutputsRequest> for LatestOutputsGrpcRequest {
-    fn from(value: &LatestOutputsRequest) -> Self {
+impl From<&LatestRequest> for LatestGrpcRequest {
+    fn from(value: &LatestRequest) -> Self {
         Self {
             pairs: value.pairs.clone(),
             tf: value.tf,
@@ -284,7 +328,7 @@ impl From<&LatestOutputsRequest> for LatestOutputsGrpcRequest {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct RangeOutputsRequest {
+pub struct RangeRequest {
     pub pairs: Vec<String>,
     pub tf: Timeframe,
     pub align_mode: Option<AlignMode>,
@@ -300,7 +344,7 @@ pub struct RangeOutputsRequest {
     pub format: Option<HttpFormat>,
 }
 
-impl RangeOutputsRequest {
+impl RangeRequest {
     pub fn validate(&self) -> Result<(), SdkError> {
         ensure_supported_regime_tf(self.tf, "range outputs")?;
         let _ = self.output_mode()?;
@@ -318,7 +362,7 @@ impl RangeOutputsRequest {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct RangeOutputsGrpcRequest {
+pub struct RangeGrpcRequest {
     pub pairs: Vec<String>,
     pub tf: Timeframe,
     pub align_mode: Option<AlignMode>,
@@ -333,7 +377,7 @@ pub struct RangeOutputsGrpcRequest {
     pub diagnostics: Option<bool>,
 }
 
-impl RangeOutputsGrpcRequest {
+impl RangeGrpcRequest {
     pub fn validate(&self) -> Result<(), SdkError> {
         ensure_supported_regime_tf(self.tf, "range outputs")?;
         let _ = self.output_mode()?;
@@ -350,8 +394,8 @@ impl RangeOutputsGrpcRequest {
     }
 }
 
-impl From<&RangeOutputsRequest> for RangeOutputsGrpcRequest {
-    fn from(value: &RangeOutputsRequest) -> Self {
+impl From<&RangeRequest> for RangeGrpcRequest {
+    fn from(value: &RangeRequest) -> Self {
         Self {
             pairs: value.pairs.clone(),
             tf: value.tf,
@@ -370,7 +414,7 @@ impl From<&RangeOutputsRequest> for RangeOutputsGrpcRequest {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct SearchOutputsRequest {
+pub struct SearchRequest {
     pub tf: Timeframe,
     pub close_start: TimeInput,
     pub close_end: Option<TimeInput>,
@@ -386,7 +430,7 @@ pub struct SearchOutputsRequest {
     pub format: Option<HttpFormat>,
 }
 
-impl SearchOutputsRequest {
+impl SearchRequest {
     pub fn validate(&self) -> Result<(), SdkError> {
         ensure_supported_regime_tf(self.tf, "search outputs")?;
         let _ = self.output_mode()?;
@@ -404,7 +448,7 @@ impl SearchOutputsRequest {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct SearchOutputsGrpcRequest {
+pub struct SearchGrpcRequest {
     pub tf: Timeframe,
     pub close_start: TimeInput,
     pub close_end: Option<TimeInput>,
@@ -419,7 +463,7 @@ pub struct SearchOutputsGrpcRequest {
     pub max_hits: Option<i64>,
 }
 
-impl SearchOutputsGrpcRequest {
+impl SearchGrpcRequest {
     pub fn validate(&self) -> Result<(), SdkError> {
         ensure_supported_regime_tf(self.tf, "search outputs")?;
         let _ = self.output_mode()?;
@@ -436,8 +480,8 @@ impl SearchOutputsGrpcRequest {
     }
 }
 
-impl From<&SearchOutputsRequest> for SearchOutputsGrpcRequest {
-    fn from(value: &SearchOutputsRequest) -> Self {
+impl From<&SearchRequest> for SearchGrpcRequest {
+    fn from(value: &SearchRequest) -> Self {
         Self {
             tf: value.tf,
             close_start: value.close_start.clone(),
@@ -456,7 +500,7 @@ impl From<&SearchOutputsRequest> for SearchOutputsGrpcRequest {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct TimeMachineOutputsRequest {
+pub struct TimeMachineRequest {
     pub tf: Timeframe,
     pub close_start: TimeInput,
     pub close_end: Option<TimeInput>,
@@ -476,7 +520,7 @@ pub struct TimeMachineOutputsRequest {
     pub format: Option<HttpFormat>,
 }
 
-impl TimeMachineOutputsRequest {
+impl TimeMachineRequest {
     pub fn validate(&self) -> Result<(), SdkError> {
         ensure_supported_regime_tf(self.tf, "time machine outputs")?;
         let _ = self.output_mode()?;
@@ -494,7 +538,7 @@ impl TimeMachineOutputsRequest {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct TimeMachineOutputsGrpcRequest {
+pub struct TimeMachineGrpcRequest {
     pub tf: Timeframe,
     pub close_start: TimeInput,
     pub close_end: Option<TimeInput>,
@@ -513,7 +557,7 @@ pub struct TimeMachineOutputsGrpcRequest {
     pub overlap_mode: Option<String>,
 }
 
-impl TimeMachineOutputsGrpcRequest {
+impl TimeMachineGrpcRequest {
     pub fn validate(&self) -> Result<(), SdkError> {
         ensure_supported_regime_tf(self.tf, "time machine outputs")?;
         let _ = self.output_mode()?;
@@ -530,8 +574,8 @@ impl TimeMachineOutputsGrpcRequest {
     }
 }
 
-impl From<&TimeMachineOutputsRequest> for TimeMachineOutputsGrpcRequest {
-    fn from(value: &TimeMachineOutputsRequest) -> Self {
+impl From<&TimeMachineRequest> for TimeMachineGrpcRequest {
+    fn from(value: &TimeMachineRequest) -> Self {
         Self {
             tf: value.tf,
             close_start: value.close_start.clone(),
@@ -551,113 +595,6 @@ impl From<&TimeMachineOutputsRequest> for TimeMachineOutputsGrpcRequest {
             overlap_mode: value.overlap_mode.clone(),
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct LatestOutputsPresentRow {
-    pub output: RegimeOutput,
-    pub age_ms: i64,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct LatestOutputsResponse {
-    pub watermark_end_ms: i64,
-    pub close_end_ms: i64,
-    pub latest_mode: LatestMode,
-    pub view: OutputView,
-    pub rows: Vec<LatestOutputsPresentRow>,
-    pub missing_pairs: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct RangeOutputsResponse {
-    pub rows: Vec<RegimeOutput>,
-    pub close_end_ms: i64,
-    pub next_cursor: Option<String>,
-}
-
-impl RangeOutputsResponse {
-    pub fn next_cursor(&self) -> Option<&str> {
-        self.next_cursor.as_deref()
-    }
-
-    pub fn close_end_ms(&self) -> i64 {
-        self.close_end_ms
-    }
-
-    pub fn done(&self) -> bool {
-        self.next_cursor.is_none()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct RangeOutputsTraverseResult {
-    pub pages: Vec<RangeOutputsResponse>,
-    pub pages_fetched: usize,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SearchOutputsResponse {
-    pub hits: Vec<i64>,
-    pub evaluated_rows: Option<Vec<RegimeOutput>>,
-    pub next_cursor: Option<String>,
-    pub done: bool,
-    pub returned_hits: i64,
-    pub effective_hits_limit: i64,
-    pub truncated: bool,
-    pub predicate_pairs: Vec<String>,
-    pub predicate_normalized: String,
-}
-
-impl SearchOutputsResponse {
-    pub fn next_cursor(&self) -> Option<&str> {
-        self.next_cursor.as_deref()
-    }
-
-    pub fn done(&self) -> bool {
-        self.done
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SearchOutputsTraverseResult {
-    pub pages: Vec<SearchOutputsResponse>,
-    pub pages_fetched: usize,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct TimeMachineOutputsRow {
-    pub hit_close_ms: i64,
-    pub offset: i64,
-    pub output: RegimeOutput,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct TimeMachineOutputsResponse {
-    pub rows: Vec<TimeMachineOutputsRow>,
-    pub next_cursor: Option<String>,
-    pub done: bool,
-    pub returned_hits: i64,
-    pub effective_hits_limit: i64,
-    pub truncated: bool,
-    pub predicate_pairs: Vec<String>,
-    pub predicate_normalized: Option<String>,
-}
-
-impl TimeMachineOutputsResponse {
-    pub fn next_cursor(&self) -> Option<&str> {
-        self.next_cursor.as_deref()
-    }
-
-    pub fn done(&self) -> bool {
-        self.done
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct TimeMachineOutputsTraverseResult {
-    pub pages: Vec<TimeMachineOutputsResponse>,
-    pub pages_fetched: usize,
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
@@ -734,7 +671,7 @@ pub(crate) struct NormalizedTimeMachineOutputsRequest {
     pub format: Option<HttpFormat>,
 }
 
-impl LatestOutputsRequest {
+impl LatestRequest {
     pub(crate) fn normalize_http(&self) -> Result<NormalizedLatestOutputsRequest, SdkError> {
         self.validate()?;
         Ok(NormalizedLatestOutputsRequest {
@@ -751,7 +688,7 @@ impl LatestOutputsRequest {
     }
 }
 
-impl LatestOutputsGrpcRequest {
+impl LatestGrpcRequest {
     pub(crate) fn to_proto(&self) -> Result<proto::LatestOutputsRequestV1, SdkError> {
         self.validate()?;
         Ok(proto::LatestOutputsRequestV1 {
@@ -772,7 +709,7 @@ impl LatestOutputsGrpcRequest {
     }
 }
 
-impl RangeOutputsRequest {
+impl RangeRequest {
     pub(crate) fn normalize_http(&self) -> Result<NormalizedRangeOutputsRequest, SdkError> {
         self.validate()?;
         Ok(NormalizedRangeOutputsRequest {
@@ -801,7 +738,7 @@ impl RangeOutputsRequest {
     }
 }
 
-impl RangeOutputsGrpcRequest {
+impl RangeGrpcRequest {
     pub(crate) fn to_proto(&self) -> Result<proto::RangeOutputsRequestV1, SdkError> {
         self.validate()?;
         Ok(proto::RangeOutputsRequestV1 {
@@ -832,7 +769,7 @@ impl RangeOutputsGrpcRequest {
     }
 }
 
-impl SearchOutputsRequest {
+impl SearchRequest {
     pub(crate) fn normalize_http(&self) -> Result<NormalizedSearchOutputsRequest, SdkError> {
         self.validate()?;
         Ok(NormalizedSearchOutputsRequest {
@@ -857,7 +794,7 @@ impl SearchOutputsRequest {
     }
 }
 
-impl SearchOutputsGrpcRequest {
+impl SearchGrpcRequest {
     pub(crate) fn to_proto(&self) -> Result<proto::SearchOutputsRequestV1, SdkError> {
         self.validate()?;
         Ok(proto::SearchOutputsRequestV1 {
@@ -883,7 +820,7 @@ impl SearchOutputsGrpcRequest {
     }
 }
 
-impl TimeMachineOutputsRequest {
+impl TimeMachineRequest {
     pub(crate) fn normalize_http(&self) -> Result<NormalizedTimeMachineOutputsRequest, SdkError> {
         self.validate()?;
         Ok(NormalizedTimeMachineOutputsRequest {
@@ -916,7 +853,7 @@ impl TimeMachineOutputsRequest {
     }
 }
 
-impl TimeMachineOutputsGrpcRequest {
+impl TimeMachineGrpcRequest {
     pub(crate) fn to_proto(&self) -> Result<proto::TimeMachineOutputsRequestV1, SdkError> {
         self.validate()?;
         Ok(proto::TimeMachineOutputsRequestV1 {
@@ -951,40 +888,179 @@ impl TimeMachineOutputsGrpcRequest {
     }
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
-pub(crate) struct LatestOutputsPresentRowWire<T> {
-    output: T,
-    age_ms: i64,
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct LatestPresentRow {
+    pub row: OutputRow,
+    pub age_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct LatestResponse {
+    pub watermark_end_ms: i64,
+    pub close_end_ms: i64,
+    pub latest_mode: LatestMode,
+    pub view: OutputView,
+    pub rows: Vec<LatestPresentRow>,
+    pub missing_pairs: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct RangeResponse {
+    pub rows: Vec<OutputRow>,
+    pub close_end_ms: i64,
+    pub next_cursor: Option<String>,
+}
+
+impl RangeResponse {
+    pub fn next_cursor(&self) -> Option<&str> {
+        self.next_cursor.as_deref()
+    }
+
+    pub fn close_end_ms(&self) -> i64 {
+        self.close_end_ms
+    }
+
+    pub fn done(&self) -> bool {
+        self.next_cursor.is_none()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct RangeTraverseResult {
+    pub pages: Vec<RangeResponse>,
+    pub pages_fetched: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct SearchResponse {
+    pub hits: Vec<i64>,
+    pub evaluated_rows: Option<Vec<OutputRow>>,
+    pub next_cursor: Option<String>,
+    pub done: bool,
+    pub returned_hits: i64,
+    pub effective_hits_limit: i64,
+    pub truncated: bool,
+    pub predicate_pairs: Vec<String>,
+    pub predicate_normalized: String,
+}
+
+impl SearchResponse {
+    pub fn next_cursor(&self) -> Option<&str> {
+        self.next_cursor.as_deref()
+    }
+
+    pub fn done(&self) -> bool {
+        self.done
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct SearchTraverseResult {
+    pub pages: Vec<SearchResponse>,
+    pub pages_fetched: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct TimeMachineRow {
+    pub hit_close_ms: i64,
+    pub offset: i64,
+    pub row: OutputRow,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct TimeMachineResponse {
+    pub rows: Vec<TimeMachineRow>,
+    pub next_cursor: Option<String>,
+    pub done: bool,
+    pub returned_hits: i64,
+    pub effective_hits_limit: i64,
+    pub truncated: bool,
+    pub predicate_pairs: Vec<String>,
+    pub predicate_normalized: Option<String>,
+}
+
+impl TimeMachineResponse {
+    pub fn next_cursor(&self) -> Option<&str> {
+        self.next_cursor.as_deref()
+    }
+
+    pub fn done(&self) -> bool {
+        self.done
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct TimeMachineTraverseResult {
+    pub pages: Vec<TimeMachineResponse>,
+    pub pages_fetched: usize,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
-pub(crate) struct LatestOutputsHttpPresentRowWire<T> {
+pub(crate) struct OutputRowWire {
+    pair: String,
+    tf: String,
+    open_ms: i64,
+    close_ms: i64,
+    open_utc: String,
+    close_utc: String,
+    o: f64,
+    h: f64,
+    l: f64,
+    c: f64,
+    v: f64,
+    quote_v: Option<f64>,
+    taker_known_v: Option<f64>,
+    taker_signed_v: Option<f64>,
+    taker_known_quote_v: Option<f64>,
+    taker_signed_quote_v: Option<f64>,
+    taker_known_n: Option<i64>,
+    taker_signed_n: Option<i64>,
+    vw: Option<f64>,
+    n: Option<i64>,
+    #[serde(default)]
+    metadata: Option<OutputMetadata>,
+    #[serde(default)]
+    diagnostics: Option<Vec<OutputProcessDiagnostic>>,
     #[serde(flatten)]
-    output: T,
+    computed: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct LatestOutputsHttpPresentRowWire {
+    #[serde(flatten)]
+    row: OutputRowWire,
     age_ms: i64,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
-pub(crate) struct LatestOutputsHttpResponseWire<T> {
+pub(crate) struct LatestOutputsWsPresentRowWire {
+    #[serde(flatten)]
+    row: OutputRowWire,
+    #[serde(default)]
+    age_ms: i64,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct LatestOutputsHttpResponseWire {
     watermark_end_ms: i64,
     close_end_ms: i64,
     latest_mode: LatestMode,
     view: OutputView,
-    rows: Vec<LatestOutputsHttpPresentRowWire<T>>,
+    rows: Vec<LatestOutputsHttpPresentRowWire>,
     missing_pairs: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
-pub(crate) struct RangeOutputsResponseWire<T> {
-    rows: Vec<T>,
+pub(crate) struct RangeOutputsResponseWire {
+    rows: Vec<OutputRowWire>,
     close_end_ms: i64,
     next_cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
-pub(crate) struct SearchOutputsResponseWire<T> {
+pub(crate) struct SearchOutputsResponseWire {
     hits: Vec<i64>,
-    evaluated_rows: Option<Vec<T>>,
+    evaluated_rows: Option<Vec<OutputRowWire>>,
     next_cursor: Option<String>,
     done: bool,
     returned_hits: i64,
@@ -995,15 +1071,16 @@ pub(crate) struct SearchOutputsResponseWire<T> {
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
-pub(crate) struct TimeMachineOutputsRowWire<T> {
+pub(crate) struct TimeMachineOutputsRowWire {
     hit_close_ms: i64,
     offset: i64,
-    output: T,
+    #[serde(rename = "output")]
+    row: OutputRowWire,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
-pub(crate) struct TimeMachineOutputsResponseWire<T> {
-    rows: Vec<TimeMachineOutputsRowWire<T>>,
+pub(crate) struct TimeMachineOutputsResponseWire {
+    rows: Vec<TimeMachineOutputsRowWire>,
     next_cursor: Option<String>,
     done: bool,
     returned_hits: i64,
@@ -1013,70 +1090,115 @@ pub(crate) struct TimeMachineOutputsResponseWire<T> {
     predicate_normalized: Option<String>,
 }
 
-impl RegimeOutput {
-    fn from_min(output: ProcessorOutputMin, diagnostics_enabled: bool) -> Self {
-        Self::Min(output).apply_diagnostics_gate(diagnostics_enabled)
-    }
-
-    fn from_with_meta(output: ProcessorOutputWithMeta, diagnostics_enabled: bool) -> Self {
-        Self::WithMeta(output).apply_diagnostics_gate(diagnostics_enabled)
-    }
-
-    fn from_projected_min(output: ProcessorProjectedOutputMin, diagnostics_enabled: bool) -> Self {
-        Self::ProjectedMin(output).apply_diagnostics_gate(diagnostics_enabled)
-    }
-
-    fn from_projected_with_meta(
-        output: ProcessorProjectedOutputWithMeta,
+impl OutputRowWire {
+    fn into_public(
+        self,
+        metadata_required: bool,
         diagnostics_enabled: bool,
-    ) -> Self {
-        Self::ProjectedWithMeta(output).apply_diagnostics_gate(diagnostics_enabled)
-    }
-
-    pub(crate) fn from_proto_row(
-        value: proto::OutputRowV1,
-        mode: RegimeOutputMode,
-        diagnostics_enabled: bool,
-    ) -> Result<Self, SdkError> {
-        match mode {
-            RegimeOutputMode::Min => Ok(Self::from_min(
-                decode_proto_output_as::<ProcessorOutputMin>(
-                    value,
-                    "regime outputs protobuf row",
-                    false,
-                )?,
-                diagnostics_enabled,
-            )),
-            RegimeOutputMode::WithMeta => Ok(Self::from_with_meta(
-                decode_proto_output_as::<ProcessorOutputWithMeta>(
-                    value,
-                    "regime outputs full protobuf row",
-                    true,
-                )?,
-                diagnostics_enabled,
-            )),
-            RegimeOutputMode::ProjectedMin | RegimeOutputMode::ProjectedWithMeta => {
-                Err(SdkError::unsupported_or_unproved_usage(
-                    "projected regime protobuf/gRPC output decoding is not proved because unselected computed fields collapse to unset optional fields",
-                ))
-            }
+        context: &'static str,
+    ) -> Result<OutputRow, SdkError> {
+        validate_computed_fields(&self.computed, context)?;
+        let row = OutputRow {
+            pair: self.pair,
+            tf: self.tf,
+            open_ms: self.open_ms,
+            close_ms: self.close_ms,
+            open_utc: self.open_utc,
+            close_utc: self.close_utc,
+            o: self.o,
+            h: self.h,
+            l: self.l,
+            c: self.c,
+            v: self.v,
+            quote_v: self.quote_v,
+            taker_known_v: self.taker_known_v,
+            taker_signed_v: self.taker_signed_v,
+            taker_known_quote_v: self.taker_known_quote_v,
+            taker_signed_quote_v: self.taker_signed_quote_v,
+            taker_known_n: self.taker_known_n,
+            taker_signed_n: self.taker_signed_n,
+            vw: self.vw,
+            n: self.n,
+            metadata: self.metadata,
+            diagnostics: self.diagnostics,
+            computed: ComputedFields(self.computed),
         }
+        .apply_diagnostics_gate(diagnostics_enabled);
+        row.ensure_metadata_shape(metadata_required, context)?;
+        Ok(row)
     }
 }
 
-impl LatestOutputsPresentRow {
+impl OutputRow {
+    pub(crate) fn from_proto(
+        value: proto::OutputRowV1,
+        mode: RegimeOutputMode,
+        diagnostics_enabled: bool,
+        context: &'static str,
+    ) -> Result<Self, SdkError> {
+        let computed = extract_numeric_computed_fields_from_message(
+            &value,
+            &PROCESSOR_FIELD_NAMES,
+            OUTPUT_ROW_COMPUTED_FIRST_FIELD_NUMBER,
+            context,
+        )?;
+        validate_computed_fields(&computed, context)?;
+
+        let row = OutputRow {
+            pair: value.pair,
+            tf: value.tf,
+            open_ms: value.open_ms,
+            close_ms: value.close_ms,
+            open_utc: value
+                .open_utc
+                .ok_or_else(|| SdkError::contract_drift(format!("{context} missing `open_utc`")))?,
+            close_utc: value.close_utc.ok_or_else(|| {
+                SdkError::contract_drift(format!("{context} missing `close_utc`"))
+            })?,
+            o: value.o,
+            h: value.h,
+            l: value.l,
+            c: value.c,
+            v: value.v,
+            quote_v: value.quote_v,
+            taker_known_v: value.taker_known_v,
+            taker_signed_v: value.taker_signed_v,
+            taker_known_quote_v: value.taker_known_quote_v,
+            taker_signed_quote_v: value.taker_signed_quote_v,
+            taker_known_n: value.taker_known_n,
+            taker_signed_n: value.taker_signed_n,
+            vw: value.vw,
+            n: value.n,
+            metadata: value.metadata.map(output_metadata_from_proto),
+            diagnostics: Some(
+                value
+                    .diagnostics
+                    .into_iter()
+                    .map(output_process_diagnostic_from_proto)
+                    .collect(),
+            ),
+            computed: ComputedFields(computed),
+        }
+        .apply_diagnostics_gate(diagnostics_enabled);
+        row.ensure_metadata_shape(mode.has_metadata(), context)?;
+        Ok(row)
+    }
+}
+
+impl LatestPresentRow {
     pub(crate) fn from_proto(
         value: proto::OutputsPresentRowV1,
         mode: RegimeOutputMode,
         diagnostics_enabled: bool,
     ) -> Result<Self, SdkError> {
         Ok(Self {
-            output: RegimeOutput::from_proto_row(
+            row: OutputRow::from_proto(
                 value.output.ok_or_else(|| {
                     SdkError::contract_drift("latest outputs protobuf row missing `output`")
                 })?,
                 mode,
                 diagnostics_enabled,
+                "latest outputs protobuf row",
             )?,
             age_ms: value.age_ms.ok_or_else(|| {
                 SdkError::contract_drift("latest outputs protobuf row missing `age_ms`")
@@ -1085,62 +1207,28 @@ impl LatestOutputsPresentRow {
     }
 }
 
-impl LatestOutputsResponse {
-    pub(crate) fn from_http_min(
-        wire: LatestOutputsHttpResponseWire<ProcessorOutputMin>,
+impl LatestResponse {
+    #[doc(hidden)]
+    pub fn from_grpc_proto(
+        response: proto::OutputsLatestResponseV1,
+        metadata_required: bool,
         diagnostics_enabled: bool,
     ) -> Result<Self, SdkError> {
-        Self::from_http_typed(
-            wire,
-            RegimeOutputMode::Min,
-            diagnostics_enabled,
-            RegimeOutput::from_min,
-        )
+        let mode = if metadata_required {
+            RegimeOutputMode::WithMeta
+        } else {
+            RegimeOutputMode::Min
+        };
+        Self::from_proto(response, mode, diagnostics_enabled)
     }
 
-    pub(crate) fn from_http_with_meta(
-        wire: LatestOutputsHttpResponseWire<ProcessorOutputWithMeta>,
-        diagnostics_enabled: bool,
-    ) -> Result<Self, SdkError> {
-        Self::from_http_typed(
-            wire,
-            RegimeOutputMode::WithMeta,
-            diagnostics_enabled,
-            RegimeOutput::from_with_meta,
-        )
-    }
-
-    pub(crate) fn from_http_projected_min(
-        wire: LatestOutputsHttpResponseWire<ProcessorProjectedOutputMin>,
-        diagnostics_enabled: bool,
-    ) -> Result<Self, SdkError> {
-        Self::from_http_typed(
-            wire,
-            RegimeOutputMode::ProjectedMin,
-            diagnostics_enabled,
-            RegimeOutput::from_projected_min,
-        )
-    }
-
-    pub(crate) fn from_http_projected_with_meta(
-        wire: LatestOutputsHttpResponseWire<ProcessorProjectedOutputWithMeta>,
-        diagnostics_enabled: bool,
-    ) -> Result<Self, SdkError> {
-        Self::from_http_typed(
-            wire,
-            RegimeOutputMode::ProjectedWithMeta,
-            diagnostics_enabled,
-            RegimeOutput::from_projected_with_meta,
-        )
-    }
-
-    fn from_http_typed<T>(
-        wire: LatestOutputsHttpResponseWire<T>,
+    pub(crate) fn from_http(
+        wire: LatestOutputsHttpResponseWire,
         mode: RegimeOutputMode,
         diagnostics_enabled: bool,
-        wrap: fn(T, bool) -> RegimeOutput,
     ) -> Result<Self, SdkError> {
         ensure_latest_view_matches_mode(wire.view, mode, "latest outputs")?;
+        let metadata_required = mode.has_metadata();
         Ok(Self {
             watermark_end_ms: wire.watermark_end_ms,
             close_end_ms: wire.close_end_ms,
@@ -1149,11 +1237,17 @@ impl LatestOutputsResponse {
             rows: wire
                 .rows
                 .into_iter()
-                .map(|row| LatestOutputsPresentRow {
-                    output: wrap(row.output, diagnostics_enabled),
-                    age_ms: row.age_ms,
+                .map(|row| {
+                    Ok(LatestPresentRow {
+                        row: row.row.into_public(
+                            metadata_required,
+                            diagnostics_enabled,
+                            "latest outputs response row",
+                        )?,
+                        age_ms: row.age_ms,
+                    })
                 })
-                .collect(),
+                .collect::<Result<Vec<_>, SdkError>>()?,
             missing_pairs: wire.missing_pairs,
         })
     }
@@ -1174,60 +1268,45 @@ impl LatestOutputsResponse {
             rows: response
                 .rows
                 .into_iter()
-                .map(|row| LatestOutputsPresentRow::from_proto(row, mode, diagnostics_enabled))
+                .map(|row| LatestPresentRow::from_proto(row, mode, diagnostics_enabled))
                 .collect::<Result<Vec<_>, _>>()?,
             missing_pairs: response.missing_pairs,
         })
     }
 }
 
-impl RangeOutputsResponse {
-    pub(crate) fn from_http_min(
-        wire: RangeOutputsResponseWire<ProcessorOutputMin>,
+impl RangeResponse {
+    #[doc(hidden)]
+    pub fn from_grpc_proto(
+        response: proto::OutputsRangeResponseV1,
+        metadata_required: bool,
         diagnostics_enabled: bool,
-    ) -> Self {
-        Self::from_http_typed(wire, diagnostics_enabled, RegimeOutput::from_min)
+    ) -> Result<Self, SdkError> {
+        let mode = if metadata_required {
+            RegimeOutputMode::WithMeta
+        } else {
+            RegimeOutputMode::Min
+        };
+        Self::from_proto(response, mode, diagnostics_enabled)
     }
 
-    pub(crate) fn from_http_with_meta(
-        wire: RangeOutputsResponseWire<ProcessorOutputWithMeta>,
+    pub(crate) fn from_http(
+        wire: RangeOutputsResponseWire,
+        mode: RegimeOutputMode,
         diagnostics_enabled: bool,
-    ) -> Self {
-        Self::from_http_typed(wire, diagnostics_enabled, RegimeOutput::from_with_meta)
-    }
-
-    pub(crate) fn from_http_projected_min(
-        wire: RangeOutputsResponseWire<ProcessorProjectedOutputMin>,
-        diagnostics_enabled: bool,
-    ) -> Self {
-        Self::from_http_typed(wire, diagnostics_enabled, RegimeOutput::from_projected_min)
-    }
-
-    pub(crate) fn from_http_projected_with_meta(
-        wire: RangeOutputsResponseWire<ProcessorProjectedOutputWithMeta>,
-        diagnostics_enabled: bool,
-    ) -> Self {
-        Self::from_http_typed(
-            wire,
-            diagnostics_enabled,
-            RegimeOutput::from_projected_with_meta,
-        )
-    }
-
-    fn from_http_typed<T>(
-        wire: RangeOutputsResponseWire<T>,
-        diagnostics_enabled: bool,
-        wrap: fn(T, bool) -> RegimeOutput,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, SdkError> {
+        let metadata_required = mode.has_metadata();
+        Ok(Self {
             rows: wire
                 .rows
                 .into_iter()
-                .map(|row| wrap(row, diagnostics_enabled))
-                .collect(),
+                .map(|row| {
+                    row.into_public(metadata_required, diagnostics_enabled, "range outputs row")
+                })
+                .collect::<Result<Vec<_>, _>>()?,
             close_end_ms: wire.close_end_ms,
             next_cursor: wire.next_cursor,
-        }
+        })
     }
 
     pub(crate) fn from_proto(
@@ -1240,7 +1319,9 @@ impl RangeOutputsResponse {
             rows: response
                 .rows
                 .into_iter()
-                .map(|row| RegimeOutput::from_proto_row(row, mode, diagnostics_enabled))
+                .map(|row| {
+                    OutputRow::from_proto(row, mode, diagnostics_enabled, "range outputs row")
+                })
                 .collect::<Result<Vec<_>, _>>()?,
             close_end_ms: response.close_end_ms,
             next_cursor: response.next_cursor,
@@ -1248,51 +1329,44 @@ impl RangeOutputsResponse {
     }
 }
 
-impl SearchOutputsResponse {
-    pub(crate) fn from_http_min(
-        wire: SearchOutputsResponseWire<ProcessorOutputMin>,
+impl SearchResponse {
+    #[doc(hidden)]
+    pub fn from_grpc_proto(
+        response: proto::OutputsSearchResponseV1,
+        metadata_required: bool,
         diagnostics_enabled: bool,
-    ) -> Self {
-        Self::from_http_typed(wire, diagnostics_enabled, RegimeOutput::from_min)
+        evaluated_rows_enabled: bool,
+    ) -> Result<Self, SdkError> {
+        let mode = if metadata_required {
+            RegimeOutputMode::WithMeta
+        } else {
+            RegimeOutputMode::Min
+        };
+        Self::from_proto(response, mode, diagnostics_enabled, evaluated_rows_enabled)
     }
 
-    pub(crate) fn from_http_with_meta(
-        wire: SearchOutputsResponseWire<ProcessorOutputWithMeta>,
+    pub(crate) fn from_http(
+        wire: SearchOutputsResponseWire,
+        mode: RegimeOutputMode,
         diagnostics_enabled: bool,
-    ) -> Self {
-        Self::from_http_typed(wire, diagnostics_enabled, RegimeOutput::from_with_meta)
-    }
-
-    pub(crate) fn from_http_projected_min(
-        wire: SearchOutputsResponseWire<ProcessorProjectedOutputMin>,
-        diagnostics_enabled: bool,
-    ) -> Self {
-        Self::from_http_typed(wire, diagnostics_enabled, RegimeOutput::from_projected_min)
-    }
-
-    pub(crate) fn from_http_projected_with_meta(
-        wire: SearchOutputsResponseWire<ProcessorProjectedOutputWithMeta>,
-        diagnostics_enabled: bool,
-    ) -> Self {
-        Self::from_http_typed(
-            wire,
-            diagnostics_enabled,
-            RegimeOutput::from_projected_with_meta,
-        )
-    }
-
-    fn from_http_typed<T>(
-        wire: SearchOutputsResponseWire<T>,
-        diagnostics_enabled: bool,
-        wrap: fn(T, bool) -> RegimeOutput,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, SdkError> {
+        let metadata_required = mode.has_metadata();
+        Ok(Self {
             hits: wire.hits,
-            evaluated_rows: wire.evaluated_rows.map(|rows| {
-                rows.into_iter()
-                    .map(|row| wrap(row, diagnostics_enabled))
-                    .collect()
-            }),
+            evaluated_rows: wire
+                .evaluated_rows
+                .map(|rows| {
+                    rows.into_iter()
+                        .map(|row| {
+                            row.into_public(
+                                metadata_required,
+                                diagnostics_enabled,
+                                "search outputs evaluated row",
+                            )
+                        })
+                        .collect::<Result<Vec<_>, SdkError>>()
+                })
+                .transpose()?,
             next_cursor: wire.next_cursor,
             done: wire.done,
             returned_hits: wire.returned_hits,
@@ -1300,7 +1374,7 @@ impl SearchOutputsResponse {
             truncated: wire.truncated,
             predicate_pairs: wire.predicate_pairs,
             predicate_normalized: wire.predicate_normalized,
-        }
+        })
     }
 
     pub(crate) fn from_proto(
@@ -1315,7 +1389,14 @@ impl SearchOutputsResponse {
                 response
                     .evaluated_rows
                     .into_iter()
-                    .map(|row| RegimeOutput::from_proto_row(row, mode, diagnostics_enabled))
+                    .map(|row| {
+                        OutputRow::from_proto(
+                            row,
+                            mode,
+                            diagnostics_enabled,
+                            "search outputs evaluated row",
+                        )
+                    })
                     .collect::<Result<Vec<_>, _>>()?,
             )
         } else if response.evaluated_rows.is_empty() {
@@ -1340,7 +1421,7 @@ impl SearchOutputsResponse {
     }
 }
 
-impl TimeMachineOutputsRow {
+impl TimeMachineRow {
     fn from_proto(
         value: proto::OutputsTimeMachineRowV1,
         mode: RegimeOutputMode,
@@ -1349,65 +1430,55 @@ impl TimeMachineOutputsRow {
         Ok(Self {
             hit_close_ms: value.hit_close_ms,
             offset: value.offset,
-            output: RegimeOutput::from_proto_row(
+            row: OutputRow::from_proto(
                 value.output.ok_or_else(|| {
                     SdkError::contract_drift("time machine outputs protobuf row missing `output`")
                 })?,
                 mode,
                 diagnostics_enabled,
+                "time machine outputs row",
             )?,
         })
     }
 }
 
-impl TimeMachineOutputsResponse {
-    pub(crate) fn from_http_min(
-        wire: TimeMachineOutputsResponseWire<ProcessorOutputMin>,
+impl TimeMachineResponse {
+    #[doc(hidden)]
+    pub fn from_grpc_proto(
+        response: proto::OutputsTimeMachineResponseV1,
+        metadata_required: bool,
         diagnostics_enabled: bool,
-    ) -> Self {
-        Self::from_http_typed(wire, diagnostics_enabled, RegimeOutput::from_min)
+    ) -> Result<Self, SdkError> {
+        let mode = if metadata_required {
+            RegimeOutputMode::WithMeta
+        } else {
+            RegimeOutputMode::Min
+        };
+        Self::from_proto(response, mode, diagnostics_enabled)
     }
 
-    pub(crate) fn from_http_with_meta(
-        wire: TimeMachineOutputsResponseWire<ProcessorOutputWithMeta>,
+    pub(crate) fn from_http(
+        wire: TimeMachineOutputsResponseWire,
+        mode: RegimeOutputMode,
         diagnostics_enabled: bool,
-    ) -> Self {
-        Self::from_http_typed(wire, diagnostics_enabled, RegimeOutput::from_with_meta)
-    }
-
-    pub(crate) fn from_http_projected_min(
-        wire: TimeMachineOutputsResponseWire<ProcessorProjectedOutputMin>,
-        diagnostics_enabled: bool,
-    ) -> Self {
-        Self::from_http_typed(wire, diagnostics_enabled, RegimeOutput::from_projected_min)
-    }
-
-    pub(crate) fn from_http_projected_with_meta(
-        wire: TimeMachineOutputsResponseWire<ProcessorProjectedOutputWithMeta>,
-        diagnostics_enabled: bool,
-    ) -> Self {
-        Self::from_http_typed(
-            wire,
-            diagnostics_enabled,
-            RegimeOutput::from_projected_with_meta,
-        )
-    }
-
-    fn from_http_typed<T>(
-        wire: TimeMachineOutputsResponseWire<T>,
-        diagnostics_enabled: bool,
-        wrap: fn(T, bool) -> RegimeOutput,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, SdkError> {
+        let metadata_required = mode.has_metadata();
+        Ok(Self {
             rows: wire
                 .rows
                 .into_iter()
-                .map(|row| TimeMachineOutputsRow {
-                    hit_close_ms: row.hit_close_ms,
-                    offset: row.offset,
-                    output: wrap(row.output, diagnostics_enabled),
+                .map(|row| {
+                    Ok(TimeMachineRow {
+                        hit_close_ms: row.hit_close_ms,
+                        offset: row.offset,
+                        row: row.row.into_public(
+                            metadata_required,
+                            diagnostics_enabled,
+                            "time machine outputs row",
+                        )?,
+                    })
                 })
-                .collect(),
+                .collect::<Result<Vec<_>, SdkError>>()?,
             next_cursor: wire.next_cursor,
             done: wire.done,
             returned_hits: wire.returned_hits,
@@ -1415,7 +1486,7 @@ impl TimeMachineOutputsResponse {
             truncated: wire.truncated,
             predicate_pairs: wire.predicate_pairs,
             predicate_normalized: wire.predicate_normalized,
-        }
+        })
     }
 
     pub(crate) fn from_proto(
@@ -1428,7 +1499,7 @@ impl TimeMachineOutputsResponse {
             rows: response
                 .rows
                 .into_iter()
-                .map(|row| TimeMachineOutputsRow::from_proto(row, mode, diagnostics_enabled))
+                .map(|row| TimeMachineRow::from_proto(row, mode, diagnostics_enabled))
                 .collect::<Result<Vec<_>, _>>()?,
             next_cursor: response.next_cursor,
             done: response.done,
@@ -1461,76 +1532,31 @@ pub(crate) fn decode_latest_outputs_ws_json(
     text: &str,
     mode: RegimeOutputMode,
     diagnostics_enabled: bool,
-) -> Result<Vec<LatestOutputsPresentRow>, SdkError> {
-    match mode {
-        RegimeOutputMode::Min => serde_json::from_str::<
-            Vec<LatestOutputsPresentRowWire<ProcessorOutputMin>>,
-        >(text)
-        .map_err(|source| {
-            SdkError::contract_drift(format!("outputs ws min JSON rows decode failed: {source}"))
+) -> Result<Vec<LatestPresentRow>, SdkError> {
+    let rows =
+        serde_json::from_str::<Vec<LatestOutputsWsPresentRowWire>>(text).map_err(|source| {
+            SdkError::contract_drift(format!("outputs ws JSON rows decode failed: {source}"))
+        })?;
+    let metadata_required = mode.has_metadata();
+    rows.into_iter()
+        .map(|row| {
+            Ok(LatestPresentRow {
+                row: row.row.into_public(
+                    metadata_required,
+                    diagnostics_enabled,
+                    "outputs ws row",
+                )?,
+                age_ms: row.age_ms,
+            })
         })
-        .map(|rows| {
-            rows.into_iter()
-                .map(|row| LatestOutputsPresentRow {
-                    output: RegimeOutput::from_min(row.output, diagnostics_enabled),
-                    age_ms: row.age_ms,
-                })
-                .collect()
-        }),
-        RegimeOutputMode::WithMeta => serde_json::from_str::<
-            Vec<LatestOutputsPresentRowWire<ProcessorOutputWithMeta>>,
-        >(text)
-        .map_err(|source| {
-            SdkError::contract_drift(format!("outputs ws full JSON rows decode failed: {source}"))
-        })
-        .map(|rows| {
-            rows.into_iter()
-                .map(|row| LatestOutputsPresentRow {
-                    output: RegimeOutput::from_with_meta(row.output, diagnostics_enabled),
-                    age_ms: row.age_ms,
-                })
-                .collect()
-        }),
-        RegimeOutputMode::ProjectedMin => serde_json::from_str::<
-            Vec<LatestOutputsPresentRowWire<ProcessorProjectedOutputMin>>,
-        >(text)
-        .map_err(|source| {
-            SdkError::contract_drift(format!(
-                "outputs ws projected-min JSON rows decode failed: {source}"
-            ))
-        })
-        .map(|rows| {
-            rows.into_iter()
-                .map(|row| LatestOutputsPresentRow {
-                    output: RegimeOutput::from_projected_min(row.output, diagnostics_enabled),
-                    age_ms: row.age_ms,
-                })
-                .collect()
-        }),
-        RegimeOutputMode::ProjectedWithMeta => serde_json::from_str::<
-            Vec<LatestOutputsPresentRowWire<ProcessorProjectedOutputWithMeta>>,
-        >(text)
-        .map_err(|source| {
-            SdkError::contract_drift(format!(
-                "outputs ws projected-full JSON rows decode failed: {source}"
-            ))
-        })
-        .map(|rows| {
-            rows.into_iter()
-                .map(|row| LatestOutputsPresentRow {
-                    output: RegimeOutput::from_projected_with_meta(row.output, diagnostics_enabled),
-                    age_ms: row.age_ms,
-                })
-                .collect()
-        }),
-    }
+        .collect()
 }
 
 pub(crate) fn decode_latest_outputs_ws_proto(
     bytes: &[u8],
     mode: RegimeOutputMode,
     diagnostics_enabled: bool,
-) -> Result<Vec<LatestOutputsPresentRow>, SdkError> {
+) -> Result<Vec<LatestPresentRow>, SdkError> {
     ensure_proto_output_mode_supported(mode, "outputs ws protobuf rows")?;
     let payload = proto::OutputsRowsPayloadV1::decode(bytes).map_err(|source| {
         SdkError::contract_drift(format!(
@@ -1550,7 +1576,7 @@ pub(crate) fn decode_latest_outputs_ws_proto(
     payload
         .rows
         .into_iter()
-        .map(|row| LatestOutputsPresentRow::from_proto(row, mode, diagnostics_enabled))
+        .map(|row| LatestPresentRow::from_proto(row, mode, diagnostics_enabled))
         .collect()
 }
 
@@ -1564,114 +1590,91 @@ fn latest_mode_from_proto(value: &str) -> Result<LatestMode, SdkError> {
     }
 }
 
-fn decode_proto_output_as<T>(
-    value: proto::OutputRowV1,
+fn validate_computed_fields(
+    computed: &serde_json::Map<String, serde_json::Value>,
     context: &'static str,
-    require_metadata: bool,
-) -> Result<T, SdkError>
-where
-    T: DeserializeOwned,
-{
-    let json = normalize_proto_output_json(value, context, require_metadata)?;
-    serde_json::from_value(json)
-        .map_err(|source| SdkError::contract_drift(format!("{context} decode failed: {source}")))
+) -> Result<(), SdkError> {
+    for (key, value) in computed {
+        if !PROCESSOR_FIELD_NAMES.contains(&key.as_str()) {
+            return Err(SdkError::contract_drift(format!(
+                "{context} contained unknown computed field `{key}`"
+            )));
+        }
+
+        if !(value.is_null() || value.is_number()) {
+            return Err(SdkError::contract_drift(format!(
+                "{context} computed field `{key}` must be null or numeric"
+            )));
+        }
+    }
+
+    Ok(())
 }
 
-fn normalize_proto_output_json(
-    value: proto::OutputRowV1,
-    context: &'static str,
-    require_metadata: bool,
-) -> Result<serde_json::Value, SdkError> {
-    let open_utc = value
-        .open_utc
-        .clone()
-        .ok_or_else(|| SdkError::contract_drift(format!("{context} missing `open_utc`")))?;
-    let close_utc = value
-        .close_utc
-        .clone()
-        .ok_or_else(|| SdkError::contract_drift(format!("{context} missing `close_utc`")))?;
-    let metadata = value.metadata.clone();
-    if require_metadata && metadata.is_none() {
-        return Err(SdkError::contract_drift(format!(
-            "{context} missing `metadata`"
-        )));
+fn output_process_diagnostic_from_proto(
+    value: proto::OutputProcessDiagnosticV1,
+) -> OutputProcessDiagnostic {
+    OutputProcessDiagnostic {
+        indicator: value.indicator,
+        message: value.message,
     }
-
-    let mut json = serde_json::to_value(&value).map_err(|source| {
-        SdkError::contract_drift(format!("{context} serialization failed: {source}"))
-    })?;
-    let object = json.as_object_mut().ok_or_else(|| {
-        SdkError::contract_drift(format!("{context} did not serialize as a JSON object"))
-    })?;
-    object.insert("open_utc".to_string(), serde_json::Value::String(open_utc));
-    object.insert(
-        "close_utc".to_string(),
-        serde_json::Value::String(close_utc),
-    );
-
-    match metadata {
-        Some(metadata) => {
-            object.insert(
-                "metadata".to_string(),
-                normalize_proto_metadata_json(metadata, context)?,
-            );
-        }
-        None => {
-            object.remove("metadata");
-        }
-    }
-
-    Ok(json)
 }
 
-fn normalize_proto_metadata_json(
-    value: proto::OutputMetadataV1,
-    context: &'static str,
-) -> Result<serde_json::Value, SdkError> {
-    let mut json = serde_json::to_value(&value).map_err(|source| {
-        SdkError::contract_drift(format!("{context} metadata serialization failed: {source}"))
-    })?;
-    let object = json.as_object_mut().ok_or_else(|| {
-        SdkError::contract_drift(format!(
-            "{context} metadata did not serialize as a JSON object"
-        ))
-    })?;
-
-    match object.get_mut("tail_bar_provenance") {
-        Some(tail) if tail.is_null() => {
-            *tail = serde_json::Value::Object(serde_json::Map::new());
-        }
-        Some(tail) => {
-            let tail_object = tail.as_object_mut().ok_or_else(|| {
-                SdkError::contract_drift(format!(
-                    "{context} metadata `tail_bar_provenance` did not serialize as a JSON object"
-                ))
-            })?;
-            normalize_optional_vec_field(tail_object, "venues_expected");
-            normalize_optional_vec_field(tail_object, "venues_with_trades");
-        }
-        None => {
-            object.insert(
-                "tail_bar_provenance".to_string(),
-                serde_json::Value::Object(serde_json::Map::new()),
-            );
-        }
+fn output_metadata_from_proto(value: proto::OutputMetadataV1) -> OutputMetadata {
+    OutputMetadata {
+        source: value.source,
+        process: value.process,
+        bars_input_n: value.bars_input_n,
+        recompute_upstream_lifeline_id: value.recompute_upstream_lifeline_id,
+        recompute_upstream_reason: value.recompute_upstream_reason,
+        recomputed_at_ms: value.recomputed_at_ms,
+        recomputed_at_utc: value.recomputed_at_utc,
+        computed_at_ms: value.computed_at_ms,
+        computed_at_utc: value.computed_at_utc,
+        tail_bar_provenance: value
+            .tail_bar_provenance
+            .map(output_bars_metadata_from_proto)
+            .unwrap_or_default(),
     }
-
-    Ok(json)
 }
 
-fn normalize_optional_vec_field(
-    object: &mut serde_json::Map<String, serde_json::Value>,
-    field: &str,
-) {
-    let is_empty = object
-        .get(field)
-        .and_then(serde_json::Value::as_array)
-        .is_some_and(|values| values.is_empty());
-    if is_empty {
-        object.insert(field.to_string(), serde_json::Value::Null);
+fn output_bars_metadata_from_proto(value: proto::OutputBarsMetadataV1) -> OutputBarsMetadata {
+    OutputBarsMetadata {
+        source: value.source,
+        venues_expected: repeated_strings_or_none(value.venues_expected),
+        venues_with_trades: repeated_strings_or_none(value.venues_with_trades),
+        ingested_at_ms: value.ingested_at_ms,
+        ingested_at_utc: value.ingested_at_utc,
+        target_ingested_at_ms: value.target_ingested_at_ms,
+        target_ingested_at_utc: value.target_ingested_at_utc,
+        committed_at_ms: value.committed_at_ms,
+        committed_at_utc: value.committed_at_utc,
+        harmonized_at_ms: value.harmonized_at_ms,
+        harmonized_at_utc: value.harmonized_at_utc,
+        frontier_5s_expected: value.frontier_5s_expected,
+        frontier_5s_synth_n: value.frontier_5s_synth_n,
+        frontier_5s_synth_ratio: value.frontier_5s_synth_ratio,
+        frontier_5s_trade_n: value.frontier_5s_trade_n,
+        frontier_5s_trade_ratio: value.frontier_5s_trade_ratio,
+        process: value.process,
+        built_at_ms: value.built_at_ms,
+        built_at_utc: value.built_at_utc,
+        covered_1m_count: value.covered_1m_count,
+        expected_1m_count: value.expected_1m_count,
+        coverage_ratio: value.coverage_ratio,
+        inputs_source_counts_frontier: value.inputs_source_counts_frontier,
+        inputs_source_counts_api: value.inputs_source_counts_api,
+        inputs_source_counts_synthetic: value.inputs_source_counts_synthetic,
+        inputs_source_counts_fix_data: value.inputs_source_counts_fix_data,
+        frontier_5s_inputs_coverage_ratio: value.frontier_5s_inputs_coverage_ratio,
+        recomputed_at_ms: value.recomputed_at_ms,
+        recomputed_at_utc: value.recomputed_at_utc,
+        recomputed_reason: value.recomputed_reason,
     }
+}
+
+fn repeated_strings_or_none(values: Vec<String>) -> Option<Vec<String>> {
+    (!values.is_empty()).then_some(values)
 }
 
 fn expected_output_view(mode: RegimeOutputMode) -> OutputView {
@@ -1823,10 +1826,12 @@ pub(crate) fn infer_output_mode(
         ));
     }
 
-    let projected = selector_values_present(family, group) || !secondary.unwrap_or(false);
-    let with_metadata = metadata.unwrap_or(false);
+    let projected = selector_values_present(family)
+        || selector_values_present(group)
+        || !secondary.unwrap_or(false);
+    let with_meta = metadata.unwrap_or(false);
 
-    Ok(match (projected, with_metadata) {
+    Ok(match (projected, with_meta) {
         (false, false) => RegimeOutputMode::Min,
         (false, true) => RegimeOutputMode::WithMeta,
         (true, false) => RegimeOutputMode::ProjectedMin,
@@ -1834,17 +1839,13 @@ pub(crate) fn infer_output_mode(
     })
 }
 
-fn selector_values_present(
-    family: Option<&[ProcessorFamily]>,
-    group: Option<&[ProcessorGroup]>,
-) -> bool {
-    family.is_some_and(|values| !values.is_empty())
-        || group.is_some_and(|values| !values.is_empty())
+fn selector_values_present<T>(values: Option<&[T]>) -> bool {
+    values.is_some_and(|values| !values.is_empty())
 }
 
 fn selects_metadata_family(family: Option<&[ProcessorFamily]>) -> bool {
     family
-        .into_iter()
-        .flatten()
-        .any(|value| matches!(value, ProcessorFamily::Metadata))
+        .unwrap_or(&[])
+        .iter()
+        .any(|value| value.canonical_name() == "metadata")
 }

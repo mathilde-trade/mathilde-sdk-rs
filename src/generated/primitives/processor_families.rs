@@ -26,11 +26,10 @@ pub enum ProcessorFamily {
     Sizing,
     Stops,
     VolumeFlow,
-    Metadata,
 }
 
 impl ProcessorFamily {
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 18] = [
         Self::BasicStats,
         Self::Channels,
         Self::Correlation,
@@ -49,7 +48,6 @@ impl ProcessorFamily {
         Self::Sizing,
         Self::Stops,
         Self::VolumeFlow,
-        Self::Metadata,
     ];
 
     pub const fn canonical_name(self) -> &'static str {
@@ -72,7 +70,6 @@ impl ProcessorFamily {
             Self::Sizing => "sizing",
             Self::Stops => "stops",
             Self::VolumeFlow => "volume_flow",
-            Self::Metadata => "metadata",
         }
     }
 
@@ -96,7 +93,6 @@ impl ProcessorFamily {
             Self::Sizing => &["sz", "sizing"],
             Self::Stops => &["st", "stops"],
             Self::VolumeFlow => &["vf", "volume_flow", "volume-flow"],
-            Self::Metadata => &["metadata", "meta"],
         }
     }
 

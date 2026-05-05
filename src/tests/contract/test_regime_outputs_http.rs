@@ -1,7 +1,6 @@
 use crate::core::config::HttpTransportConfig;
 use crate::core::error::SdkError;
-use crate::systems::regime::LatestOutputsRequest;
-use crate::systems::regime::outputs_http::latest_outputs;
+use crate::systems::regime::{LatestRequest, latest_outputs};
 use crate::systems::types::{HttpFormat, Timeframe};
 use crate::transport::http::HttpTransport;
 
@@ -11,7 +10,7 @@ async fn test_regime_http_projected_protobuf_latest_is_rejected_before_transport
         &HttpTransportConfig::new("https://regime.api.mathilde.dev").expect("config"),
         None,
     );
-    let request = LatestOutputsRequest {
+    let request = LatestRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::H1,
         latest_mode: None,
@@ -36,7 +35,7 @@ async fn test_regime_http_latest_rejects_non_h1_before_transport() {
         &HttpTransportConfig::new("https://regime.api.mathilde.dev").expect("config"),
         None,
     );
-    let request = LatestOutputsRequest {
+    let request = LatestRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: None,

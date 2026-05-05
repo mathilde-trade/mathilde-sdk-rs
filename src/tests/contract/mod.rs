@@ -1,3 +1,4 @@
+mod grpc_test_support;
 mod test_aggregator_public_grpc_latest;
 mod test_aggregator_public_grpc_range;
 mod test_aggregator_public_grpc_search;

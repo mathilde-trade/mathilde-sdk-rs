@@ -3,8 +3,8 @@ use crate::core::time::TimeInput;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
 use crate::streaming::make_before_break::MakeBeforeBreakConfig;
 use crate::streaming::subscription::{ExponentialBackoffConfig, ReconnectBackoff};
+use crate::systems::aggregator::types::Bar;
 use crate::systems::aggregator::types::normalize_pair_values;
-use crate::systems::aggregator::types::{Bar, BarWithMetadata};
 use crate::systems::types::Timeframe;
 use crate::transport::ws::WsTransport;
 use futures_util::{SinkExt, StreamExt};
@@ -85,30 +85,12 @@ pub struct BarsWsErrorFrame {
     pub error: String,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
-struct BarsWsJsonMinRow {
-    #[serde(flatten)]
-    bar: Bar,
-    #[serde(default)]
-    _age_ms: Option<i64>,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-struct BarsWsJsonFullRow {
-    #[serde(flatten)]
-    bar: BarWithMetadata,
-    #[serde(default)]
-    _age_ms: Option<i64>,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum BarsWsInboundFrame {
     Meta(BarsWsMetaFrame),
     Error(BarsWsErrorFrame),
-    JsonRowsMin(Vec<Bar>),
-    JsonRowsFull(Vec<BarWithMetadata>),
-    ProtobufRowsMin(Vec<Bar>),
-    ProtobufRowsFull(Vec<BarWithMetadata>),
+    JsonRows(Vec<Bar>),
+    ProtobufRows(Vec<Bar>),
 }
 
 #[derive(Debug)]
@@ -430,30 +412,19 @@ fn decode_text_frame(
         return Ok(BarsWsInboundFrame::Meta(meta));
     }
 
-    if request.metadata.unwrap_or(false) {
-        let rows = serde_json::from_str::<Vec<BarsWsJsonFullRow>>(text)
-            .map_err(|source| {
-                SdkError::contract_drift(format!("bars ws full JSON rows decode failed: {source}"))
-            })?
-            .into_iter()
-            .map(|row| row.bar)
-            .collect();
-        return Ok(BarsWsInboundFrame::JsonRowsFull(rows));
+    let metadata_required = request.metadata.unwrap_or(false);
+    let rows = serde_json::from_str::<Vec<Bar>>(text).map_err(|source| {
+        SdkError::contract_drift(format!("bars ws JSON rows decode failed: {source}"))
+    })?;
+    for row in &rows {
+        row.ensure_metadata_shape(metadata_required, "bars ws JSON row")?;
     }
-
-    let rows = serde_json::from_str::<Vec<BarsWsJsonMinRow>>(text)
-        .map_err(|source| {
-            SdkError::contract_drift(format!("bars ws min JSON rows decode failed: {source}"))
-        })?
-        .into_iter()
-        .map(|row| row.bar)
-        .collect();
-    Ok(BarsWsInboundFrame::JsonRowsMin(rows))
+    Ok(BarsWsInboundFrame::JsonRows(rows))
 }
 
 fn decode_binary_frame(
     bytes: &[u8],
-    _request: &BarsWsSubscribeRequest,
+    request: &BarsWsSubscribeRequest,
 ) -> Result<BarsWsInboundFrame, SdkError> {
     let payload = proto::BarsRowsPayloadV1::decode(bytes).map_err(|source| {
         SdkError::contract_drift(format!("bars ws protobuf payload decode failed: {source}"))
@@ -466,30 +437,25 @@ fn decode_binary_frame(
         ))
     })?;
 
+    let metadata_required = request.metadata.unwrap_or(false);
+
     match view {
-        proto::BarsViewV1::Min => {
+        proto::BarsViewV1::Min | proto::BarsViewV1::Full => {
+            if metadata_required != matches!(view, proto::BarsViewV1::Full) {
+                return Err(SdkError::contract_drift(
+                    "bars ws protobuf payload view does not match metadata request",
+                ));
+            }
+
             let rows = payload
                 .rows
                 .into_iter()
-                .map(|row| {
-                    Bar::from_proto(row.bar.ok_or_else(|| {
-                        SdkError::contract_drift("bars ws protobuf min row missing `bar`")
-                    })?)
-                })
+                .map(Bar::from_proto_latest)
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(BarsWsInboundFrame::ProtobufRowsMin(rows))
-        }
-        proto::BarsViewV1::Full => {
-            let rows = payload
-                .rows
-                .into_iter()
-                .map(|row| {
-                    BarWithMetadata::from_proto(row.bar.ok_or_else(|| {
-                        SdkError::contract_drift("bars ws protobuf full row missing `bar`")
-                    })?)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(BarsWsInboundFrame::ProtobufRowsFull(rows))
+            for row in &rows {
+                row.ensure_metadata_shape(metadata_required, "bars ws protobuf row")?;
+            }
+            Ok(BarsWsInboundFrame::ProtobufRows(rows))
         }
         proto::BarsViewV1::Unspecified => Err(SdkError::contract_drift(
             "bars ws protobuf payload view is unspecified",

@@ -467,14 +467,14 @@ place to start:
 
 ```rust
 use mathilde_sdk_rs::core::auth::BearerToken;
-use mathilde_sdk_rs::systems::aggregator::{Aggregator, LatestBarsRequest, LatestBarsResponse};
+use mathilde_sdk_rs::systems::aggregator::{Aggregator, LatestRequest};
 use mathilde_sdk_rs::systems::helpers::pairs;
 use mathilde_sdk_rs::systems::types::{HttpFormat, LatestMode, Timeframe};
 
 let client = Aggregator::client(Some(BearerToken::new("feed_public_token")?))?;
 
 let out = client
-    .latest(&LatestBarsRequest {
+    .latest(&LatestRequest {
         pairs: pairs(["BTCUSDT", "ETHUSDT"]),
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
@@ -483,13 +483,8 @@ let out = client
     })
     .await?;
 
-match out {
-    LatestBarsResponse::Min(r) => {
-        println!("rows={}", r.rows.len());
-        println!("close_end_ms={}", r.close_end_ms);
-    }
-    LatestBarsResponse::Full(_) => unreachable!(),
-}
+println!("rows={}", out.rows.len());
+println!("close_end_ms={}", out.close_end_ms);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
@@ -499,13 +494,13 @@ same but the request and payload are different:
 ```rust
 use mathilde_sdk_rs::core::auth::BearerToken;
 use mathilde_sdk_rs::generated::primitives::{ProcessorFamily, ProcessorGroup};
-use mathilde_sdk_rs::systems::primitives::{LatestOutputsRequest, PrimitiveOutput, Primitives};
+use mathilde_sdk_rs::systems::primitives::{LatestRequest, Primitives};
 use mathilde_sdk_rs::systems::types::{HttpFormat, LatestMode, Timeframe};
 
 let client = Primitives::client(Some(BearerToken::new("feed_public_token")?))?;
 
 let out = client
-    .latest(&LatestOutputsRequest {
+    .latest(&LatestRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: Some(LatestMode::ExactWatermark),
@@ -517,8 +512,9 @@ let out = client
     })
     .await?;
 
-if let PrimitiveOutput::ProjectedMin(row) = &out.rows[0].output {
-    println!("pair={}", row.pair);
+println!("pair={}", out.rows[0].row.pair);
+if let Some(value) = out.rows[0].row.computed.f64("ma_ema_p20") {
+    println!("ma_ema_p20={value}");
 }
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -768,11 +764,11 @@ This example answers the question: what is the current stable closed snapshot
 for these pairs?
 
 ```rust
-use mathilde_sdk_rs::systems::aggregator::{LatestBarsRequest, LatestBarsResponse};
+use mathilde_sdk_rs::systems::aggregator::LatestRequest;
 use mathilde_sdk_rs::systems::types::{HttpFormat, LatestMode, Timeframe};
 
 let out = client
-    .latest(&LatestBarsRequest {
+    .latest(&LatestRequest {
         pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: LatestMode::ExactWatermark,
@@ -781,13 +777,8 @@ let out = client
     })
     .await?;
 
-match out {
-    LatestBarsResponse::Min(r) => {
-        println!("rows={}", r.rows.len());
-        println!("close_end_ms={}", r.close_end_ms);
-    }
-    LatestBarsResponse::Full(_) => unreachable!(),
-}
+println!("rows={}", out.rows.len());
+println!("close_end_ms={}", out.close_end_ms);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
@@ -798,12 +789,12 @@ historical interval?
 
 ```rust
 use mathilde_sdk_rs::core::time::TimeInput;
-use mathilde_sdk_rs::systems::aggregator::{RangeBarsRequest, RangeBarsResponse};
+use mathilde_sdk_rs::systems::aggregator::RangeRequest;
 use mathilde_sdk_rs::systems::helpers::pairs;
 use mathilde_sdk_rs::systems::types::{AlignMode, HttpFormat, Timeframe};
 
 let out = client
-    .range(&RangeBarsRequest {
+    .range(&RangeRequest {
         pairs: pairs(["BTCUSDT", "ETHUSDT"]),
         tf: Timeframe::M1,
         align_mode: Some(AlignMode::Exact),
@@ -816,13 +807,8 @@ let out = client
     })
     .await?;
 
-match out {
-    RangeBarsResponse::Min(r) => {
-        println!("rows={}", r.rows.len());
-        println!("next_cursor={:?}", r.next_cursor);
-    }
-    RangeBarsResponse::Full(_) => unreachable!(),
-}
+println!("rows={}", out.rows.len());
+println!("next_cursor={:?}", out.next_cursor);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
@@ -830,11 +816,11 @@ Full traversal is explicit when you want the whole bounded range:
 
 ```rust
 use mathilde_sdk_rs::core::time::TimeInput;
-use mathilde_sdk_rs::systems::aggregator::RangeBarsRequest;
+use mathilde_sdk_rs::systems::aggregator::RangeRequest;
 use mathilde_sdk_rs::systems::helpers::pairs;
 use mathilde_sdk_rs::systems::types::{AlignMode, HttpFormat, Timeframe};
 
-let request = RangeBarsRequest {
+let request = RangeRequest {
     pairs: pairs(["BTCUSDT"]),
     tf: Timeframe::M1,
     align_mode: Some(AlignMode::Exact),
@@ -855,11 +841,11 @@ Manual continuation is also explicit through the pager:
 
 ```rust
 use mathilde_sdk_rs::core::time::TimeInput;
-use mathilde_sdk_rs::systems::aggregator::{RangeBarsRequest, RangeBarsResponse};
+use mathilde_sdk_rs::systems::aggregator::RangeRequest;
 use mathilde_sdk_rs::systems::helpers::pairs;
 use mathilde_sdk_rs::systems::types::{AlignMode, HttpFormat, Timeframe};
 
-let request = RangeBarsRequest {
+let request = RangeRequest {
     pairs: pairs(["BTCUSDT"]),
     tf: Timeframe::M1,
     align_mode: Some(AlignMode::Exact),
@@ -874,10 +860,7 @@ let request = RangeBarsRequest {
 let mut pager = client.range_call(request).pager()?;
 
 while let Some(page) = pager.next().await? {
-    match page {
-        RangeBarsResponse::Min(r) => println!("page rows={}", r.rows.len()),
-        RangeBarsResponse::Full(r) => println!("page rows={}", r.rows.len()),
-    }
+    println!("page rows={}", page.rows.len());
 }
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -889,11 +872,11 @@ become true?
 
 ```rust
 use mathilde_sdk_rs::core::time::TimeInput;
-use mathilde_sdk_rs::systems::aggregator::{SearchBarsRequest, SearchBarsResponse};
+use mathilde_sdk_rs::systems::aggregator::SearchRequest;
 use mathilde_sdk_rs::systems::types::{HttpFormat, Timeframe};
 
 let out = client
-    .search(&SearchBarsRequest {
+    .search(&SearchRequest {
         tf: Timeframe::M1,
         close_start: TimeInput::Utc("2026-02-02T00:00:00Z".to_string()),
         close_end: Some(TimeInput::Utc("2026-02-02T06:00:00Z".to_string())),
@@ -906,14 +889,9 @@ let out = client
     })
     .await?;
 
-match out {
-    SearchBarsResponse::Min(r) => {
-        println!("hits={}", r.hits.len());
-        println!("next_cursor={:?}", r.next_cursor);
-        println!("predicate_normalized={}", r.predicate_normalized);
-    }
-    SearchBarsResponse::Full(_) => unreachable!(),
-}
+println!("hits={}", out.hits.len());
+println!("next_cursor={:?}", out.next_cursor);
+println!("predicate_normalized={}", out.predicate_normalized);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
@@ -933,11 +911,11 @@ around these hits?
 
 ```rust
 use mathilde_sdk_rs::core::time::TimeInput;
-use mathilde_sdk_rs::systems::aggregator::{TimeMachineBarsRequest, TimeMachineBarsResponse};
+use mathilde_sdk_rs::systems::aggregator::TimeMachineRequest;
 use mathilde_sdk_rs::systems::types::{HttpFormat, Timeframe};
 
 let out = client
-    .time_machine(&TimeMachineBarsRequest {
+    .time_machine(&TimeMachineRequest {
         tf: Timeframe::M1,
         close_start: TimeInput::Utc("2026-02-02T00:00:00Z".to_string()),
         close_end: Some(TimeInput::Utc("2026-02-02T02:00:00Z".to_string())),
@@ -954,13 +932,8 @@ let out = client
     })
     .await?;
 
-match out {
-    TimeMachineBarsResponse::Min(r) => {
-        println!("rows={}", r.rows.len());
-        println!("next_cursor={:?}", r.next_cursor);
-    }
-    TimeMachineBarsResponse::Full(_) => unreachable!(),
-}
+println!("rows={}", out.rows.len());
+println!("next_cursor={:?}", out.next_cursor);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
@@ -1000,7 +973,7 @@ while let Some(frame) = stream.next_frame(&request).await? {
         BarsWsInboundFrame::Meta(meta) => {
             println!("phase={:?} close_ms={:?}", meta.phase, meta.close_ms);
         }
-        BarsWsInboundFrame::JsonRowsMin(rows) => {
+        BarsWsInboundFrame::JsonRows(rows) => {
             println!("rows={}", rows.len());
             break;
         }

@@ -4,7 +4,7 @@ use crate::streaming::make_before_break::MakeBeforeBreakConfig;
 use crate::streaming::subscription::ExponentialBackoffConfig;
 use crate::systems::primitives::{
     OutputsWsFormat, OutputsWsInboundFrame, OutputsWsMakeBeforeBreak, OutputsWsPhase,
-    OutputsWsSubscribeRequest, PrimitiveOutput, Primitives,
+    OutputsWsSubscribeRequest, Primitives,
 };
 use crate::systems::types::Timeframe;
 use futures_util::{SinkExt, StreamExt};
@@ -324,13 +324,10 @@ async fn test_connect_outputs_ws_sends_auth_and_decodes_json_frames() {
     }
 
     match rows {
-        OutputsWsInboundFrame::JsonRows(rows) => match &rows[0].output {
-            PrimitiveOutput::Min(output) => {
-                assert_eq!(output.pair, "BTCUSDT");
-                assert_eq!(rows[0].age_ms, 10);
-            }
-            other => panic!("expected min output, got {other:?}"),
-        },
+        OutputsWsInboundFrame::JsonRows(rows) => {
+            assert_eq!(rows[0].row.pair, "BTCUSDT");
+            assert_eq!(rows[0].age_ms, 10);
+        }
         other => panic!("expected json rows, got {other:?}"),
     }
 }
@@ -376,13 +373,10 @@ async fn test_connect_outputs_ws_replay_last_n_bars_yields_rows_then_replay_done
         .expect("replay rows")
         .expect("some frame")
     {
-        OutputsWsInboundFrame::JsonRows(rows) => match &rows[0].output {
-            PrimitiveOutput::Min(output) => {
-                assert_eq!(output.pair, "BTCUSDT");
-                assert_eq!(rows[0].age_ms, 10);
-            }
-            other => panic!("expected min output, got {other:?}"),
-        },
+        OutputsWsInboundFrame::JsonRows(rows) => {
+            assert_eq!(rows[0].row.pair, "BTCUSDT");
+            assert_eq!(rows[0].age_ms, 0);
+        }
         other => panic!("expected replay rows frame, got {other:?}"),
     }
 
@@ -446,13 +440,10 @@ async fn test_outputs_ws_make_before_break_keeps_old_rows_until_new_rows_arrive(
         .expect("old rows during validation")
         .expect("some frame")
     {
-        OutputsWsInboundFrame::JsonRows(rows) => match &rows[0].output {
-            PrimitiveOutput::Min(output) => {
-                assert_eq!(output.pair, "BTCUSDT");
-                assert_eq!(output.close_ms, 1);
-            }
-            other => panic!("expected min output, got {other:?}"),
-        },
+        OutputsWsInboundFrame::JsonRows(rows) => {
+            assert_eq!(rows[0].row.pair, "BTCUSDT");
+            assert_eq!(rows[0].row.close_ms, 1);
+        }
         other => panic!("expected old rows frame, got {other:?}"),
     }
     assert_eq!(
@@ -468,13 +459,10 @@ async fn test_outputs_ws_make_before_break_keeps_old_rows_until_new_rows_arrive(
         .expect("new rows after promotion")
         .expect("some frame")
     {
-        OutputsWsInboundFrame::JsonRows(rows) => match &rows[0].output {
-            PrimitiveOutput::Min(output) => {
-                assert_eq!(output.pair, "ETHUSDT");
-                assert_eq!(output.close_ms, 2);
-            }
-            other => panic!("expected min output, got {other:?}"),
-        },
+        OutputsWsInboundFrame::JsonRows(rows) => {
+            assert_eq!(rows[0].row.pair, "ETHUSDT");
+            assert_eq!(rows[0].row.close_ms, 2);
+        }
         other => panic!("expected new rows frame, got {other:?}"),
     }
     assert_eq!(
@@ -520,13 +508,10 @@ async fn test_connect_outputs_ws_recovering_reconnects_with_same_request_after_c
         .expect("first recovering rows")
         .expect("some frame")
     {
-        OutputsWsInboundFrame::JsonRows(rows) => match &rows[0].output {
-            PrimitiveOutput::Min(output) => {
-                assert_eq!(output.pair, "BTCUSDT");
-                assert_eq!(output.close_ms, 10);
-            }
-            other => panic!("expected min output, got {other:?}"),
-        },
+        OutputsWsInboundFrame::JsonRows(rows) => {
+            assert_eq!(rows[0].row.pair, "BTCUSDT");
+            assert_eq!(rows[0].row.close_ms, 10);
+        }
         other => panic!("expected first rows frame, got {other:?}"),
     }
 
@@ -536,13 +521,10 @@ async fn test_connect_outputs_ws_recovering_reconnects_with_same_request_after_c
         .expect("second recovering rows")
         .expect("some frame")
     {
-        OutputsWsInboundFrame::JsonRows(rows) => match &rows[0].output {
-            PrimitiveOutput::Min(output) => {
-                assert_eq!(output.pair, "BTCUSDT");
-                assert_eq!(output.close_ms, 20);
-            }
-            other => panic!("expected min output, got {other:?}"),
-        },
+        OutputsWsInboundFrame::JsonRows(rows) => {
+            assert_eq!(rows[0].row.pair, "BTCUSDT");
+            assert_eq!(rows[0].row.close_ms, 20);
+        }
         other => panic!("expected second rows frame, got {other:?}"),
     }
 

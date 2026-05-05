@@ -9,18 +9,16 @@ use crate::systems::regime::messages_ws;
 use crate::systems::regime::outputs_grpc;
 use crate::systems::regime::outputs_http;
 use crate::systems::regime::outputs_pagination::{
-    RangeOutputsCall, RangeOutputsGrpcCall, SearchOutputsCall, SearchOutputsGrpcCall,
-    TimeMachineOutputsCall, TimeMachineOutputsGrpcCall,
+    RangeCall, RangeGrpcCall, SearchCall, SearchGrpcCall, TimeMachineCall, TimeMachineGrpcCall,
 };
 use crate::systems::regime::outputs_ws;
 use crate::systems::regime::pairs;
 use crate::systems::regime::types::{
     DocsRegistryRequest, DownloadedFile, FilesDownloadsRequest, FilesDownloadsResponse,
-    FilesDownloadsRow, LatestOutputsGrpcRequest, LatestOutputsRequest, LatestOutputsResponse,
-    PairsListRequest, PairsListResponse, PairsStatusRequest, PairsStatusResponse,
-    PublicOpenApiDocument, RangeOutputsGrpcRequest, RangeOutputsRequest, RangeOutputsResponse,
-    SearchOutputsGrpcRequest, SearchOutputsRequest, SearchOutputsResponse,
-    TimeMachineOutputsGrpcRequest, TimeMachineOutputsRequest, TimeMachineOutputsResponse,
+    FilesDownloadsRow, LatestGrpcRequest, LatestRequest, LatestResponse, PairsListRequest,
+    PairsListResponse, PairsStatusRequest, PairsStatusResponse, PublicOpenApiDocument,
+    RangeGrpcRequest, RangeRequest, RangeResponse, SearchGrpcRequest, SearchRequest,
+    SearchResponse, TimeMachineGrpcRequest, TimeMachineRequest, TimeMachineResponse,
 };
 use crate::systems::regime::{
     MessagesWsConnection, OutputsWsConnection, OutputsWsMakeBeforeBreak, OutputsWsSubscribeRequest,
@@ -85,17 +83,14 @@ impl Regime {
         docs::openapi(&self.http).await
     }
 
-    pub async fn latest(
-        &self,
-        request: &LatestOutputsRequest,
-    ) -> Result<LatestOutputsResponse, SdkError> {
+    pub async fn latest(&self, request: &LatestRequest) -> Result<LatestResponse, SdkError> {
         outputs_http::latest_outputs(&self.http, request).await
     }
 
     pub async fn latest_grpc(
         &self,
-        request: &LatestOutputsGrpcRequest,
-    ) -> Result<LatestOutputsResponse, SdkError> {
+        request: &LatestGrpcRequest,
+    ) -> Result<LatestResponse, SdkError> {
         let grpc = self
             .grpc
             .as_ref()
@@ -103,17 +98,11 @@ impl Regime {
         outputs_grpc::latest_outputs_grpc(grpc, request).await
     }
 
-    pub async fn range(
-        &self,
-        request: &RangeOutputsRequest,
-    ) -> Result<RangeOutputsResponse, SdkError> {
+    pub async fn range(&self, request: &RangeRequest) -> Result<RangeResponse, SdkError> {
         outputs_http::range_outputs(&self.http, request).await
     }
 
-    pub async fn range_grpc(
-        &self,
-        request: &RangeOutputsGrpcRequest,
-    ) -> Result<RangeOutputsResponse, SdkError> {
+    pub async fn range_grpc(&self, request: &RangeGrpcRequest) -> Result<RangeResponse, SdkError> {
         let grpc = self
             .grpc
             .as_ref()
@@ -121,25 +110,22 @@ impl Regime {
         outputs_grpc::range_outputs_grpc(grpc, request).await
     }
 
-    pub fn range_call(&self, request: RangeOutputsRequest) -> RangeOutputsCall<'_> {
-        RangeOutputsCall::new(self, request)
+    pub fn range_call(&self, request: RangeRequest) -> RangeCall<'_> {
+        RangeCall::new(self, request)
     }
 
-    pub fn range_grpc_call(&self, request: RangeOutputsGrpcRequest) -> RangeOutputsGrpcCall<'_> {
-        RangeOutputsGrpcCall::new(self, request)
+    pub fn range_grpc_call(&self, request: RangeGrpcRequest) -> RangeGrpcCall<'_> {
+        RangeGrpcCall::new(self, request)
     }
 
-    pub async fn search(
-        &self,
-        request: &SearchOutputsRequest,
-    ) -> Result<SearchOutputsResponse, SdkError> {
+    pub async fn search(&self, request: &SearchRequest) -> Result<SearchResponse, SdkError> {
         outputs_http::search_outputs(&self.http, request).await
     }
 
     pub async fn search_grpc(
         &self,
-        request: &SearchOutputsGrpcRequest,
-    ) -> Result<SearchOutputsResponse, SdkError> {
+        request: &SearchGrpcRequest,
+    ) -> Result<SearchResponse, SdkError> {
         let grpc = self
             .grpc
             .as_ref()
@@ -147,25 +133,25 @@ impl Regime {
         outputs_grpc::search_outputs_grpc(grpc, request).await
     }
 
-    pub fn search_call(&self, request: SearchOutputsRequest) -> SearchOutputsCall<'_> {
-        SearchOutputsCall::new(self, request)
+    pub fn search_call(&self, request: SearchRequest) -> SearchCall<'_> {
+        SearchCall::new(self, request)
     }
 
-    pub fn search_grpc_call(&self, request: SearchOutputsGrpcRequest) -> SearchOutputsGrpcCall<'_> {
-        SearchOutputsGrpcCall::new(self, request)
+    pub fn search_grpc_call(&self, request: SearchGrpcRequest) -> SearchGrpcCall<'_> {
+        SearchGrpcCall::new(self, request)
     }
 
     pub async fn time_machine(
         &self,
-        request: &TimeMachineOutputsRequest,
-    ) -> Result<TimeMachineOutputsResponse, SdkError> {
+        request: &TimeMachineRequest,
+    ) -> Result<TimeMachineResponse, SdkError> {
         outputs_http::time_machine_outputs(&self.http, request).await
     }
 
     pub async fn time_machine_grpc(
         &self,
-        request: &TimeMachineOutputsGrpcRequest,
-    ) -> Result<TimeMachineOutputsResponse, SdkError> {
+        request: &TimeMachineGrpcRequest,
+    ) -> Result<TimeMachineResponse, SdkError> {
         let grpc = self
             .grpc
             .as_ref()
@@ -173,18 +159,15 @@ impl Regime {
         outputs_grpc::time_machine_outputs_grpc(grpc, request).await
     }
 
-    pub fn time_machine_call(
-        &self,
-        request: TimeMachineOutputsRequest,
-    ) -> TimeMachineOutputsCall<'_> {
-        TimeMachineOutputsCall::new(self, request)
+    pub fn time_machine_call(&self, request: TimeMachineRequest) -> TimeMachineCall<'_> {
+        TimeMachineCall::new(self, request)
     }
 
     pub fn time_machine_grpc_call(
         &self,
-        request: TimeMachineOutputsGrpcRequest,
-    ) -> TimeMachineOutputsGrpcCall<'_> {
-        TimeMachineOutputsGrpcCall::new(self, request)
+        request: TimeMachineGrpcRequest,
+    ) -> TimeMachineGrpcCall<'_> {
+        TimeMachineGrpcCall::new(self, request)
     }
 
     pub async fn connect_outputs_ws(

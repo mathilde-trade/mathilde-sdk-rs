@@ -1,8 +1,7 @@
 use crate::core::config::{HttpTransportConfig, RegimeConfig};
 use crate::core::error::SdkError;
 use crate::core::time::TimeInput;
-use crate::generated::regime::ProjectedValue;
-use crate::systems::regime::{RangeOutputsRequest, Regime, RegimeOutput};
+use crate::systems::regime::{RangeRequest, Regime};
 use crate::systems::types::{AlignMode, HttpFormat, Timeframe};
 use wiremock::matchers::{body_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -19,7 +18,7 @@ fn config_for_http(base_url: &str) -> RegimeConfig {
 #[tokio::test]
 async fn test_regime_range_outputs_uses_post_and_decodes_projected_min_response() {
     let server = MockServer::start().await;
-    let request = RangeOutputsRequest {
+    let request = RangeRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::H1,
         align_mode: Some(AlignMode::Exact),
@@ -66,20 +65,15 @@ async fn test_regime_range_outputs_uses_post_and_decodes_projected_min_response(
     let out = client.range(&request).await.expect("range outputs success");
 
     assert_eq!(out.next_cursor.as_deref(), Some("next-range"));
-    match &out.rows[0] {
-        RegimeOutput::ProjectedMin(output) => {
-            assert_eq!(output.pair, "BTCUSDT");
-            assert_eq!(output.tr_klts_score, ProjectedValue::Included(Some(1.25)));
-            assert!(output.diagnostics.is_none());
-        }
-        other => panic!("expected projected min output, got {other:?}"),
-    }
+    assert_eq!(out.rows[0].pair, "BTCUSDT");
+    assert_eq!(out.rows[0].computed.f64("tr_klts_score"), Some(1.25));
+    assert!(out.rows[0].diagnostics.is_none());
 }
 
 #[tokio::test]
 async fn test_regime_range_outputs_projected_protobuf_is_rejected_before_transport() {
     let client = Regime::new(config_for_http("https://regime.api.mathilde.dev")).expect("client");
-    let request = RangeOutputsRequest {
+    let request = RangeRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::H1,
         align_mode: None,

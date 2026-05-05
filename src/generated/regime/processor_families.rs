@@ -17,11 +17,10 @@ pub enum ProcessorFamily {
     Structure,
     Inflection,
     Substructure,
-    Metadata,
 }
 
 impl ProcessorFamily {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 9] = [
         Self::Trend,
         Self::Momentum,
         Self::Volatility,
@@ -31,7 +30,6 @@ impl ProcessorFamily {
         Self::Structure,
         Self::Inflection,
         Self::Substructure,
-        Self::Metadata,
     ];
 
     pub const fn canonical_name(self) -> &'static str {
@@ -45,7 +43,6 @@ impl ProcessorFamily {
             Self::Structure => "structure",
             Self::Inflection => "inflection",
             Self::Substructure => "substructure",
-            Self::Metadata => "metadata",
         }
     }
 
@@ -60,7 +57,6 @@ impl ProcessorFamily {
             Self::Structure => &["st", "structure"],
             Self::Inflection => &["in", "inflection"],
             Self::Substructure => &["sub", "substructure"],
-            Self::Metadata => &["metadata", "meta"],
         }
     }
 

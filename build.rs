@@ -26,7 +26,6 @@ fn main() {
 
     let mut primitives = prost_build::Config::new();
     primitives.include_file("primitives_outputs_proto.rs");
-    primitives.type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]");
 
     primitives
         .compile_protos(
@@ -44,7 +43,6 @@ fn main() {
     std::fs::create_dir_all(&regime_out_dir).expect("create regime proto out dir");
     regime.out_dir(&regime_out_dir);
     regime.include_file("regime_outputs_proto.rs");
-    regime.type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]");
 
     regime
         .compile_protos(

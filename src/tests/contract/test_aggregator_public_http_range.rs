@@ -1,7 +1,7 @@
 use crate::core::config::{AggregatorConfig, HttpTransportConfig};
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
-use crate::systems::aggregator::{Aggregator, RangeBarsRequest, RangeBarsResponse};
+use crate::systems::aggregator::{Aggregator, RangeRequest};
 use crate::systems::types::{AlignMode, HttpFormat, Timeframe};
 use prost::Message;
 use wiremock::matchers::{body_json, method, path};
@@ -38,8 +38,8 @@ fn proto_bar_min(pair: &str) -> proto::BarRowV1 {
         taker_signed_n: Some(3),
         vw: Some(100.21),
         n: None,
-        coverage_ratio: Some(0.95),
-        at_ms: Some(1770000060005),
+        coverage_ratio: None,
+        at_ms: None,
         metadata: None,
     }
 }
@@ -69,7 +69,7 @@ fn proto_metadata() -> proto::BarMetadataV1 {
         recomputed_reason: None,
         covered_1m_count: None,
         expected_1m_count: None,
-        coverage_ratio: None,
+        coverage_ratio: Some(0.95),
         inputs_source_counts_frontier: None,
         inputs_source_counts_api: None,
         inputs_source_counts_synthetic: None,
@@ -80,7 +80,6 @@ fn proto_metadata() -> proto::BarMetadataV1 {
         frontier_5s_synth_ratio: Some(0.0),
         frontier_5s_trade_n: Some(12),
         frontier_5s_trade_ratio: Some(1.0),
-        age_ms: Some(202),
     }
 }
 
@@ -106,7 +105,7 @@ fn proto_range_response_full() -> proto::BarsRangeResponseV1 {
 #[tokio::test]
 async fn test_range_bars_uses_post_and_normalizes_time_inputs_and_decodes_min_json() {
     let server = MockServer::start().await;
-    let request = RangeBarsRequest {
+    let request = RangeRequest {
         pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: Some(AlignMode::Floor),
@@ -167,24 +166,16 @@ async fn test_range_bars_uses_post_and_normalizes_time_inputs_and_decodes_min_js
     let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client.range(&request).await.expect("range success");
 
-    match out {
-        RangeBarsResponse::Min(out) => {
-            assert_eq!(out.rows.len(), 1);
-            assert_eq!(out.rows[0].pair, "BTCUSDT");
-            assert!(out.rows[0].coverage_ratio.is_none());
-            assert!(out.rows[0].at_ms.is_none());
-            assert_eq!(out.next_cursor.as_deref(), Some("cursor-1"));
-        }
-        RangeBarsResponse::Full(other) => {
-            panic!("expected min range response, got full: {other:?}")
-        }
-    }
+    assert_eq!(out.rows.len(), 1);
+    assert_eq!(out.rows[0].pair, "BTCUSDT");
+    assert!(out.rows[0].metadata.is_none());
+    assert_eq!(out.next_cursor.as_deref(), Some("cursor-1"));
 }
 
 #[tokio::test]
 async fn test_range_bars_omitted_close_end_serializes_as_absent_and_decodes_full_json() {
     let server = MockServer::start().await;
-    let request = RangeBarsRequest {
+    let request = RangeRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: None,
@@ -253,7 +244,7 @@ async fn test_range_bars_omitted_close_end_serializes_as_absent_and_decodes_full
                         "recomputed_reason": null,
                         "covered_1m_count": null,
                         "expected_1m_count": null,
-                        "coverage_ratio": null,
+                        "coverage_ratio": 0.95,
                         "inputs_source_counts_frontier": null,
                         "inputs_source_counts_api": null,
                         "inputs_source_counts_synthetic": null,
@@ -281,22 +272,18 @@ async fn test_range_bars_omitted_close_end_serializes_as_absent_and_decodes_full
     let client = Aggregator::new(config_for_http(&server.uri())).expect("client");
     let out = client.range(&request).await.expect("range success");
 
-    match out {
-        RangeBarsResponse::Full(out) => {
-            assert_eq!(out.rows.len(), 1);
-            assert_eq!(out.rows[0].pair, "BTCUSDT");
-            assert_eq!(out.rows[0].metadata.source, "frontier");
-        }
-        RangeBarsResponse::Min(other) => {
-            panic!("expected full range response, got min: {other:?}")
-        }
-    }
+    assert_eq!(out.rows.len(), 1);
+    assert_eq!(out.rows[0].pair, "BTCUSDT");
+    assert_eq!(
+        out.rows[0].metadata.as_ref().expect("metadata").source,
+        "frontier"
+    );
 }
 
 #[tokio::test]
 async fn test_range_bars_protobuf_decodes_min_response() {
     let server = MockServer::start().await;
-    let request = RangeBarsRequest {
+    let request = RangeRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: Some(AlignMode::Exact),
@@ -325,22 +312,16 @@ async fn test_range_bars_protobuf_decodes_min_response() {
         .await
         .expect("protobuf range success");
 
-    match out {
-        RangeBarsResponse::Min(out) => {
-            assert_eq!(out.rows.len(), 1);
-            assert_eq!(out.rows[0].pair, "BTCUSDT");
-            assert_eq!(out.next_cursor.as_deref(), Some("cursor-1"));
-        }
-        RangeBarsResponse::Full(other) => {
-            panic!("expected min protobuf range response, got full: {other:?}")
-        }
-    }
+    assert_eq!(out.rows.len(), 1);
+    assert_eq!(out.rows[0].pair, "BTCUSDT");
+    assert!(out.rows[0].metadata.is_none());
+    assert_eq!(out.next_cursor.as_deref(), Some("cursor-1"));
 }
 
 #[tokio::test]
 async fn test_range_bars_protobuf_decodes_full_response() {
     let server = MockServer::start().await;
-    let request = RangeBarsRequest {
+    let request = RangeRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: Some(AlignMode::Exact),
@@ -369,22 +350,16 @@ async fn test_range_bars_protobuf_decodes_full_response() {
         .await
         .expect("protobuf full range success");
 
-    match out {
-        RangeBarsResponse::Full(out) => {
-            assert_eq!(out.rows.len(), 1);
-            assert_eq!(out.rows[0].metadata.source, "frontier");
-            assert_eq!(out.rows[0].metadata.age_ms, Some(202));
-        }
-        RangeBarsResponse::Min(other) => {
-            panic!("expected full protobuf range response, got min: {other:?}")
-        }
-    }
+    assert_eq!(out.rows.len(), 1);
+    let metadata = out.rows[0].metadata.as_ref().expect("metadata");
+    assert_eq!(metadata.source, "frontier");
+    assert_eq!(metadata.coverage_ratio, Some(0.95));
 }
 
 #[tokio::test]
 async fn test_range_bars_non_success_http_status_returns_typed_error() {
     let server = MockServer::start().await;
-    let request = RangeBarsRequest {
+    let request = RangeRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: None,
@@ -423,7 +398,7 @@ async fn test_range_bars_non_success_http_status_returns_typed_error() {
 #[tokio::test]
 async fn test_range_bars_invalid_json_returns_decode_error() {
     let server = MockServer::start().await;
-    let request = RangeBarsRequest {
+    let request = RangeRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: None,
@@ -460,7 +435,7 @@ async fn test_range_bars_invalid_json_returns_decode_error() {
 #[tokio::test]
 async fn test_range_bars_invalid_protobuf_returns_contract_drift() {
     let server = MockServer::start().await;
-    let request = RangeBarsRequest {
+    let request = RangeRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: None,
@@ -499,7 +474,7 @@ async fn test_range_bars_invalid_protobuf_returns_contract_drift() {
 #[tokio::test]
 async fn test_range_bars_call_send_matches_one_page_method() {
     let server = MockServer::start().await;
-    let request = RangeBarsRequest {
+    let request = RangeRequest {
         pairs: vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: Some(AlignMode::Floor),
@@ -576,7 +551,7 @@ async fn test_range_bars_call_send_matches_one_page_method() {
 #[tokio::test]
 async fn test_range_bars_call_traverse_freezes_omitted_close_end_from_first_page() {
     let server = MockServer::start().await;
-    let request = RangeBarsRequest {
+    let request = RangeRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: None,
@@ -692,27 +667,19 @@ async fn test_range_bars_call_traverse_freezes_omitted_close_end_from_first_page
     assert_eq!(out.pages_fetched, 2);
     assert_eq!(out.pages.len(), 2);
 
-    match &out.pages[0] {
-        RangeBarsResponse::Min(response) => {
-            assert_eq!(response.rows[0].pair, "BTCUSDT");
-            assert_eq!(response.next_cursor.as_deref(), Some("cursor-1"));
-        }
-        other => panic!("expected min first page, got {other:?}"),
-    }
+    let first = &out.pages[0];
+    assert_eq!(first.rows[0].pair, "BTCUSDT");
+    assert_eq!(first.next_cursor.as_deref(), Some("cursor-1"));
 
-    match &out.pages[1] {
-        RangeBarsResponse::Min(response) => {
-            assert_eq!(response.rows[0].pair, "ETHUSDT");
-            assert!(response.next_cursor.is_none());
-        }
-        other => panic!("expected min second page, got {other:?}"),
-    }
+    let second = &out.pages[1];
+    assert_eq!(second.rows[0].pair, "ETHUSDT");
+    assert!(second.next_cursor.is_none());
 }
 
 #[tokio::test]
 async fn test_range_bars_pager_next_returns_none_after_terminal_page() {
     let server = MockServer::start().await;
-    let request = RangeBarsRequest {
+    let request = RangeRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         align_mode: None,

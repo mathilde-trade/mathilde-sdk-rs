@@ -2,7 +2,7 @@ use crate::core::auth::BearerToken;
 use crate::core::config::{AggregatorConfig, GrpcTransportConfig, HttpTransportConfig};
 use crate::core::error::SdkError;
 use crate::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as proto;
-use crate::systems::aggregator::{Aggregator, SearchBarsGrpcRequest, SearchBarsResponse};
+use crate::systems::aggregator::{Aggregator, SearchGrpcRequest};
 use crate::systems::types::Timeframe;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -63,8 +63,8 @@ fn proto_bar_min(pair: &str) -> proto::BarRowV1 {
         taker_signed_n: Some(3),
         vw: Some(100.21),
         n: None,
-        coverage_ratio: Some(0.95),
-        at_ms: Some(1770000060005),
+        coverage_ratio: None,
+        at_ms: None,
         metadata: None,
     }
 }
@@ -94,7 +94,7 @@ fn proto_metadata() -> proto::BarMetadataV1 {
         recomputed_reason: None,
         covered_1m_count: None,
         expected_1m_count: None,
-        coverage_ratio: None,
+        coverage_ratio: Some(0.95),
         inputs_source_counts_frontier: None,
         inputs_source_counts_api: None,
         inputs_source_counts_synthetic: None,
@@ -105,7 +105,6 @@ fn proto_metadata() -> proto::BarMetadataV1 {
         frontier_5s_synth_ratio: Some(0.0),
         frontier_5s_trade_n: Some(12),
         frontier_5s_trade_ratio: Some(1.0),
-        age_ms: Some(202),
     }
 }
 
@@ -150,11 +149,7 @@ fn encode_grpc_message<M: Message>(message: M) -> Vec<u8> {
 }
 
 fn decode_grpc_message<M: Message + Default>(body: &[u8]) -> M {
-    assert!(body.len() >= 5, "grpc frame too short");
-    assert_eq!(body[0], 0, "compressed grpc frame unsupported in test");
-    let len = u32::from_be_bytes([body[1], body[2], body[3], body[4]]) as usize;
-    assert_eq!(body.len(), 5 + len, "grpc frame length mismatch");
-    M::decode(&body[5..]).expect("decode grpc message")
+    crate::tests::contract::grpc_test_support::decode_test_grpc_message(body)
 }
 
 fn grpc_status_number(code: tonic::Code) -> &'static str {
@@ -257,7 +252,7 @@ async fn test_search_bars_grpc_uses_unary_path_and_decodes_min_response() {
 
     let token = BearerToken::new("feed_public_token").expect("valid token");
     let client = Aggregator::new(config_for_grpc(&base_url, Some(token))).expect("client");
-    let request = SearchBarsGrpcRequest {
+    let request = SearchGrpcRequest {
         tf: Timeframe::M1,
         close_start: "2026-02-02T00:00:00Z".into(),
         close_end: Some(1770003600000_i64.into()),
@@ -291,22 +286,20 @@ async fn test_search_bars_grpc_uses_unary_path_and_decodes_min_response() {
     assert!(!captured.body.metadata);
     assert_eq!(captured.body.max_hits, Some(500));
 
-    match out {
-        SearchBarsResponse::Min(out) => {
-            assert_eq!(out.hits, vec![1770000060000, 1770000120000]);
-            assert_eq!(out.evaluated_rows.as_ref().expect("rows").len(), 1);
-            assert_eq!(out.next_cursor.as_deref(), Some("cursor-1"));
-            assert!(!out.done);
-            assert_eq!(out.returned_hits, 2);
-            assert_eq!(out.effective_hits_limit, 500);
-            assert!(!out.truncated);
-            assert_eq!(out.predicate_pairs, vec!["BTCUSDT", "ETHUSDT"]);
-            assert_eq!(out.predicate_normalized, "BTCUSDT.c > ETHUSDT.c * 1.5");
-        }
-        SearchBarsResponse::Full(other) => {
-            panic!("expected min search grpc response, got full: {other:?}")
-        }
-    }
+    assert_eq!(out.hits, vec![1770000060000, 1770000120000]);
+    assert_eq!(out.evaluated_rows.as_ref().expect("rows").len(), 1);
+    assert!(
+        out.evaluated_rows.as_ref().expect("rows")[0]
+            .metadata
+            .is_none()
+    );
+    assert_eq!(out.next_cursor.as_deref(), Some("cursor-1"));
+    assert!(!out.done);
+    assert_eq!(out.returned_hits, 2);
+    assert_eq!(out.effective_hits_limit, 500);
+    assert!(!out.truncated);
+    assert_eq!(out.predicate_pairs, vec!["BTCUSDT", "ETHUSDT"]);
+    assert_eq!(out.predicate_normalized, "BTCUSDT.c > ETHUSDT.c * 1.5");
 }
 
 #[tokio::test]
@@ -315,7 +308,7 @@ async fn test_search_bars_grpc_omitted_close_end_decodes_full_response() {
         spawn_search_grpc_server(SearchGrpcUnaryReply::Success(proto_search_response_full())).await;
 
     let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
-    let request = SearchBarsGrpcRequest {
+    let request = SearchGrpcRequest {
         tf: Timeframe::M1,
         close_start: "2026-02-02:00:00".into(),
         close_end: None,
@@ -338,36 +331,23 @@ async fn test_search_bars_grpc_omitted_close_end_decodes_full_response() {
     assert!(captured.body.metadata);
     assert_eq!(captured.body.max_hits, Some(100));
 
-    match out {
-        SearchBarsResponse::Full(out) => {
-            assert_eq!(out.hits, vec![1770000060000]);
-            assert_eq!(out.evaluated_rows.as_ref().expect("rows").len(), 1);
-            assert_eq!(
-                out.evaluated_rows.as_ref().expect("rows")[0].coverage_ratio,
-                Some(0.95)
-            );
-            assert_eq!(
-                out.evaluated_rows.as_ref().expect("rows")[0].at_ms,
-                Some(1770000060005)
-            );
-            assert_eq!(
-                out.evaluated_rows.as_ref().expect("rows")[0]
-                    .metadata
-                    .age_ms,
-                Some(202)
-            );
-            assert!(out.next_cursor.is_none());
-            assert!(out.done);
-            assert_eq!(out.returned_hits, 1);
-            assert_eq!(out.effective_hits_limit, 100);
-            assert!(!out.truncated);
-            assert_eq!(out.predicate_pairs, vec!["BTCUSDT", "ETHUSDT"]);
-            assert_eq!(out.predicate_normalized, "BTCUSDT.c > ETHUSDT.c * 1.5");
-        }
-        SearchBarsResponse::Min(other) => {
-            panic!("expected full search grpc response, got min: {other:?}")
-        }
-    }
+    assert_eq!(out.hits, vec![1770000060000]);
+    assert_eq!(out.evaluated_rows.as_ref().expect("rows").len(), 1);
+    assert_eq!(
+        out.evaluated_rows.as_ref().expect("rows")[0]
+            .metadata
+            .as_ref()
+            .expect("metadata")
+            .coverage_ratio,
+        Some(0.95)
+    );
+    assert!(out.next_cursor.is_none());
+    assert!(out.done);
+    assert_eq!(out.returned_hits, 1);
+    assert_eq!(out.effective_hits_limit, 100);
+    assert!(!out.truncated);
+    assert_eq!(out.predicate_pairs, vec!["BTCUSDT", "ETHUSDT"]);
+    assert_eq!(out.predicate_normalized, "BTCUSDT.c > ETHUSDT.c * 1.5");
 }
 
 #[tokio::test]
@@ -381,7 +361,7 @@ async fn test_search_bars_grpc_returns_missing_config_error_without_grpc_transpo
     .expect("client");
 
     let err = client
-        .search_grpc(&SearchBarsGrpcRequest {
+        .search_grpc(&SearchGrpcRequest {
             tf: Timeframe::M1,
             close_start: "2026-02-02T00:00:00Z".into(),
             close_end: None,
@@ -410,7 +390,7 @@ async fn test_search_bars_grpc_maps_non_ok_grpc_status() {
 
     let client = Aggregator::new(config_for_grpc(&base_url, None)).expect("client");
     let err = client
-        .search_grpc(&SearchBarsGrpcRequest {
+        .search_grpc(&SearchGrpcRequest {
             tf: Timeframe::M1,
             close_start: "2026-02-02T00:00:00Z".into(),
             close_end: None,
@@ -435,7 +415,7 @@ async fn test_search_bars_grpc_maps_non_ok_grpc_status() {
 #[tokio::test]
 async fn test_search_bars_grpc_call_traverse_requires_explicit_close_end() {
     let client = Aggregator::new(config_for_grpc("http://127.0.0.1:1", None)).expect("client");
-    let request = SearchBarsGrpcRequest {
+    let request = SearchGrpcRequest {
         tf: Timeframe::M1,
         close_start: "2026-02-02T00:00:00Z".into(),
         close_end: None,

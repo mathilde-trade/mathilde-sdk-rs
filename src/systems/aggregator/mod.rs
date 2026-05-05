@@ -1,18 +1,18 @@
-pub mod bars_grpc;
-pub mod bars_http;
-pub mod bars_pagination;
-pub mod bars_ws;
-pub mod client;
-pub mod docs;
-pub mod files;
-pub mod messages_ws;
-pub mod pairs;
-pub mod types;
+mod bars_grpc;
+mod bars_http;
+mod bars_pagination;
+mod bars_ws;
+mod client;
+mod docs;
+mod files;
+mod messages_ws;
+mod pairs;
+mod types;
 
 pub use bars_pagination::{
-    RangeBarsCall, RangeBarsGrpcCall, RangeBarsGrpcPager, RangeBarsPager, SearchBarsCall,
-    SearchBarsGrpcCall, SearchBarsGrpcPager, SearchBarsPager, TimeMachineBarsCall,
-    TimeMachineBarsGrpcCall, TimeMachineBarsGrpcPager, TimeMachineBarsPager,
+    RangeCall, RangeGrpcCall, RangeGrpcPager, RangePager, SearchCall, SearchGrpcCall,
+    SearchGrpcPager, SearchPager, TimeMachineCall, TimeMachineGrpcCall, TimeMachineGrpcPager,
+    TimeMachinePager,
 };
 pub use bars_ws::{
     BarsWsConnection, BarsWsErrorFrame, BarsWsFormat, BarsWsInboundFrame, BarsWsMakeBeforeBreak,
@@ -26,11 +26,10 @@ pub use messages_ws::{
     MessagesWsSubscribedFrame, MessagesWsUnsubscribeFrame, RecoveringMessagesWsConnection,
 };
 pub use types::{
-    DownloadedFile, FilesDownloadsRequest, FilesDownloadsResponse, FilesDownloadsRow,
-    LatestBarsGrpcRequest, LatestBarsRequest, LatestBarsResponse, PairsListRequest,
+    Bar, BarMetadata, DownloadedFile, FilesDownloadsRequest, FilesDownloadsResponse,
+    FilesDownloadsRow, LatestGrpcRequest, LatestRequest, LatestResponse, PairsListRequest,
     PairsListResponse, PairsStatusRequest, PairsStatusResponse, PublicOpenApiDocument,
-    RangeBarsGrpcRequest, RangeBarsRequest, RangeBarsResponse, RangeBarsTraverseResult,
-    SearchBarsGrpcRequest, SearchBarsRequest, SearchBarsResponse, SearchBarsTraverseResult,
-    TimeMachineBarsGrpcRequest, TimeMachineBarsRequest, TimeMachineBarsResponse,
-    TimeMachineBarsTraverseResult,
+    RangeGrpcRequest, RangeRequest, RangeResponse, RangeTraverseResult, SearchGrpcRequest,
+    SearchRequest, SearchResponse, SearchTraverseResult, TimeMachineGrpcRequest,
+    TimeMachineRequest, TimeMachineResponse, TimeMachineTraverseResult,
 };

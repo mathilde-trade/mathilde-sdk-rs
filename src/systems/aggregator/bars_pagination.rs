@@ -3,110 +3,109 @@ use crate::core::pagination::{PaginationAdvance, PaginationState, require_explic
 use crate::core::time::TimeInput;
 use crate::systems::aggregator::client::Aggregator;
 use crate::systems::aggregator::types::{
-    RangeBarsGrpcRequest, RangeBarsRequest, RangeBarsResponse, RangeBarsTraverseResult,
-    SearchBarsGrpcRequest, SearchBarsRequest, SearchBarsResponse, SearchBarsTraverseResult,
-    TimeMachineBarsGrpcRequest, TimeMachineBarsRequest, TimeMachineBarsResponse,
-    TimeMachineBarsTraverseResult,
+    RangeGrpcRequest, RangeRequest, RangeResponse, RangeTraverseResult, SearchGrpcRequest,
+    SearchRequest, SearchResponse, SearchTraverseResult, TimeMachineGrpcRequest,
+    TimeMachineRequest, TimeMachineResponse, TimeMachineTraverseResult,
 };
 
 #[derive(Debug)]
-pub struct RangeBarsCall<'a> {
+pub struct RangeCall<'a> {
     client: &'a Aggregator,
-    request: RangeBarsRequest,
+    request: RangeRequest,
 }
 
 #[derive(Debug)]
-pub struct RangeBarsGrpcCall<'a> {
+pub struct RangeGrpcCall<'a> {
     client: &'a Aggregator,
-    request: RangeBarsGrpcRequest,
+    request: RangeGrpcRequest,
 }
 
 #[derive(Debug)]
-pub struct SearchBarsCall<'a> {
+pub struct SearchCall<'a> {
     client: &'a Aggregator,
-    request: SearchBarsRequest,
+    request: SearchRequest,
 }
 
 #[derive(Debug)]
-pub struct SearchBarsGrpcCall<'a> {
+pub struct SearchGrpcCall<'a> {
     client: &'a Aggregator,
-    request: SearchBarsGrpcRequest,
+    request: SearchGrpcRequest,
 }
 
 #[derive(Debug)]
-pub struct TimeMachineBarsCall<'a> {
+pub struct TimeMachineCall<'a> {
     client: &'a Aggregator,
-    request: TimeMachineBarsRequest,
+    request: TimeMachineRequest,
 }
 
 #[derive(Debug)]
-pub struct TimeMachineBarsGrpcCall<'a> {
+pub struct TimeMachineGrpcCall<'a> {
     client: &'a Aggregator,
-    request: TimeMachineBarsGrpcRequest,
+    request: TimeMachineGrpcRequest,
 }
 
 #[derive(Debug)]
-pub struct RangeBarsPager<'a> {
+pub struct RangePager<'a> {
     client: &'a Aggregator,
-    request: RangeBarsRequest,
+    request: RangeRequest,
     state: PaginationState,
     finished: bool,
 }
 
 #[derive(Debug)]
-pub struct RangeBarsGrpcPager<'a> {
+pub struct RangeGrpcPager<'a> {
     client: &'a Aggregator,
-    request: RangeBarsGrpcRequest,
+    request: RangeGrpcRequest,
     state: PaginationState,
     finished: bool,
 }
 
 #[derive(Debug)]
-pub struct SearchBarsPager<'a> {
+pub struct SearchPager<'a> {
     client: &'a Aggregator,
-    request: SearchBarsRequest,
+    request: SearchRequest,
     state: PaginationState,
     finished: bool,
 }
 
 #[derive(Debug)]
-pub struct SearchBarsGrpcPager<'a> {
+pub struct SearchGrpcPager<'a> {
     client: &'a Aggregator,
-    request: SearchBarsGrpcRequest,
+    request: SearchGrpcRequest,
     state: PaginationState,
     finished: bool,
 }
 
 #[derive(Debug)]
-pub struct TimeMachineBarsPager<'a> {
+pub struct TimeMachinePager<'a> {
     client: &'a Aggregator,
-    request: TimeMachineBarsRequest,
+    request: TimeMachineRequest,
     state: PaginationState,
     finished: bool,
 }
 
 #[derive(Debug)]
-pub struct TimeMachineBarsGrpcPager<'a> {
+pub struct TimeMachineGrpcPager<'a> {
     client: &'a Aggregator,
-    request: TimeMachineBarsGrpcRequest,
+    request: TimeMachineGrpcRequest,
     state: PaginationState,
     finished: bool,
 }
 
-impl<'a> RangeBarsCall<'a> {
-    pub(crate) fn new(client: &'a Aggregator, request: RangeBarsRequest) -> Self {
+impl<'a> RangeCall<'a> {
+    pub(crate) fn new(client: &'a Aggregator, request: RangeRequest) -> Self {
         Self { client, request }
     }
 
-    pub async fn send(self) -> Result<RangeBarsResponse, SdkError> {
+    pub async fn send(self) -> Result<RangeResponse, SdkError> {
         self.client.range(&self.request).await
     }
 
-    pub fn pager(self) -> Result<RangeBarsPager<'a>, SdkError> {
-        Ok(RangeBarsPager::new(self.client, self.request))
+    pub fn pager(self) -> Result<RangePager<'a>, SdkError> {
+        Ok(RangePager::new(self.client, self.request))
     }
 
-    pub async fn traverse(self) -> Result<RangeBarsTraverseResult, SdkError> {
+    pub async fn traverse(self) -> Result<RangeTraverseResult, SdkError> {
         let mut pager = self.pager()?;
         let mut pages = Vec::new();
 
@@ -114,27 +113,27 @@ impl<'a> RangeBarsCall<'a> {
             pages.push(page);
         }
 
-        Ok(RangeBarsTraverseResult {
+        Ok(RangeTraverseResult {
             pages,
             pages_fetched: pager.pages_fetched(),
         })
     }
 }
 
-impl<'a> RangeBarsGrpcCall<'a> {
-    pub(crate) fn new(client: &'a Aggregator, request: RangeBarsGrpcRequest) -> Self {
+impl<'a> RangeGrpcCall<'a> {
+    pub(crate) fn new(client: &'a Aggregator, request: RangeGrpcRequest) -> Self {
         Self { client, request }
     }
 
-    pub async fn send(self) -> Result<RangeBarsResponse, SdkError> {
+    pub async fn send(self) -> Result<RangeResponse, SdkError> {
         self.client.range_grpc(&self.request).await
     }
 
-    pub fn pager(self) -> Result<RangeBarsGrpcPager<'a>, SdkError> {
-        Ok(RangeBarsGrpcPager::new(self.client, self.request))
+    pub fn pager(self) -> Result<RangeGrpcPager<'a>, SdkError> {
+        Ok(RangeGrpcPager::new(self.client, self.request))
     }
 
-    pub async fn traverse(self) -> Result<RangeBarsTraverseResult, SdkError> {
+    pub async fn traverse(self) -> Result<RangeTraverseResult, SdkError> {
         let mut pager = self.pager()?;
         let mut pages = Vec::new();
 
@@ -142,28 +141,28 @@ impl<'a> RangeBarsGrpcCall<'a> {
             pages.push(page);
         }
 
-        Ok(RangeBarsTraverseResult {
+        Ok(RangeTraverseResult {
             pages,
             pages_fetched: pager.pages_fetched(),
         })
     }
 }
 
-impl<'a> SearchBarsCall<'a> {
-    pub(crate) fn new(client: &'a Aggregator, request: SearchBarsRequest) -> Self {
+impl<'a> SearchCall<'a> {
+    pub(crate) fn new(client: &'a Aggregator, request: SearchRequest) -> Self {
         Self { client, request }
     }
 
-    pub async fn send(self) -> Result<SearchBarsResponse, SdkError> {
+    pub async fn send(self) -> Result<SearchResponse, SdkError> {
         self.client.search(&self.request).await
     }
 
-    pub fn pager(self) -> Result<SearchBarsPager<'a>, SdkError> {
+    pub fn pager(self) -> Result<SearchPager<'a>, SdkError> {
         require_explicit_close_end(self.request.close_end.as_ref(), "search")?;
-        Ok(SearchBarsPager::new(self.client, self.request))
+        Ok(SearchPager::new(self.client, self.request))
     }
 
-    pub async fn traverse(self) -> Result<SearchBarsTraverseResult, SdkError> {
+    pub async fn traverse(self) -> Result<SearchTraverseResult, SdkError> {
         let mut pager = self.pager()?;
         let mut pages = Vec::new();
 
@@ -171,28 +170,28 @@ impl<'a> SearchBarsCall<'a> {
             pages.push(page);
         }
 
-        Ok(SearchBarsTraverseResult {
+        Ok(SearchTraverseResult {
             pages,
             pages_fetched: pager.pages_fetched(),
         })
     }
 }
 
-impl<'a> SearchBarsGrpcCall<'a> {
-    pub(crate) fn new(client: &'a Aggregator, request: SearchBarsGrpcRequest) -> Self {
+impl<'a> SearchGrpcCall<'a> {
+    pub(crate) fn new(client: &'a Aggregator, request: SearchGrpcRequest) -> Self {
         Self { client, request }
     }
 
-    pub async fn send(self) -> Result<SearchBarsResponse, SdkError> {
+    pub async fn send(self) -> Result<SearchResponse, SdkError> {
         self.client.search_grpc(&self.request).await
     }
 
-    pub fn pager(self) -> Result<SearchBarsGrpcPager<'a>, SdkError> {
+    pub fn pager(self) -> Result<SearchGrpcPager<'a>, SdkError> {
         require_explicit_close_end(self.request.close_end.as_ref(), "search")?;
-        Ok(SearchBarsGrpcPager::new(self.client, self.request))
+        Ok(SearchGrpcPager::new(self.client, self.request))
     }
 
-    pub async fn traverse(self) -> Result<SearchBarsTraverseResult, SdkError> {
+    pub async fn traverse(self) -> Result<SearchTraverseResult, SdkError> {
         let mut pager = self.pager()?;
         let mut pages = Vec::new();
 
@@ -200,28 +199,28 @@ impl<'a> SearchBarsGrpcCall<'a> {
             pages.push(page);
         }
 
-        Ok(SearchBarsTraverseResult {
+        Ok(SearchTraverseResult {
             pages,
             pages_fetched: pager.pages_fetched(),
         })
     }
 }
 
-impl<'a> TimeMachineBarsCall<'a> {
-    pub(crate) fn new(client: &'a Aggregator, request: TimeMachineBarsRequest) -> Self {
+impl<'a> TimeMachineCall<'a> {
+    pub(crate) fn new(client: &'a Aggregator, request: TimeMachineRequest) -> Self {
         Self { client, request }
     }
 
-    pub async fn send(self) -> Result<TimeMachineBarsResponse, SdkError> {
+    pub async fn send(self) -> Result<TimeMachineResponse, SdkError> {
         self.client.time_machine(&self.request).await
     }
 
-    pub fn pager(self) -> Result<TimeMachineBarsPager<'a>, SdkError> {
+    pub fn pager(self) -> Result<TimeMachinePager<'a>, SdkError> {
         require_explicit_close_end(self.request.close_end.as_ref(), "time-machine")?;
-        Ok(TimeMachineBarsPager::new(self.client, self.request))
+        Ok(TimeMachinePager::new(self.client, self.request))
     }
 
-    pub async fn traverse(self) -> Result<TimeMachineBarsTraverseResult, SdkError> {
+    pub async fn traverse(self) -> Result<TimeMachineTraverseResult, SdkError> {
         let mut pager = self.pager()?;
         let mut pages = Vec::new();
 
@@ -229,28 +228,28 @@ impl<'a> TimeMachineBarsCall<'a> {
             pages.push(page);
         }
 
-        Ok(TimeMachineBarsTraverseResult {
+        Ok(TimeMachineTraverseResult {
             pages,
             pages_fetched: pager.pages_fetched(),
         })
     }
 }
 
-impl<'a> TimeMachineBarsGrpcCall<'a> {
-    pub(crate) fn new(client: &'a Aggregator, request: TimeMachineBarsGrpcRequest) -> Self {
+impl<'a> TimeMachineGrpcCall<'a> {
+    pub(crate) fn new(client: &'a Aggregator, request: TimeMachineGrpcRequest) -> Self {
         Self { client, request }
     }
 
-    pub async fn send(self) -> Result<TimeMachineBarsResponse, SdkError> {
+    pub async fn send(self) -> Result<TimeMachineResponse, SdkError> {
         self.client.time_machine_grpc(&self.request).await
     }
 
-    pub fn pager(self) -> Result<TimeMachineBarsGrpcPager<'a>, SdkError> {
+    pub fn pager(self) -> Result<TimeMachineGrpcPager<'a>, SdkError> {
         require_explicit_close_end(self.request.close_end.as_ref(), "time-machine")?;
-        Ok(TimeMachineBarsGrpcPager::new(self.client, self.request))
+        Ok(TimeMachineGrpcPager::new(self.client, self.request))
     }
 
-    pub async fn traverse(self) -> Result<TimeMachineBarsTraverseResult, SdkError> {
+    pub async fn traverse(self) -> Result<TimeMachineTraverseResult, SdkError> {
         let mut pager = self.pager()?;
         let mut pages = Vec::new();
 
@@ -258,15 +257,15 @@ impl<'a> TimeMachineBarsGrpcCall<'a> {
             pages.push(page);
         }
 
-        Ok(TimeMachineBarsTraverseResult {
+        Ok(TimeMachineTraverseResult {
             pages,
             pages_fetched: pager.pages_fetched(),
         })
     }
 }
 
-impl<'a> RangeBarsPager<'a> {
-    fn new(client: &'a Aggregator, request: RangeBarsRequest) -> Self {
+impl<'a> RangePager<'a> {
+    fn new(client: &'a Aggregator, request: RangeRequest) -> Self {
         Self {
             client,
             request,
@@ -279,7 +278,7 @@ impl<'a> RangeBarsPager<'a> {
         self.state.pages_fetched()
     }
 
-    pub async fn next(&mut self) -> Result<Option<RangeBarsResponse>, SdkError> {
+    pub async fn next(&mut self) -> Result<Option<RangeResponse>, SdkError> {
         if self.finished {
             return Ok(None);
         }
@@ -309,8 +308,8 @@ impl<'a> RangeBarsPager<'a> {
     }
 }
 
-impl<'a> RangeBarsGrpcPager<'a> {
-    fn new(client: &'a Aggregator, request: RangeBarsGrpcRequest) -> Self {
+impl<'a> RangeGrpcPager<'a> {
+    fn new(client: &'a Aggregator, request: RangeGrpcRequest) -> Self {
         Self {
             client,
             request,
@@ -323,7 +322,7 @@ impl<'a> RangeBarsGrpcPager<'a> {
         self.state.pages_fetched()
     }
 
-    pub async fn next(&mut self) -> Result<Option<RangeBarsResponse>, SdkError> {
+    pub async fn next(&mut self) -> Result<Option<RangeResponse>, SdkError> {
         if self.finished {
             return Ok(None);
         }
@@ -353,8 +352,8 @@ impl<'a> RangeBarsGrpcPager<'a> {
     }
 }
 
-impl<'a> SearchBarsPager<'a> {
-    fn new(client: &'a Aggregator, request: SearchBarsRequest) -> Self {
+impl<'a> SearchPager<'a> {
+    fn new(client: &'a Aggregator, request: SearchRequest) -> Self {
         Self {
             client,
             request,
@@ -367,7 +366,7 @@ impl<'a> SearchBarsPager<'a> {
         self.state.pages_fetched()
     }
 
-    pub async fn next(&mut self) -> Result<Option<SearchBarsResponse>, SdkError> {
+    pub async fn next(&mut self) -> Result<Option<SearchResponse>, SdkError> {
         if self.finished {
             return Ok(None);
         }
@@ -391,8 +390,8 @@ impl<'a> SearchBarsPager<'a> {
     }
 }
 
-impl<'a> SearchBarsGrpcPager<'a> {
-    fn new(client: &'a Aggregator, request: SearchBarsGrpcRequest) -> Self {
+impl<'a> SearchGrpcPager<'a> {
+    fn new(client: &'a Aggregator, request: SearchGrpcRequest) -> Self {
         Self {
             client,
             request,
@@ -405,7 +404,7 @@ impl<'a> SearchBarsGrpcPager<'a> {
         self.state.pages_fetched()
     }
 
-    pub async fn next(&mut self) -> Result<Option<SearchBarsResponse>, SdkError> {
+    pub async fn next(&mut self) -> Result<Option<SearchResponse>, SdkError> {
         if self.finished {
             return Ok(None);
         }
@@ -429,8 +428,8 @@ impl<'a> SearchBarsGrpcPager<'a> {
     }
 }
 
-impl<'a> TimeMachineBarsPager<'a> {
-    fn new(client: &'a Aggregator, request: TimeMachineBarsRequest) -> Self {
+impl<'a> TimeMachinePager<'a> {
+    fn new(client: &'a Aggregator, request: TimeMachineRequest) -> Self {
         Self {
             client,
             request,
@@ -443,7 +442,7 @@ impl<'a> TimeMachineBarsPager<'a> {
         self.state.pages_fetched()
     }
 
-    pub async fn next(&mut self) -> Result<Option<TimeMachineBarsResponse>, SdkError> {
+    pub async fn next(&mut self) -> Result<Option<TimeMachineResponse>, SdkError> {
         if self.finished {
             return Ok(None);
         }
@@ -467,8 +466,8 @@ impl<'a> TimeMachineBarsPager<'a> {
     }
 }
 
-impl<'a> TimeMachineBarsGrpcPager<'a> {
-    fn new(client: &'a Aggregator, request: TimeMachineBarsGrpcRequest) -> Self {
+impl<'a> TimeMachineGrpcPager<'a> {
+    fn new(client: &'a Aggregator, request: TimeMachineGrpcRequest) -> Self {
         Self {
             client,
             request,
@@ -481,7 +480,7 @@ impl<'a> TimeMachineBarsGrpcPager<'a> {
         self.state.pages_fetched()
     }
 
-    pub async fn next(&mut self) -> Result<Option<TimeMachineBarsResponse>, SdkError> {
+    pub async fn next(&mut self) -> Result<Option<TimeMachineResponse>, SdkError> {
         if self.finished {
             return Ok(None);
         }

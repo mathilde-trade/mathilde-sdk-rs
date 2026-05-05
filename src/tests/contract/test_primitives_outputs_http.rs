@@ -1,8 +1,7 @@
 use crate::core::config::HttpTransportConfig;
 use crate::core::error::SdkError;
 use crate::generated::primitives::ProcessorGroup;
-use crate::systems::primitives::LatestOutputsRequest;
-use crate::systems::primitives::outputs_http::latest_outputs;
+use crate::systems::primitives::{LatestRequest, latest_outputs};
 use crate::systems::types::{HttpFormat, Timeframe};
 use crate::transport::http::HttpTransport;
 
@@ -12,7 +11,7 @@ async fn test_http_projected_protobuf_latest_is_rejected_before_transport() {
         &HttpTransportConfig::new("https://primitives.api.mathilde.dev").expect("config"),
         None,
     );
-    let request = LatestOutputsRequest {
+    let request = LatestRequest {
         pairs: vec!["BTCUSDT".to_string()],
         tf: Timeframe::M1,
         latest_mode: None,

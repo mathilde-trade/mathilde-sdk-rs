@@ -1,6 +1,7 @@
 use crate::generated::primitives::{ProcessorFamily, ProcessorGroup};
-use crate::systems::primitives::DocsRegistryRequest;
-use crate::systems::primitives::types::{selector_family_names, selector_group_names};
+use crate::systems::primitives::{
+    DocsRegistryRequest, selector_family_names, selector_group_names,
+};
 
 fn csv_param(values: Vec<String>) -> Option<String> {
     if values.is_empty() {
@@ -13,13 +14,13 @@ fn csv_param(values: Vec<String>) -> Option<String> {
 #[test]
 fn test_docs_registry_request_uses_canonical_csv_selectors() {
     let request = DocsRegistryRequest {
-        family: Some(vec![ProcessorFamily::Metadata]),
+        family: Some(vec![ProcessorFamily::MovingAverages]),
         group: Some(vec![ProcessorGroup::Ema]),
     };
 
     let family = csv_param(selector_family_names(request.family.as_deref()));
     let group = csv_param(selector_group_names(request.group.as_deref()));
 
-    assert_eq!(family.as_deref(), Some("metadata"));
+    assert_eq!(family.as_deref(), Some("moving_averages"));
     assert_eq!(group.as_deref(), Some("ema"));
 }

@@ -268,7 +268,7 @@ Crate entry for `Cargo.toml`:
 
 ```toml
 [dependencies]
-mathilde-sdk-rs = { path = "." }
+mathilde-sdk-rs = { git = "https://github.mathilde.dev/mathilde-sdk-rs.git", tag = "msdk-rs-v0.1.0" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 

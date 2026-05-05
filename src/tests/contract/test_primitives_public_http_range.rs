@@ -1,8 +1,7 @@
 use crate::core::config::{HttpTransportConfig, PrimitivesConfig};
 use crate::core::error::SdkError;
 use crate::core::time::TimeInput;
-use crate::generated::primitives::{ProcessorFamily, ProcessorGroup};
-use crate::systems::primitives::{Primitives, RangeRequest};
+use crate::systems::primitives::{Primitives, ProcessorFamily, ProcessorGroup, RangeRequest};
 use crate::systems::types::{AlignMode, HttpFormat, Timeframe};
 use wiremock::matchers::{body_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};

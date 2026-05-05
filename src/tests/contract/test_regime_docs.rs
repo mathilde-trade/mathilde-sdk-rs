@@ -1,5 +1,7 @@
-use crate::generated::regime::{ProcessorFamily, ProcessorGroup};
-use crate::systems::regime::{DocsRegistryRequest, selector_family_names, selector_group_names};
+use crate::systems::regime::{
+    DocsRegistryRequest, ProcessorFamily, ProcessorGroup, selector_family_names,
+    selector_group_names,
+};
 
 fn csv_param(values: Vec<String>) -> Option<String> {
     if values.is_empty() {

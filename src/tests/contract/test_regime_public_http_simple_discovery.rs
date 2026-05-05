@@ -1,6 +1,8 @@
 use crate::core::config::{HttpTransportConfig, RegimeConfig};
-use crate::generated::regime::{ProcessorFamily, ProcessorGroup};
-use crate::systems::regime::{DocsRegistryRequest, PairsListRequest, PairsStatusRequest, Regime};
+use crate::systems::regime::{
+    DocsRegistryRequest, PairsListRequest, PairsStatusRequest, ProcessorFamily, ProcessorGroup,
+    Regime,
+};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 

@@ -1,10 +1,10 @@
 use crate::core::auth::BearerToken;
 use crate::core::time::TimeInput;
 use crate::generated::primitives::outputs_proto::mathilde::feed::outputs::v1 as proto;
-use crate::generated::primitives::{ProcessorFamily, ProcessorGroup};
 use crate::systems::primitives::{
     LatestGrpcRequest, LatestRequest, LatestResponse, OutputView, PrimitiveOutputMode, Primitives,
-    RangeRequest, SearchRequest, SearchResponse, TimeMachineRequest, diagnostics_enabled,
+    ProcessorFamily, ProcessorGroup, RangeRequest, SearchRequest, SearchResponse,
+    TimeMachineRequest, diagnostics_enabled,
 };
 use crate::systems::types::{HttpFormat, LatestMode, Timeframe};
 

@@ -7,6 +7,7 @@ use tonic::transport::{Channel, Endpoint};
 #[derive(Debug, Clone)]
 pub struct GrpcTransport {
     channel: Channel,
+    #[cfg(test)]
     endpoint_uri: String,
     bearer_token: Option<BearerToken>,
 }
@@ -23,6 +24,7 @@ impl GrpcTransport {
 
         Ok(Self {
             channel,
+            #[cfg(test)]
             endpoint_uri,
             bearer_token,
         })
@@ -35,6 +37,7 @@ impl GrpcTransport {
         }
     }
 
+    #[cfg(test)]
     pub fn endpoint(&self) -> &str {
         &self.endpoint_uri
     }

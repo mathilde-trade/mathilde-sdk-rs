@@ -1,7 +1,6 @@
 use crate::core::config::{HttpTransportConfig, PrimitivesConfig};
 use crate::core::time::TimeInput;
-use crate::generated::primitives::{ProcessorFamily, ProcessorGroup};
-use crate::systems::primitives::{Primitives, TimeMachineRequest};
+use crate::systems::primitives::{Primitives, ProcessorFamily, ProcessorGroup, TimeMachineRequest};
 use crate::systems::types::{HttpFormat, Timeframe};
 use wiremock::matchers::{body_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};

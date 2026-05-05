@@ -1,9 +1,8 @@
 use crate::core::time::TimeInput;
 use crate::generated::regime::outputs_proto::mathilde::feed::outputs::v1 as proto;
-use crate::generated::regime::{ProcessorFamily, ProcessorGroup};
 use crate::systems::regime::{
-    LatestGrpcRequest, LatestRequest, LatestResponse, OutputView, RangeRequest, RegimeOutputMode,
-    SearchRequest, TimeMachineRequest, diagnostics_enabled,
+    LatestGrpcRequest, LatestRequest, LatestResponse, OutputView, ProcessorFamily, ProcessorGroup,
+    RangeRequest, RegimeOutputMode, SearchRequest, TimeMachineRequest, diagnostics_enabled,
 };
 use crate::systems::types::{HttpFormat, LatestMode, Timeframe};
 

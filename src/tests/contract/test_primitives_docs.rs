@@ -1,6 +1,6 @@
-use crate::generated::primitives::{ProcessorFamily, ProcessorGroup};
 use crate::systems::primitives::{
-    DocsRegistryRequest, selector_family_names, selector_group_names,
+    DocsRegistryRequest, ProcessorFamily, ProcessorGroup, selector_family_names,
+    selector_group_names,
 };
 
 fn csv_param(values: Vec<String>) -> Option<String> {

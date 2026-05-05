@@ -1,8 +1,6 @@
 use crate::core::config::GrpcTransportConfig;
 use crate::core::error::SdkError;
-use crate::generated::primitives::ProcessorFamily;
-use crate::systems::primitives::LatestGrpcRequest;
-use crate::systems::primitives::latest_outputs_grpc;
+use crate::systems::primitives::{LatestGrpcRequest, ProcessorFamily, latest_outputs_grpc};
 use crate::systems::types::Timeframe;
 use crate::transport::grpc::GrpcTransport;
 

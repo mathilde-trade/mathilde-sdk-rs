@@ -1,7 +1,6 @@
 use crate::core::config::HttpTransportConfig;
 use crate::core::error::SdkError;
-use crate::generated::primitives::ProcessorGroup;
-use crate::systems::primitives::{LatestRequest, latest_outputs};
+use crate::systems::primitives::{LatestRequest, ProcessorGroup, latest_outputs};
 use crate::systems::types::{HttpFormat, Timeframe};
 use crate::transport::http::HttpTransport;
 

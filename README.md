@@ -23,6 +23,7 @@ layer, not an opinion or trading layer.
 - [WS Recovery And Limits](#ws-recovery-and-limits)
 - [What Not To Infer](#what-not-to-infer)
 - [Further Reading](#further-reading)
+- [Live examples and workflows](examples/README.md)
 
 ## What This Is
 
@@ -493,8 +494,9 @@ same but the request and payload are different:
 
 ```rust
 use mathilde_sdk_rs::core::auth::BearerToken;
-use mathilde_sdk_rs::generated::primitives::{ProcessorFamily, ProcessorGroup};
-use mathilde_sdk_rs::systems::primitives::{LatestRequest, Primitives};
+use mathilde_sdk_rs::systems::primitives::{
+    LatestRequest, Primitives, ProcessorFamily, ProcessorGroup,
+};
 use mathilde_sdk_rs::systems::types::{HttpFormat, LatestMode, Timeframe};
 
 let client = Primitives::client(Some(BearerToken::new("feed_public_token")?))?;
@@ -523,35 +525,35 @@ if let Some(value) = out.rows[0].row.computed.f64("ma_ema_p20") {
 
 ### Intro
 
-| Family     | HTTP    | gRPC | WS | Cursor | Managed recovery | Notes |
-| ---------- | ------- | ---- | -- | ------ | ---------------- | ----- |
-| Intro root | `intro` | No   | No | No     | No               | Ordered JSON document returned from the root `api.mathilde.dev` surface |
+| Family     | HTTP    | gRPC | WS  | Cursor | Managed recovery | Notes                                                                   |
+| ---------- | ------- | ---- | --- | ------ | ---------------- | ----------------------------------------------------------------------- |
+| Intro root | `intro` | No   | No  | No     | No               | Ordered JSON document returned from the root `api.mathilde.dev` surface |
 
 ### Aggregator
 
-| Family            | HTTP                                                                      | gRPC                     | WS                                  | Cursor                                      | Managed recovery                 | Notes                                  |
-| ----------------- | ------------------------------------------------------------------------- | ------------------------ | ----------------------------------- | ------------------------------------------- | -------------------------------- | -------------------------------------- |
-| Docs              | `docs_system`, `docs_summary`, `docs_themes`, `docs_endpoints`, `openapi` | No                       | No                                  | No                                          | No                               | Public documentation and OpenAPI reads |
-| Discovery         | `pairs_status`, `pairs_list`, `files_downloads`                           | No                       | No                                  | `pairs_status` supports paging-style fields | No                               | Public pair and file discovery         |
-| Latest bars       | `latest`                                                                  | `latest_grpc`            | No                                  | No                                          | No                               | Current aligned bar snapshot           |
-| Range bars        | `range`                                                                   | `range_grpc`             | `connect_bars_ws`                   | Yes                                         | `connect_bars_ws_recovering`     | Windowed bars reads and bars stream    |
-| Search bars       | `search`                                                                  | `search_grpc`            | No                                  | Yes                                         | No                               | Predicate-driven hit search            |
-| Time-machine bars | `time_machine`                                                            | `time_machine_grpc`      | No                                  | Yes                                         | No                               | Context around hits                    |
-| Bars WS helpers   | No                                                                        | No                       | `connect_bars_ws_make_before_break` | N/A                                         | `connect_bars_ws_recovering`     | Immutable subscription per connection  |
-| Messages WS       | No                                                                        | No                       | `connect_messages_ws`               | N/A                                         | `connect_messages_ws_recovering` | In-band subscribe and unsubscribe      |
+| Family            | HTTP                                                                      | gRPC                | WS                                  | Cursor                                      | Managed recovery                 | Notes                                  |
+| ----------------- | ------------------------------------------------------------------------- | ------------------- | ----------------------------------- | ------------------------------------------- | -------------------------------- | -------------------------------------- |
+| Docs              | `docs_system`, `docs_summary`, `docs_themes`, `docs_endpoints`, `openapi` | No                  | No                                  | No                                          | No                               | Public documentation and OpenAPI reads |
+| Discovery         | `pairs_status`, `pairs_list`, `files_downloads`                           | No                  | No                                  | `pairs_status` supports paging-style fields | No                               | Public pair and file discovery         |
+| Latest bars       | `latest`                                                                  | `latest_grpc`       | No                                  | No                                          | No                               | Current aligned bar snapshot           |
+| Range bars        | `range`                                                                   | `range_grpc`        | `connect_bars_ws`                   | Yes                                         | `connect_bars_ws_recovering`     | Windowed bars reads and bars stream    |
+| Search bars       | `search`                                                                  | `search_grpc`       | No                                  | Yes                                         | No                               | Predicate-driven hit search            |
+| Time-machine bars | `time_machine`                                                            | `time_machine_grpc` | No                                  | Yes                                         | No                               | Context around hits                    |
+| Bars WS helpers   | No                                                                        | No                  | `connect_bars_ws_make_before_break` | N/A                                         | `connect_bars_ws_recovering`     | Immutable subscription per connection  |
+| Messages WS       | No                                                                        | No                  | `connect_messages_ws`               | N/A                                         | `connect_messages_ws_recovering` | In-band subscribe and unsubscribe      |
 
 ### Primitives
 
-| Family            | HTTP                                                                                          | gRPC                     | WS                                     | Cursor                                              | Managed recovery                    | Notes |
-| ----------------- | --------------------------------------------------------------------------------------------- | ------------------------ | -------------------------------------- | --------------------------------------------------- | ----------------------------------- | ----- |
-| Docs              | `docs_system`, `docs_summary`, `docs_taxonomy`, `docs_registry`, `docs_endpoints`, `openapi` | No                       | No                                     | No                                                  | No                                  | Public docs are returned as ordered JSON values |
-| Discovery         | `pairs_status`, `pairs_list`, `files_downloads`                                               | No                       | No                                     | `pairs_status` supports paging-style fields         | No                                  | Public pair and file discovery |
-| Latest outputs    | `latest`                                                                                      | `latest_grpc`            | No                                     | No                                                  | No                                  | Current aligned computed snapshot |
-| Range outputs     | `range`                                                                                       | `range_grpc`             | `connect_outputs_ws`                   | Yes                                                 | `connect_outputs_ws_recovering`     | Historical outputs and outputs stream |
-| Search outputs    | `search`                                                                                      | `search_grpc`            | No                                     | Yes                                                 | No                                  | Predicate-driven hit discovery |
-| Time-machine out. | `time_machine`                                                                                | `time_machine_grpc`      | No                                     | Yes                                                 | No                                  | Context around hits |
-| Outputs WS helper | No                                                                                            | No                       | `connect_outputs_ws_make_before_break` | N/A                                                 | `connect_outputs_ws_recovering`     | Immutable subscription per connection |
-| Messages WS       | No                                                                                            | No                       | `connect_messages_ws`                  | N/A                                                 | `connect_messages_ws_recovering`    | In-band subscribe and unsubscribe |
+| Family            | HTTP                                                                                         | gRPC                | WS                                     | Cursor                                      | Managed recovery                 | Notes                                           |
+| ----------------- | -------------------------------------------------------------------------------------------- | ------------------- | -------------------------------------- | ------------------------------------------- | -------------------------------- | ----------------------------------------------- |
+| Docs              | `docs_system`, `docs_summary`, `docs_taxonomy`, `docs_registry`, `docs_endpoints`, `openapi` | No                  | No                                     | No                                          | No                               | Public docs are returned as ordered JSON values |
+| Discovery         | `pairs_status`, `pairs_list`, `files_downloads`                                              | No                  | No                                     | `pairs_status` supports paging-style fields | No                               | Public pair and file discovery                  |
+| Latest outputs    | `latest`                                                                                     | `latest_grpc`       | No                                     | No                                          | No                               | Current aligned computed snapshot               |
+| Range outputs     | `range`                                                                                      | `range_grpc`        | `connect_outputs_ws`                   | Yes                                         | `connect_outputs_ws_recovering`  | Historical outputs and outputs stream           |
+| Search outputs    | `search`                                                                                     | `search_grpc`       | No                                     | Yes                                         | No                               | Predicate-driven hit discovery                  |
+| Time-machine out. | `time_machine`                                                                               | `time_machine_grpc` | No                                     | Yes                                         | No                               | Context around hits                             |
+| Outputs WS helper | No                                                                                           | No                  | `connect_outputs_ws_make_before_break` | N/A                                         | `connect_outputs_ws_recovering`  | Immutable subscription per connection           |
+| Messages WS       | No                                                                                           | No                  | `connect_messages_ws`                  | N/A                                         | `connect_messages_ws_recovering` | In-band subscribe and unsubscribe               |
 
 Important primitives-specific failure contract:
 
@@ -565,16 +567,16 @@ public projected JSON surface preserves.
 
 ### Regime
 
-| Family            | HTTP                                                                                      | gRPC                     | WS                                     | Cursor                                              | Managed recovery                    | Notes |
-| ----------------- | ----------------------------------------------------------------------------------------- | ------------------------ | -------------------------------------- | --------------------------------------------------- | ----------------------------------- | ----- |
-| Docs              | `docs_system`, `docs_summary`, `docs_taxonomy`, `docs_registry`, `docs_endpoints`, `openapi` | No                    | No                                     | No                                                  | No                                  | Public docs are returned as ordered JSON values |
-| Discovery         | `pairs_status`, `pairs_list`, `files_downloads`                                           | No                       | No                                     | `pairs_status` supports paging-style fields         | No                                  | Public pair and file discovery |
-| Latest outputs    | `latest`                                                                                  | `latest_grpc`            | No                                     | No                                                  | No                                  | Current aligned regime snapshot; `tf` is currently `1h` only |
-| Range outputs     | `range`                                                                                   | `range_grpc`             | `connect_outputs_ws`                   | Yes                                                 | `connect_outputs_ws_recovering`     | Historical outputs and outputs stream |
-| Search outputs    | `search`                                                                                  | `search_grpc`            | No                                     | Yes                                                 | No                                  | Predicate-driven hit discovery |
-| Time-machine out. | `time_machine`                                                                            | `time_machine_grpc`      | No                                     | Yes                                                 | No                                  | Context around hits |
-| Outputs WS helper | No                                                                                        | No                       | `connect_outputs_ws_make_before_break` | N/A                                                 | `connect_outputs_ws_recovering`     | Immutable subscription per connection |
-| Messages WS       | No                                                                                        | No                       | `connect_messages_ws`                  | N/A                                                 | `connect_messages_ws_recovering`    | In-band subscribe and unsubscribe |
+| Family            | HTTP                                                                                         | gRPC                | WS                                     | Cursor                                      | Managed recovery                 | Notes                                                        |
+| ----------------- | -------------------------------------------------------------------------------------------- | ------------------- | -------------------------------------- | ------------------------------------------- | -------------------------------- | ------------------------------------------------------------ |
+| Docs              | `docs_system`, `docs_summary`, `docs_taxonomy`, `docs_registry`, `docs_endpoints`, `openapi` | No                  | No                                     | No                                          | No                               | Public docs are returned as ordered JSON values              |
+| Discovery         | `pairs_status`, `pairs_list`, `files_downloads`                                              | No                  | No                                     | `pairs_status` supports paging-style fields | No                               | Public pair and file discovery                               |
+| Latest outputs    | `latest`                                                                                     | `latest_grpc`       | No                                     | No                                          | No                               | Current aligned regime snapshot; `tf` is currently `1h` only |
+| Range outputs     | `range`                                                                                      | `range_grpc`        | `connect_outputs_ws`                   | Yes                                         | `connect_outputs_ws_recovering`  | Historical outputs and outputs stream                        |
+| Search outputs    | `search`                                                                                     | `search_grpc`       | No                                     | Yes                                         | No                               | Predicate-driven hit discovery                               |
+| Time-machine out. | `time_machine`                                                                               | `time_machine_grpc` | No                                     | Yes                                         | No                               | Context around hits                                          |
+| Outputs WS helper | No                                                                                           | No                  | `connect_outputs_ws_make_before_break` | N/A                                         | `connect_outputs_ws_recovering`  | Immutable subscription per connection                        |
+| Messages WS       | No                                                                                           | No                  | `connect_messages_ws`                  | N/A                                         | `connect_messages_ws_recovering` | In-band subscribe and unsubscribe                            |
 
 Important regime-specific failure contract:
 

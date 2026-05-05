@@ -14,6 +14,7 @@ currently exist for `src/systems`.
 ## 1) Source Files
 
 - `src/systems/helpers.rs`: shared public collection helpers for system-facing request ergonomics.
+- `src/systems/compute_proto.rs`: internal protobuf-native compute-row field extraction helpers used to keep generated compute gRPC/protobuf trees free of blanket serde derives.
 - `src/systems/mod.rs`: top-level system module wiring and exports.
 - `src/systems/types.rs`: shared cross-system public enums and wire-facing labels.
 - `src/systems/aggregator/mod.rs`: aggregator system module wiring and public exports.

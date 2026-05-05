@@ -29,7 +29,7 @@ pub async fn my_test() -> Result<(), Box<dyn std::error::Error>> {
         cursor: None,
     };
 
-    let grpc_request = RangeGrpcRequest::from(&range_request);
+    let _grpc_request = RangeGrpcRequest::from(&range_request);
 
     let latest = agg.latest(&latest_request).await?;
 
@@ -72,8 +72,9 @@ pub async fn my_test() -> Result<(), Box<dyn std::error::Error>> {
             println!("Price stayed the same in this bar.");
         }
     }
-    let range_t = agg.range_grpc_call(grpc_request).traverse().await?;
+    let range_t = agg.range_grpc_call(_grpc_request).traverse().await?;
     println!("pages_fetched={}", range_t.pages_fetched);
+    let now = std::time::Instant::now();
     let mut count = 0;
     for page in range_t.pages {
         for bar in page.rows {
@@ -84,7 +85,7 @@ pub async fn my_test() -> Result<(), Box<dyn std::error::Error>> {
             count += 1;
         }
     }
+    println!("elapsed time={:?}", now.elapsed());
     println!("total bars={}", count);
-
     Ok(())
 }

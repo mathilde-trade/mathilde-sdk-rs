@@ -9,7 +9,6 @@ mod outputs_ws;
 mod pairs;
 mod types;
 
-#[doc(hidden)]
 pub use crate::generated::primitives::{
     OutputBarsMetadata, OutputMetadata, OutputProcessDiagnostic, ProcessorFamily, ProcessorGroup,
 };

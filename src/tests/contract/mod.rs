@@ -32,6 +32,7 @@ mod test_primitives_public_http_time_machine;
 mod test_primitives_public_ws_messages;
 mod test_primitives_public_ws_outputs;
 mod test_primitives_types;
+mod test_public_surface_exports;
 mod test_regime_docs;
 mod test_regime_outputs_grpc;
 mod test_regime_outputs_http;

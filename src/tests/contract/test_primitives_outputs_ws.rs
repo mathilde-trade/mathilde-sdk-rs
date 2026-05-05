@@ -1,6 +1,5 @@
 use crate::core::error::SdkError;
-use crate::generated::primitives::ProcessorFamily;
-use crate::systems::primitives::{OutputsWsFormat, OutputsWsSubscribeRequest};
+use crate::systems::primitives::{OutputsWsFormat, OutputsWsSubscribeRequest, ProcessorFamily};
 use crate::systems::types::Timeframe;
 
 #[test]

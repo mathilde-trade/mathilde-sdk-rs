@@ -9,10 +9,7 @@ use mathilde_sdk_rs::core::config::{IntroConfig, MathildePublicHosts};
 use mathilde_sdk_rs::core::error::SdkError;
 use mathilde_sdk_rs::core::time::TimeInput;
 use mathilde_sdk_rs::generated::aggregator::bars_proto::mathilde::feed::bars::v1 as aggregator_proto;
-use mathilde_sdk_rs::generated::primitives::{
-    ProcessorFamily as PrimitiveProcessorFamily, ProcessorGroup as PrimitiveProcessorGroup,
-    outputs_proto::mathilde::feed::outputs::v1 as primitives_proto,
-};
+use mathilde_sdk_rs::generated::primitives::outputs_proto::mathilde::feed::outputs::v1 as primitives_proto;
 use mathilde_sdk_rs::generated::regime::outputs_proto::mathilde::feed::outputs::v1 as regime_proto;
 use mathilde_sdk_rs::streaming::subscription::ExponentialBackoffConfig;
 use mathilde_sdk_rs::systems::aggregator::{
@@ -30,6 +27,7 @@ use mathilde_sdk_rs::systems::primitives::{
     MessagesWsSubscribeFrame as PrimitiveMessagesWsSubscribeFrame,
     MessagesWsUnsubscribeFrame as PrimitiveMessagesWsUnsubscribeFrame, OutputsWsFormat,
     OutputsWsInboundFrame as PrimitiveOutputsWsInboundFrame, OutputsWsSubscribeRequest, Primitives,
+    ProcessorFamily as PrimitiveProcessorFamily, ProcessorGroup as PrimitiveProcessorGroup,
 };
 use mathilde_sdk_rs::systems::regime::{
     self as regime_system, MessagesWsServerFrame as RegimeMessagesWsServerFrame,
@@ -49,6 +47,7 @@ use tonic::transport::Endpoint;
 
 const BIN_NAME: &str = "endpoint_test";
 const BEARER_ENV: &str = "AGGREGATOR_FEED_BEARER_TOKEN";
+const INTRO_BEARER_ENV: &str = "AGGREGATOR_FEED_BEARER_TOKEN_PUBLIC";
 const AGGREGATOR_LATEST_GPRC_PATH: &str = "/mathilde.feed.bars.v1.BarsServiceV1/LatestBars";
 const AGGREGATOR_RANGE_GPRC_PATH: &str = "/mathilde.feed.bars.v1.BarsServiceV1/RangeBars";
 const AGGREGATOR_SEARCH_GPRC_PATH: &str = "/mathilde.feed.bars.v1.BarsServiceV1/SearchBars";
@@ -100,6 +99,7 @@ struct RuntimeConfigSummary {
     primitives_http_base_url: String,
     regime_http_base_url: String,
     bearer_token_present: bool,
+    intro_bearer_token_present: bool,
 }
 
 #[derive(Debug)]
@@ -168,6 +168,7 @@ Options:
 
 Environment:
   {BEARER_ENV}
+  {INTRO_BEARER_ENV}
 "
     );
 }
@@ -466,8 +467,12 @@ fn markdown_report(report: &Report) -> String {
                 config.regime_http_base_url
             ));
             out.push_str(&format!(
-                "- bearer_token_present: `{}`\n\n",
+                "- bearer_token_present: `{}`\n",
                 config.bearer_token_present
+            ));
+            out.push_str(&format!(
+                "- intro_bearer_token_present: `{}`\n\n",
+                config.intro_bearer_token_present
             ));
         }
         None => out.push_str("- configuration was not established\n\n"),
@@ -536,9 +541,13 @@ fn write_report(report: &Report, settings: &Settings, timestamp: &str) -> Result
 fn build_runtime_config() -> Result<RuntimeConfig, SdkError> {
     let bearer_token = optional_env(BEARER_ENV).map(BearerToken::new).transpose()?;
     let bearer_token_present = bearer_token.is_some();
+    let intro_bearer_token = optional_env(INTRO_BEARER_ENV)
+        .map(BearerToken::new)
+        .transpose()?;
+    let intro_bearer_token_present = intro_bearer_token.is_some();
 
     let aggregator = Aggregator::client(bearer_token.clone())?;
-    let intro = Intro::new(IntroConfig::mathilde_public_default(bearer_token.clone())?)?;
+    let intro = Intro::new(IntroConfig::mathilde_public_default(intro_bearer_token)?)?;
     let primitives = Primitives::client(bearer_token.clone())?;
     let regime = Regime::client(bearer_token.clone())?;
 
@@ -553,6 +562,7 @@ fn build_runtime_config() -> Result<RuntimeConfig, SdkError> {
             primitives_http_base_url: MathildePublicHosts::PRIMITIVES_HTTP.to_string(),
             regime_http_base_url: MathildePublicHosts::REGIME_HTTP.to_string(),
             bearer_token_present,
+            intro_bearer_token_present,
         },
         bearer_token,
         aggregator,

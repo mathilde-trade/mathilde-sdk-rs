@@ -1,7 +1,7 @@
 use crate::core::config::{HttpTransportConfig, PrimitivesConfig};
-use crate::generated::primitives::{ProcessorFamily, ProcessorGroup};
 use crate::systems::primitives::{
-    DocsRegistryRequest, PairsListRequest, PairsStatusRequest, Primitives,
+    DocsRegistryRequest, PairsListRequest, PairsStatusRequest, Primitives, ProcessorFamily,
+    ProcessorGroup,
 };
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};

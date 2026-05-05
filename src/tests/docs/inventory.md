@@ -41,6 +41,7 @@ currently exist for `src/tests`.
 - `src/tests/contract/test_primitives_public_ws_outputs.rs`: contract tests for primitives outputs WS subscribe wiring and JSON row decode.
 - `src/tests/contract/test_primitives_public_ws_messages.rs`: contract tests for primitives messages WS control frames and recovering subscription replay.
 - `src/tests/contract/test_primitives_types.rs`: relocated primitives type, selector, and proto decode tests previously kept inline in runtime source files.
+- `src/tests/contract/test_public_surface_exports.rs`: contract tests for curated short-name exports and the absence of public internal module leaks in the system module surfaces.
 - `src/tests/contract/test_primitives_outputs_http.rs`: relocated primitives HTTP fail-closed projected protobuf contract tests.
 - `src/tests/contract/test_primitives_outputs_grpc.rs`: relocated primitives gRPC fail-closed projected selector contract tests.
 - `src/tests/contract/test_primitives_outputs_ws.rs`: relocated primitives outputs WS projected protobuf fail-closed contract tests.

@@ -70,6 +70,7 @@ If a file purpose is missing in a component inventory, this file will mark it as
 - `src/systems/aggregator/pairs.rs`: aggregator public pairs discovery and status bindings.
 - `src/systems/aggregator/types.rs`: aggregator-specific request, response, traversal-result, and WS frame types.
 - `src/systems/helpers.rs`: shared public collection helpers for system-facing request ergonomics.
+- `src/systems/compute_proto.rs`: internal protobuf-native compute-row field extraction helpers used to keep generated compute gRPC/protobuf trees free of blanket serde derives.
 - `src/systems/intro/client.rs`: typed public client entrypoint for the dedicated intro root surface on `api.mathilde.dev`.
 - `src/systems/intro/intro.rs`: intro root HTTP binding that calls the host root and decodes the ordered JSON intro document.
 - `src/systems/intro/mod.rs`: intro system module wiring and public exports.
@@ -142,6 +143,7 @@ If a file purpose is missing in a component inventory, this file will mark it as
 - `src/tests/contract/test_primitives_public_ws_messages.rs`: contract tests for primitives messages WS control frames and recovering subscription replay.
 - `src/tests/contract/test_primitives_public_ws_outputs.rs`: contract tests for primitives outputs WS subscribe wiring and JSON row decode.
 - `src/tests/contract/test_primitives_types.rs`: relocated primitives type, selector, and proto decode tests previously kept inline in runtime source files.
+- `src/tests/contract/test_public_surface_exports.rs`: contract tests for curated short-name exports and the absence of public internal module leaks in the system module surfaces.
 - `src/tests/contract/test_regime_docs.rs`: relocated regime docs selector serialization tests.
 - `src/tests/contract/test_regime_outputs_grpc.rs`: relocated regime gRPC fail-closed projected selector and non-`1h` contract tests.
 - `src/tests/contract/test_regime_outputs_http.rs`: relocated regime HTTP fail-closed projected protobuf and non-`1h` contract tests.

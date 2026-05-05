@@ -450,20 +450,41 @@ fn decode_text_frame(
     text: &str,
     request: &OutputsWsSubscribeRequest,
 ) -> Result<OutputsWsInboundFrame, SdkError> {
+    if text_frame_starts_with_array(text, "outputs ws JSON text frame")? {
+        let output_mode = request.output_mode()?;
+        let rows = decode_latest_outputs_ws_json(
+            text,
+            output_mode,
+            diagnostics_enabled(request.diagnostics),
+        )?;
+        return Ok(OutputsWsInboundFrame::JsonRows(rows));
+    }
+
     if let Ok(error) = serde_json::from_str::<OutputsWsErrorFrame>(text) {
         if !error.kind.is_empty() && !error.error.is_empty() {
             return Ok(OutputsWsInboundFrame::Error(error));
         }
     }
 
-    if let Ok(meta) = serde_json::from_str::<OutputsWsMetaFrame>(text) {
-        return Ok(OutputsWsInboundFrame::Meta(meta));
-    }
+    let meta = serde_json::from_str::<OutputsWsMetaFrame>(text).map_err(|source| {
+        SdkError::contract_drift(format!(
+            "outputs ws JSON control frame decode failed: {source}"
+        ))
+    })?;
+    Ok(OutputsWsInboundFrame::Meta(meta))
+}
 
-    let output_mode = request.output_mode()?;
-    let rows =
-        decode_latest_outputs_ws_json(text, output_mode, diagnostics_enabled(request.diagnostics))?;
-    Ok(OutputsWsInboundFrame::JsonRows(rows))
+fn text_frame_starts_with_array(text: &str, context: &'static str) -> Result<bool, SdkError> {
+    match text.bytes().find(|byte| !byte.is_ascii_whitespace()) {
+        Some(b'[') => Ok(true),
+        Some(b'{') => Ok(false),
+        Some(byte) => Err(SdkError::contract_drift(format!(
+            "{context} must start with `[` or `{{` after whitespace, got byte 0x{byte:02x}"
+        ))),
+        None => Err(SdkError::contract_drift(format!(
+            "{context} was empty or whitespace-only"
+        ))),
+    }
 }
 
 fn decode_binary_frame(
@@ -520,5 +541,47 @@ async fn validate_candidate_stream(
                 });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn json_request() -> OutputsWsSubscribeRequest {
+        OutputsWsSubscribeRequest {
+            pairs: vec!["BTCUSDT".to_string()],
+            tfs: vec![Timeframe::H1],
+            metadata: Some(false),
+            diagnostics: Some(false),
+            family: None,
+            group: None,
+            secondary: Some(false),
+            from_close: None,
+            last_n_bars: Some(1),
+            format: Some(OutputsWsFormat::Json),
+        }
+    }
+
+    #[test]
+    fn test_decode_text_frame_accepts_whitespace_prefixed_json_rows() {
+        let text = " \n\t[{\"pair\":\"BTCUSDT\",\"tf\":\"1h\",\"open_ms\":1,\"close_ms\":2,\"open_utc\":\"2026-02-02T00:00:00Z\",\"close_utc\":\"2026-02-02T01:00:00Z\",\"o\":1.0,\"h\":1.0,\"l\":1.0,\"c\":1.0,\"v\":1.0,\"tr_klts_score\":0.75,\"age_ms\":10}]";
+
+        let frame = decode_text_frame(text, &json_request()).expect("json rows frame");
+        match frame {
+            OutputsWsInboundFrame::JsonRows(rows) => {
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0].row.pair, "BTCUSDT");
+                assert_eq!(rows[0].row.computed.f64("tr_klts_score"), Some(0.75));
+            }
+            other => panic!("expected json rows, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_decode_text_frame_rejects_invalid_leading_byte() {
+        let error = decode_text_frame(" \n9", &json_request()).expect_err("invalid leading byte");
+        let message = format!("{error}");
+        assert!(message.contains("must start with `[` or `{`"));
     }
 }

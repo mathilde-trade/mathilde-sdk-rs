@@ -7,6 +7,8 @@ pub mod outputs_proto {
     include!(concat!(env!("OUT_DIR"), "/primitives_outputs_proto.rs"));
 }
 
+pub(crate) mod processor_field_support;
+
 pub mod output_metadata;
 pub mod output_process_diagnostic;
 pub mod processor_families;

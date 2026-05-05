@@ -402,24 +402,42 @@ fn decode_text_frame(
     text: &str,
     request: &BarsWsSubscribeRequest,
 ) -> Result<BarsWsInboundFrame, SdkError> {
+    if text_frame_starts_with_array(text, "bars ws JSON text frame")? {
+        let metadata_required = request.metadata.unwrap_or(false);
+        let rows = serde_json::from_str::<Vec<Bar>>(text).map_err(|source| {
+            SdkError::contract_drift(format!("bars ws JSON rows decode failed: {source}"))
+        })?;
+        for row in &rows {
+            row.ensure_metadata_shape(metadata_required, "bars ws JSON row")?;
+        }
+        return Ok(BarsWsInboundFrame::JsonRows(rows));
+    }
+
     if let Ok(error) = serde_json::from_str::<BarsWsErrorFrame>(text) {
         if !error.kind.is_empty() && !error.error.is_empty() {
             return Ok(BarsWsInboundFrame::Error(error));
         }
     }
 
-    if let Ok(meta) = serde_json::from_str::<BarsWsMetaFrame>(text) {
-        return Ok(BarsWsInboundFrame::Meta(meta));
-    }
-
-    let metadata_required = request.metadata.unwrap_or(false);
-    let rows = serde_json::from_str::<Vec<Bar>>(text).map_err(|source| {
-        SdkError::contract_drift(format!("bars ws JSON rows decode failed: {source}"))
+    let meta = serde_json::from_str::<BarsWsMetaFrame>(text).map_err(|source| {
+        SdkError::contract_drift(format!(
+            "bars ws JSON control frame decode failed: {source}"
+        ))
     })?;
-    for row in &rows {
-        row.ensure_metadata_shape(metadata_required, "bars ws JSON row")?;
+    Ok(BarsWsInboundFrame::Meta(meta))
+}
+
+fn text_frame_starts_with_array(text: &str, context: &'static str) -> Result<bool, SdkError> {
+    match text.bytes().find(|byte| !byte.is_ascii_whitespace()) {
+        Some(b'[') => Ok(true),
+        Some(b'{') => Ok(false),
+        Some(byte) => Err(SdkError::contract_drift(format!(
+            "{context} must start with `[` or `{{` after whitespace, got byte 0x{byte:02x}"
+        ))),
+        None => Err(SdkError::contract_drift(format!(
+            "{context} was empty or whitespace-only"
+        ))),
     }
-    Ok(BarsWsInboundFrame::JsonRows(rows))
 }
 
 fn decode_binary_frame(
@@ -505,5 +523,42 @@ async fn validate_candidate_stream(
                 });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn json_request() -> BarsWsSubscribeRequest {
+        BarsWsSubscribeRequest {
+            pairs: vec!["BTCUSDT".to_string()],
+            tfs: vec![Timeframe::M1],
+            metadata: Some(false),
+            from_close: None,
+            last_n_bars: Some(1),
+            format: Some(BarsWsFormat::Json),
+        }
+    }
+
+    #[test]
+    fn test_decode_text_frame_accepts_whitespace_prefixed_json_rows() {
+        let text = " \n\t[{\"pair\":\"BTCUSDT\",\"tf\":\"1m\",\"open_ms\":1,\"close_ms\":2,\"open_utc\":\"2026-02-02T00:00:00Z\",\"close_utc\":\"2026-02-02T00:01:00Z\",\"o\":1.0,\"h\":1.0,\"l\":1.0,\"c\":1.0,\"v\":1.0,\"quote_v\":null,\"taker_known_v\":null,\"taker_signed_v\":null,\"taker_known_quote_v\":null,\"taker_signed_quote_v\":null,\"taker_known_n\":null,\"taker_signed_n\":null,\"vw\":null,\"n\":1}]";
+
+        let frame = decode_text_frame(text, &json_request()).expect("json rows frame");
+        match frame {
+            BarsWsInboundFrame::JsonRows(rows) => {
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0].pair, "BTCUSDT");
+            }
+            other => panic!("expected json rows, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_decode_text_frame_rejects_invalid_leading_byte() {
+        let error = decode_text_frame(" \n9", &json_request()).expect_err("invalid leading byte");
+        let message = format!("{error}");
+        assert!(message.contains("must start with `[` or `{`"));
     }
 }

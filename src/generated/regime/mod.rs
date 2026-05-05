@@ -10,6 +10,8 @@ pub mod outputs_proto {
     ));
 }
 
+pub(crate) mod processor_field_support;
+
 pub mod output_metadata;
 pub mod output_process_diagnostic;
 pub mod processor_families;

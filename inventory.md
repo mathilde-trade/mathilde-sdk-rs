@@ -70,7 +70,6 @@ If a file purpose is missing in a component inventory, this file will mark it as
 - `src/systems/aggregator/pairs.rs`: aggregator public pairs discovery and status bindings.
 - `src/systems/aggregator/types.rs`: aggregator-specific request, response, traversal-result, and WS frame types.
 - `src/systems/helpers.rs`: shared public collection helpers for system-facing request ergonomics.
-- `src/systems/compute_proto.rs`: internal protobuf-native compute-row field extraction helpers used to keep generated compute gRPC/protobuf trees free of blanket serde derives.
 - `src/systems/intro/client.rs`: typed public client entrypoint for the dedicated intro root surface on `api.mathilde.dev`.
 - `src/systems/intro/intro.rs`: intro root HTTP binding that calls the host root and decodes the ordered JSON intro document.
 - `src/systems/intro/mod.rs`: intro system module wiring and public exports.

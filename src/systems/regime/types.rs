@@ -2,10 +2,9 @@ use crate::core::error::SdkError;
 use crate::core::time::TimeInput;
 use crate::generated::regime::{
     OutputBarsMetadata, OutputMetadata, OutputProcessDiagnostic, PROCESSOR_FIELD_NAMES,
-    ProcessorFamily, ProcessorGroup, outputs_proto::mathilde::feed::outputs::v1 as proto,
-};
-use crate::systems::compute_proto::{
-    OUTPUT_ROW_COMPUTED_FIRST_FIELD_NUMBER, extract_numeric_computed_fields_from_message,
+    ProcessorFamily, ProcessorGroup,
+    outputs_proto::mathilde::feed::outputs::v1 as proto,
+    processor_field_support::{collect_numeric_computed_fields, is_known_processor_field},
 };
 use crate::systems::types::{AlignMode, HttpFormat, LatestMode, Timeframe};
 use prost::Message;
@@ -1136,12 +1135,7 @@ impl OutputRow {
         diagnostics_enabled: bool,
         context: &'static str,
     ) -> Result<Self, SdkError> {
-        let computed = extract_numeric_computed_fields_from_message(
-            &value,
-            &PROCESSOR_FIELD_NAMES,
-            OUTPUT_ROW_COMPUTED_FIRST_FIELD_NUMBER,
-            context,
-        )?;
+        let computed = collect_numeric_computed_fields(&value, context)?;
         validate_computed_fields(&computed, context)?;
 
         let row = OutputRow {
@@ -1595,7 +1589,8 @@ fn validate_computed_fields(
     context: &'static str,
 ) -> Result<(), SdkError> {
     for (key, value) in computed {
-        if !PROCESSOR_FIELD_NAMES.contains(&key.as_str()) {
+        if !is_known_processor_field(key.as_str()) && !PROCESSOR_FIELD_NAMES.contains(&key.as_str())
+        {
             return Err(SdkError::contract_drift(format!(
                 "{context} contained unknown computed field `{key}`"
             )));

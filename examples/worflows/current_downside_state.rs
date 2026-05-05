@@ -185,6 +185,11 @@ async fn async_main() -> Result<(), Box<dyn Error>> {
 
     let matched_hits = primitives_search.hits.clone();
 
+    if matched_hits.is_empty() {
+        println!("no downside hits found in the bounded window; skip replay steps");
+        return Ok(());
+    }
+
     let primitives_time_machine = primitives
         .time_machine(&PrimitivesTimeMachineRequest {
             tf: Timeframe::H1,

@@ -27,6 +27,14 @@ path = "examples/worflows/current_downside_state.rs"
 name = "measured_local_stress_context"
 path = "examples/worflows/measured_local_stress_context.rs"
 
+[[example]]
+name = "current_grouped_regime_state"
+path = "examples/worflows/current_grouped_regime_state.rs"
+
+[[example]]
+name = "reproducible_monthly_research"
+path = "examples/worflows/reproducible_monthly_research.rs"
+
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 futures-util = "0.3"

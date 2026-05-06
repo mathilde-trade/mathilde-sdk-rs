@@ -68,7 +68,7 @@ Those systems share a common navigation pattern:
 ### Intro
 
 **What it is:**
-The public host-root introduction document for the wider MATHILDE platform. It is the top-level navigation starting point for humans and LLMs moving across the public documentation space.
+The public host-root introduction document for the wider MATHILDE platform. It is the top-level navigation starting point for humans and machines moving across the public documentation space.
 
 **When to use it:**
 Appropriate when the question is which public system exists here, where its public documentation lives, and which public surface should be inspected next.

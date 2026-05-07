@@ -117,3 +117,136 @@ async fn test_intro_root_redirect_response_is_accepted_by_http_client() {
     let out = client.intro().await.expect("redirected intro success");
     assert_eq!(out["intro"].as_str(), Some("redirected"));
 }
+
+#[tokio::test]
+async fn test_due_diligence_methods_form_exact_paths_and_preserve_json_key_order() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/v1/due-diligence"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            r#"{
+                "surface": "due_diligence_index",
+                "title": "MATHILDE Due Diligence",
+                "endpoint": "/v1/due-diligence",
+                "available_packs": []
+            }"#,
+        ))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v1/due-diligence/regime/kalman_local_trend_state"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "surface": "due_diligence_pack",
+            "system": "regime",
+            "subject_id": "kalman_local_trend_state"
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path(
+            "/v1/due-diligence/regime/flow_absorption_elasticity_state",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "surface": "due_diligence_pack",
+            "system": "regime",
+            "subject_id": "flow_absorption_elasticity_state"
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v1/due-diligence/primitives/correlation"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "surface": "due_diligence_pack",
+            "system": "primitives",
+            "subject_id": "correlation"
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v1/due-diligence/primitives/drawdown"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "surface": "due_diligence_pack",
+            "system": "primitives",
+            "subject_id": "drawdown"
+        })))
+        .mount(&server)
+        .await;
+
+    let client = Intro::new(config_for_http(&server.uri())).expect("client");
+
+    let index = client
+        .due_diligence()
+        .await
+        .expect("due_diligence index success");
+    let serialized = serde_json::to_string(&index).expect("serialize due_diligence index");
+    assert_eq!(index["endpoint"].as_str(), Some("/v1/due-diligence"));
+    assert!(
+        serialized.find("\"surface\"") < serialized.find("\"title\""),
+        "preserve_order should keep object key order"
+    );
+
+    let kalman = client
+        .due_diligence_regime_kalman_local_trend_state()
+        .await
+        .expect("kalman due_diligence success");
+    assert_eq!(kalman["system"].as_str(), Some("regime"));
+    assert_eq!(
+        kalman["subject_id"].as_str(),
+        Some("kalman_local_trend_state")
+    );
+
+    let flow = client
+        .due_diligence_regime_flow_absorption_elasticity_state()
+        .await
+        .expect("flow due_diligence success");
+    assert_eq!(flow["system"].as_str(), Some("regime"));
+    assert_eq!(
+        flow["subject_id"].as_str(),
+        Some("flow_absorption_elasticity_state")
+    );
+
+    let correlation = client
+        .due_diligence_primitives_correlation()
+        .await
+        .expect("correlation due_diligence success");
+    assert_eq!(correlation["system"].as_str(), Some("primitives"));
+    assert_eq!(correlation["subject_id"].as_str(), Some("correlation"));
+
+    let drawdown = client
+        .due_diligence_primitives_drawdown()
+        .await
+        .expect("drawdown due_diligence success");
+    assert_eq!(drawdown["system"].as_str(), Some("primitives"));
+    assert_eq!(drawdown["subject_id"].as_str(), Some("drawdown"));
+}
+
+#[tokio::test]
+async fn test_due_diligence_propagates_bearer_auth_to_index_request() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/due-diligence"))
+        .and(header(AUTHORIZATION.as_str(), "Bearer intro_public_token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "surface": "due_diligence_index",
+            "endpoint": "/v1/due-diligence"
+        })))
+        .mount(&server)
+        .await;
+
+    let client = Intro::new(IntroConfig {
+        http: HttpTransportConfig::new(server.uri()).expect("valid test url"),
+        bearer_token: Some(BearerToken::new("intro_public_token").expect("valid token")),
+    })
+    .expect("client");
+
+    let out = client
+        .due_diligence()
+        .await
+        .expect("due_diligence index success");
+    assert_eq!(out["surface"].as_str(), Some("due_diligence_index"));
+}

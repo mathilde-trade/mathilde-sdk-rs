@@ -1,6 +1,6 @@
 # `mathilde-sdk-rs` — Global Inventory (GENERATED; DO NOT EDIT)
 
-Generated: 2026-05-05T13:08:51Z
+Generated: 2026-05-07T11:01:01Z
 Protocol: `.dev/specs/SDK_INVENTORY_SYSTEM_SPEC_2026-05-05.md`
 
 This file is generated from per-component inventories under `crates/*/docs/inventory.md`, `services/*/docs/inventory.md`, SDK module inventories under `src/*/docs/inventory.md`, and the runnable examples inventory at `examples/docs/inventory.md`.
@@ -54,6 +54,7 @@ If a file purpose is missing in a component inventory, this file will mark it as
 - `examples/workflows/bounded_recent_window.rs`: workflow example for aligning a bounded recent aggregator window with primitives computed rows.
 - `examples/workflows/current_downside_state.rs`: workflow example for discovering downside-state hits in primitives and replaying shared hit timestamps in primitives and aggregator.
 - `examples/workflows/current_grouped_regime_state.rs`: workflow example for current grouped regime-state discovery and direct regime replay context.
+- `examples/workflows/due_diligence_review_packs.rs`: workflow example for intro-host due-diligence index and approved review-pack navigation across the two regime packs and two primitives family packs.
 - `examples/workflows/measured_local_stress_context.rs`: workflow example for measured local stress discovery through primitives taxonomy, registry, search, and replay context.
 - `examples/workflows/reproducible_monthly_research.rs`: workflow example for reproducible monthly slice downloads and local DuckDB joins.
 - `examples/workflows/understanding_system.rs`: workflow example that mirrors the authoritative intro understanding workflow across intro, docs, registry, endpoints, and OpenAPI.
@@ -95,8 +96,8 @@ If a file purpose is missing in a component inventory, this file will mark it as
 - `src/systems/aggregator/pairs.rs`: aggregator public pairs discovery and status bindings.
 - `src/systems/aggregator/types.rs`: aggregator-specific request, response, traversal-result, and WS frame types.
 - `src/systems/helpers.rs`: shared public collection helpers for system-facing request ergonomics.
-- `src/systems/intro/client.rs`: typed public client entrypoint for the dedicated intro root surface on `api.mathilde.dev`.
-- `src/systems/intro/intro.rs`: intro root HTTP binding that calls the host root and decodes the ordered JSON intro document.
+- `src/systems/intro/client.rs`: typed public client entrypoint for the dedicated intro host surface on `api.mathilde.dev`, including intro-root and due-diligence document reads.
+- `src/systems/intro/intro.rs`: intro-host HTTP bindings for the root intro document and the approved `/v1/due-diligence` JSON document routes.
 - `src/systems/intro/mod.rs`: intro system module wiring and public exports.
 - `src/systems/mod.rs`: top-level system module wiring and exports.
 - `src/systems/primitives/client.rs`: typed public client entrypoints for primitives HTTP, gRPC, and WS surfaces.
@@ -149,7 +150,7 @@ If a file purpose is missing in a component inventory, this file will mark it as
 - `src/tests/test_aggregator_public_ws_messages.rs`: contract tests for aggregator WS messages and managed recovery.
 - `src/tests/test_core_pagination.rs`: contract tests for the shared pagination state machine and explicit traversal-admission guards.
 - `src/tests/test_core_time.rs`: contract tests for shared time parsing and normalization.
-- `src/tests/test_intro_public_http_intro.rs`: contract tests for the dedicated intro root system on `https://api.mathilde.dev`, including root-path request behavior and ordered JSON preservation.
+- `src/tests/test_intro_public_http_intro.rs`: contract tests for the dedicated intro host system on `https://api.mathilde.dev`, including root-path intro behavior, `/v1/due-diligence` route formation, bearer propagation, and ordered JSON preservation.
 - `src/tests/test_primitives_docs.rs`: primitives docs selector serialization tests.
 - `src/tests/test_primitives_outputs_grpc.rs`: primitives gRPC fail-closed projected selector contract tests.
 - `src/tests/test_primitives_outputs_http.rs`: primitives HTTP fail-closed projected protobuf contract tests.

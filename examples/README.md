@@ -258,8 +258,15 @@ What it is not:
 The workflow examples live under [`workflows/`](workflows). The directory name is
 kept as currently implemented.
 
-These files preserve the authoritative workflow content from
+Most of these files preserve authoritative workflow content from
 `https://api.mathilde.dev` and turn it into runnable SDK examples.
+
+One workflow is intentionally separate from `understanding_workflow` and
+`example_workflows`:
+
+- `due_diligence_review_packs.rs`
+  - this is the intro-host due-diligence navigation example for the approved
+    review-pack surface under `/v1/due-diligence`
 
 ### Understanding The System
 
@@ -277,6 +284,26 @@ Why it is useful:
 What it is not:
 
 - not a data retrieval flow
+
+### Due Diligence Review Packs
+
+File: [due_diligence_review_packs.rs](workflows/due_diligence_review_packs.rs)
+
+What it shows:
+
+- the intro-host due-diligence index
+- the two approved regime review packs
+- the two approved primitives family review packs
+
+Why it is useful:
+
+- use this when the question is approved review-pack access rather than
+  subsystem docs, bars, or outputs retrieval
+
+What it is not:
+
+- not part of the intro `understanding_workflow`
+- not a file-download example
 
 ### Bounded Recent Window
 

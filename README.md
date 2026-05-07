@@ -25,7 +25,7 @@ This SDK is a thin public client-contract layer for MATHILDE systems with a prov
 
 The current public scope exposes typed entrypoints for:
 
-- the top-level intro document on `api.mathilde.dev`
+- the top-level intro document and approved due-diligence review-pack reads on `api.mathilde.dev`
 - public docs and OpenAPI discovery
 - public pair-state and pair-list discovery
 - public file-download issuance and explicit local materialization
@@ -75,6 +75,25 @@ Appropriate when the question is which public system exists here, where its publ
 
 **When not to use it:**
 Not the schema authority for subsystem routes, request shapes, or system-specific invariants. Those belong to each subsystem's docs and OpenAPI surfaces.
+
+### Due Diligence Packs
+
+**What it is:**
+The deploy-owned approved review-pack surface on the same intro host. It exposes one due-diligence index plus four approved JSON review packs for NDA-governed evaluation.
+
+**When to use it:**
+Appropriate when the question is approved review materials for selected regime indicators or primitives families rather than subsystem docs, bars, or outputs retrieval.
+
+**Current intro-host bindings:**
+
+- `due_diligence`
+- `due_diligence_regime_kalman_local_trend_state`
+- `due_diligence_regime_flow_absorption_elasticity_state`
+- `due_diligence_primitives_correlation`
+- `due_diligence_primitives_drawdown`
+
+**When not to use it:**
+Not the source of subsystem route schemas, not a historical data surface, and not a substitute for file downloads or output queries.
 
 ### Docs Pages
 
@@ -381,6 +400,7 @@ This matrix is mechanism-first. Each row names the question shape or discovery s
 | Shape          | Current system bindings                                   | HTTP                                                                                                                         | gRPC                | WS                                                           | Cursor              | Managed recovery                 | Important limit                                                                                                               |
 | -------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------- | ------------------------------------------------------------ | ------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | Intro          | `Intro`                                                   | `intro`                                                                                                                      | No                  | No                                                           | No                  | No                               | Host-root public intro document; not subsystem schema authority                                                               |
+| Due diligence packs | `Intro`                                              | `due_diligence`, `due_diligence_regime_kalman_local_trend_state`, `due_diligence_regime_flow_absorption_elasticity_state`, `due_diligence_primitives_correlation`, `due_diligence_primitives_drawdown` | No                  | No                                                           | No                  | No                               | Approved intro-host review-pack JSON only; not subsystem wire-schema authority                                                |
 | Docs pages     | `Aggregator`, `Primitives`, `Regime`                      | `docs_system`, `docs_summary`, plus system-specific `docs_themes` or `docs_taxonomy` / `docs_registry`, and `docs_endpoints` | No                  | No                                                           | No                  | No                               | Docs for conceptual system understanding; OpenAPI for the exact wire contract                                                 |
 | OpenAPI        | `Aggregator`, `Primitives`, `Regime`                      | `openapi`                                                                                                                    | No                  | No                                                           | No                  | No                               | HTTP schema authority only                                                                                                    |
 | Pair status    | `Aggregator`, `Primitives`, `Regime`                      | `pairs_status`                                                                                                               | No                  | No                                                           | Paging-style fields | No                               | Richer pair-state surface, not bars or outputs history                                                                        |
@@ -408,6 +428,24 @@ This matrix is mechanism-first. Each row names the question shape or discovery s
 
 - `Intro` is not the schema authority for subsystem routes
 - `Intro` does not replace subsystem docs or OpenAPI
+
+### Approved Review Packs
+
+`Intro` is also the correct surface when the question is which approved
+due-diligence packs exist on the intro host and how to read them directly.
+
+**Current bindings:**
+
+- `Intro`: `due_diligence`
+- `Intro`: `due_diligence_regime_kalman_local_trend_state`
+- `Intro`: `due_diligence_regime_flow_absorption_elasticity_state`
+- `Intro`: `due_diligence_primitives_correlation`
+- `Intro`: `due_diligence_primitives_drawdown`
+
+**What not to infer:**
+
+- due-diligence packs are not subsystem route-schema authorities
+- due-diligence packs are curated review documents, not bars or outputs data surfaces
 
 ### System Explanation Before Wire Details
 

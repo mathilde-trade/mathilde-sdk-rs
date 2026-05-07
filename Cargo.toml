@@ -35,17 +35,39 @@ path = "examples/workflows/current_grouped_regime_state.rs"
 name = "reproducible_monthly_research"
 path = "examples/workflows/reproducible_monthly_research.rs"
 
+[[example]]
+name = "due_diligence_review_packs"
+path = "examples/workflows/due_diligence_review_packs.rs"
+
 [dependencies]
-chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+chrono = { version = "0.4", default-features = false, features = [
+  "clock",
+  "std",
+] }
 futures-util = "0.3"
 prost = "0.13"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip", "zstd"] }
+reqwest = { version = "0.12", default-features = false, features = [
+  "json",
+  "rustls-tls",
+  "gzip",
+  "zstd",
+] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "io-util", "net", "rt", "time"] }
-tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
-tonic = { version = "0.12", default-features = false, features = ["transport", "codegen", "prost", "tls-webpki-roots", "gzip", "zstd"] }
+tokio-tungstenite = { version = "0.24", default-features = false, features = [
+  "connect",
+  "rustls-tls-webpki-roots",
+] }
+tonic = { version = "0.12", default-features = false, features = [
+  "transport",
+  "codegen",
+  "prost",
+  "tls-webpki-roots",
+  "gzip",
+  "zstd",
+] }
 url = "2"
 
 [build-dependencies]

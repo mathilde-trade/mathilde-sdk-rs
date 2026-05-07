@@ -24,4 +24,30 @@ impl Intro {
     pub async fn intro(&self) -> Result<serde_json::Value, SdkError> {
         intro::intro(&self.http).await
     }
+
+    pub async fn due_diligence(&self) -> Result<serde_json::Value, SdkError> {
+        intro::due_diligence(&self.http).await
+    }
+
+    pub async fn due_diligence_regime_kalman_local_trend_state(
+        &self,
+    ) -> Result<serde_json::Value, SdkError> {
+        intro::due_diligence_regime_kalman_local_trend_state(&self.http).await
+    }
+
+    pub async fn due_diligence_regime_flow_absorption_elasticity_state(
+        &self,
+    ) -> Result<serde_json::Value, SdkError> {
+        intro::due_diligence_regime_flow_absorption_elasticity_state(&self.http).await
+    }
+
+    pub async fn due_diligence_primitives_correlation(
+        &self,
+    ) -> Result<serde_json::Value, SdkError> {
+        intro::due_diligence_primitives_correlation(&self.http).await
+    }
+
+    pub async fn due_diligence_primitives_drawdown(&self) -> Result<serde_json::Value, SdkError> {
+        intro::due_diligence_primitives_drawdown(&self.http).await
+    }
 }

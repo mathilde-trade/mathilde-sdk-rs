@@ -25,6 +25,7 @@ that currently exist for `examples`.
 - `examples/workflows/bounded_recent_window.rs`: workflow example for aligning a bounded recent aggregator window with primitives computed rows.
 - `examples/workflows/current_downside_state.rs`: workflow example for discovering downside-state hits in primitives and replaying shared hit timestamps in primitives and aggregator.
 - `examples/workflows/current_grouped_regime_state.rs`: workflow example for current grouped regime-state discovery and direct regime replay context.
+- `examples/workflows/due_diligence_review_packs.rs`: workflow example for intro-host due-diligence index and approved review-pack navigation across the two regime packs and two primitives family packs.
 - `examples/workflows/measured_local_stress_context.rs`: workflow example for measured local stress discovery through primitives taxonomy, registry, search, and replay context.
 - `examples/workflows/reproducible_monthly_research.rs`: workflow example for reproducible monthly slice downloads and local DuckDB joins.
 - `examples/workflows/understanding_system.rs`: workflow example that mirrors the authoritative intro understanding workflow across intro, docs, registry, endpoints, and OpenAPI.

@@ -95,6 +95,21 @@ Appropriate when the question is approved review materials for selected regime i
 **When not to use it:**
 Not the source of subsystem route schemas, not a historical data surface, and not a substitute for file downloads or output queries.
 
+### Legal Bundle
+
+**What it is:**
+The deploy-owned public legal document bundle on the same intro host. It groups the substantive commercial and privacy documents into one stable ordered JSON document.
+
+**When to use it:**
+Appropriate when the question is the public legal and privacy surface for MATHILDE rather than subsystem docs, bars, or outputs retrieval.
+
+**Current intro-host bindings:**
+
+- `legal`
+
+**When not to use it:**
+Not the source of subsystem route schemas, not a historical data surface, and not a substitute for file downloads or output queries.
+
 ### Docs Pages
 
 **What it is:**
@@ -309,6 +324,21 @@ use mathilde_sdk_rs::systems::intro::Intro;
 let client = Intro::client(Some(BearerToken::new("feed_public_token")?))?;
 ```
 
+One direct intro-host document read for the public legal bundle looks like:
+
+```rust
+use mathilde_sdk_rs::core::auth::BearerToken;
+use mathilde_sdk_rs::systems::intro::Intro;
+
+# async fn example() -> Result<(), Box<dyn std::error::Error>> {
+let client = Intro::client(Some(BearerToken::new("feed_public_token")?))?;
+let legal = client.legal().await?;
+
+assert_eq!(legal["surface"].as_str(), Some("public_legal_bundle"));
+# Ok(())
+# }
+```
+
 The equivalent checked-in public-default construction for computed outputs is:
 
 ```rust
@@ -400,6 +430,7 @@ This matrix is mechanism-first. Each row names the question shape or discovery s
 | Shape          | Current system bindings                                   | HTTP                                                                                                                         | gRPC                | WS                                                           | Cursor              | Managed recovery                 | Important limit                                                                                                               |
 | -------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------- | ------------------------------------------------------------ | ------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | Intro          | `Intro`                                                   | `intro`                                                                                                                      | No                  | No                                                           | No                  | No                               | Host-root public intro document; not subsystem schema authority                                                               |
+| Legal bundle | `Intro`                                                   | `legal`                                                                                                                      | No                  | No                                                           | No                  | No                               | Stable ordered public legal JSON only; not subsystem wire-schema authority                                                     |
 | Due diligence packs | `Intro`                                              | `due_diligence`, `due_diligence_regime_kalman_local_trend_state`, `due_diligence_regime_flow_absorption_elasticity_state`, `due_diligence_primitives_correlation`, `due_diligence_primitives_drawdown` | No                  | No                                                           | No                  | No                               | Approved intro-host review-pack JSON only; not subsystem wire-schema authority                                                |
 | Docs pages     | `Aggregator`, `Primitives`, `Regime`                      | `docs_system`, `docs_summary`, plus system-specific `docs_themes` or `docs_taxonomy` / `docs_registry`, and `docs_endpoints` | No                  | No                                                           | No                  | No                               | Docs for conceptual system understanding; OpenAPI for the exact wire contract                                                 |
 | OpenAPI        | `Aggregator`, `Primitives`, `Regime`                      | `openapi`                                                                                                                    | No                  | No                                                           | No                  | No                               | HTTP schema authority only                                                                                                    |
@@ -446,6 +477,19 @@ due-diligence packs exist on the intro host and how to read them directly.
 
 - due-diligence packs are not subsystem route-schema authorities
 - due-diligence packs are curated review documents, not bars or outputs data surfaces
+
+### Public Legal Surface
+
+`Intro` is also the correct surface when the question is the public legal and privacy bundle exposed on the intro host.
+
+**Current binding:**
+
+- `Intro`: `legal`
+
+**What not to infer:**
+
+- the legal bundle is not a subsystem route-schema authority
+- the legal bundle is a deploy-owned document surface, not bars or outputs data
 
 ### System Explanation Before Wire Details
 

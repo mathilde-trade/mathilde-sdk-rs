@@ -29,7 +29,7 @@ currently exist for `src/tests`.
 - `src/tests/test_aggregator_public_ws_messages.rs`: contract tests for aggregator WS messages and managed recovery.
 - `src/tests/test_core_pagination.rs`: contract tests for the shared pagination state machine and explicit traversal-admission guards.
 - `src/tests/test_core_time.rs`: contract tests for shared time parsing and normalization.
-- `src/tests/test_intro_public_http_intro.rs`: contract tests for the dedicated intro host system on `https://api.mathilde.dev`, including root-path intro behavior, `/v1/due-diligence` route formation, bearer propagation, and ordered JSON preservation.
+- `src/tests/test_intro_public_http_intro.rs`: contract tests for the dedicated intro host system on `https://api.mathilde.dev`, including root-path intro behavior, `/v1/legal` and `/v1/due-diligence` route formation, bearer propagation, and ordered JSON preservation.
 - `src/tests/test_primitives_docs.rs`: primitives docs selector serialization tests.
 - `src/tests/test_primitives_outputs_grpc.rs`: primitives gRPC fail-closed projected selector contract tests.
 - `src/tests/test_primitives_outputs_http.rs`: primitives HTTP fail-closed projected protobuf contract tests.

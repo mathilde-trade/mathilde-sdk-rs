@@ -28,8 +28,8 @@ currently exist for `src/systems`.
 - `src/systems/aggregator/messages_ws.rs`: aggregator public messages WS bindings and managed recovery.
 - `src/systems/aggregator/types.rs`: aggregator-specific request, response, traversal-result, and WS frame types.
 - `src/systems/intro/mod.rs`: intro system module wiring and public exports.
-- `src/systems/intro/client.rs`: typed public client entrypoint for the dedicated intro host surface on `api.mathilde.dev`, including intro-root and due-diligence document reads.
-- `src/systems/intro/intro.rs`: intro-host HTTP bindings for the root intro document and the approved `/v1/due-diligence` JSON document routes.
+- `src/systems/intro/client.rs`: typed public client entrypoint for the dedicated intro host surface on `api.mathilde.dev`, including intro-root, legal-bundle, and due-diligence document reads.
+- `src/systems/intro/intro.rs`: intro-host HTTP bindings for the root intro document, the deploy-owned `/v1/legal` JSON document bundle, and the approved `/v1/due-diligence` JSON document routes.
 - `src/systems/primitives/mod.rs`: primitives system module wiring, generated contract re-exports, and public exports.
 - `src/systems/primitives/client.rs`: typed public client entrypoints for primitives HTTP, gRPC, and WS surfaces.
 - `src/systems/primitives/docs.rs`: primitives public documentation and OpenAPI bindings.

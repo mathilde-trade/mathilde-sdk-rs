@@ -20,6 +20,11 @@ pub async fn intro(transport: &HttpTransport) -> Result<serde_json::Value, SdkEr
     get_json_document(transport, "/").await
 }
 
+pub async fn legal(transport: &HttpTransport) -> Result<serde_json::Value, SdkError> {
+    // The legal bundle is a deploy-owned intro-host JSON surface.
+    get_json_document(transport, "/v1/legal").await
+}
+
 pub async fn due_diligence(transport: &HttpTransport) -> Result<serde_json::Value, SdkError> {
     // The due-diligence index is a deploy-owned intro-host JSON surface.
     get_json_document(transport, "/v1/due-diligence").await
@@ -28,7 +33,6 @@ pub async fn due_diligence(transport: &HttpTransport) -> Result<serde_json::Valu
 pub async fn due_diligence_regime_kalman_local_trend_state(
     transport: &HttpTransport,
 ) -> Result<serde_json::Value, SdkError> {
-    // Approved regime review packs live on the same intro host.
     get_json_document(
         transport,
         "/v1/due-diligence/regime/kalman_local_trend_state",
@@ -39,7 +43,6 @@ pub async fn due_diligence_regime_kalman_local_trend_state(
 pub async fn due_diligence_regime_flow_absorption_elasticity_state(
     transport: &HttpTransport,
 ) -> Result<serde_json::Value, SdkError> {
-    // Approved regime review packs live on the same intro host.
     get_json_document(
         transport,
         "/v1/due-diligence/regime/flow_absorption_elasticity_state",
@@ -50,13 +53,11 @@ pub async fn due_diligence_regime_flow_absorption_elasticity_state(
 pub async fn due_diligence_primitives_correlation(
     transport: &HttpTransport,
 ) -> Result<serde_json::Value, SdkError> {
-    // Approved primitives family review packs live on the same intro host.
     get_json_document(transport, "/v1/due-diligence/primitives/correlation").await
 }
 
 pub async fn due_diligence_primitives_drawdown(
     transport: &HttpTransport,
 ) -> Result<serde_json::Value, SdkError> {
-    // Approved primitives family review packs live on the same intro host.
     get_json_document(transport, "/v1/due-diligence/primitives/drawdown").await
 }

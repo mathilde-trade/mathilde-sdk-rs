@@ -25,6 +25,10 @@ impl Intro {
         intro::intro(&self.http).await
     }
 
+    pub async fn legal(&self) -> Result<serde_json::Value, SdkError> {
+        intro::legal(&self.http).await
+    }
+
     pub async fn due_diligence(&self) -> Result<serde_json::Value, SdkError> {
         intro::due_diligence(&self.http).await
     }

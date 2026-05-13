@@ -119,6 +119,60 @@ async fn test_intro_root_redirect_response_is_accepted_by_http_client() {
 }
 
 #[tokio::test]
+async fn test_legal_forms_exact_path_and_preserves_json_key_order() {
+    let server = MockServer::start().await;
+    let body = r#"{
+        "surface": "public_legal_bundle",
+        "title": "MATHILDE Public Legal Bundle",
+        "documents": []
+    }"#;
+
+    Mock::given(method("GET"))
+        .and(path("/v1/legal"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "application/json")
+                .set_body_string(body),
+        )
+        .mount(&server)
+        .await;
+
+    let client = Intro::new(config_for_http(&server.uri())).expect("client");
+    let out = client.legal().await.expect("legal success");
+    let serialized = serde_json::to_string(&out).expect("serialize legal json");
+
+    assert_eq!(out["surface"].as_str(), Some("public_legal_bundle"));
+    assert_eq!(out["title"].as_str(), Some("MATHILDE Public Legal Bundle"));
+    assert!(
+        serialized.find("\"surface\"") < serialized.find("\"title\""),
+        "preserve_order should keep object key order"
+    );
+}
+
+#[tokio::test]
+async fn test_legal_propagates_bearer_auth_to_request() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/legal"))
+        .and(header(AUTHORIZATION.as_str(), "Bearer intro_public_token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "surface": "public_legal_bundle",
+            "documents": []
+        })))
+        .mount(&server)
+        .await;
+
+    let client = Intro::new(IntroConfig {
+        http: HttpTransportConfig::new(server.uri()).expect("valid test url"),
+        bearer_token: Some(BearerToken::new("intro_public_token").expect("valid token")),
+    })
+    .expect("client");
+
+    let out = client.legal().await.expect("legal success");
+    assert_eq!(out["surface"].as_str(), Some("public_legal_bundle"));
+}
+
+#[tokio::test]
 async fn test_due_diligence_methods_form_exact_paths_and_preserve_json_key_order() {
     let server = MockServer::start().await;
 
